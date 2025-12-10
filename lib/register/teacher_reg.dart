@@ -67,6 +67,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
+                    // ignore: deprecated_member_use
                     color: Colors.white.withOpacity(0.18),
                   ),
                   child: const Icon(
@@ -126,7 +127,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
                       // Department Dropdown (Computer Science, Physics, BCom)
                       DropdownButtonFormField<String>(
-                        value: selectedDepartment,
+                        initialValue: selectedDepartment,
                         decoration: InputDecoration(
                           labelText: "Department",
                           prefixIcon: const Icon(Icons.apartment_outlined),
