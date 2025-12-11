@@ -16,7 +16,7 @@ class StudentsPage extends StatelessWidget {
 }
 
 class InternalsPage extends StatelessWidget {
-  const InternalsPage({Key? key}) : super(key: key);
+  const InternalsPage({super.key});
 
   @override
   Widget build(BuildContext c) => Scaffold(
@@ -26,7 +26,7 @@ class InternalsPage extends StatelessWidget {
 }
 
 class TimetablePage extends StatelessWidget {
-  const TimetablePage({Key? key}) : super(key: key);
+  const TimetablePage({super.key});
 
   @override
   Widget build(BuildContext c) => Scaffold(
