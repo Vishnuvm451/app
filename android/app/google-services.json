@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "142254320964",
+    "project_id": "darzo-app-7722a",
+    "storage_bucket": "darzo-app-7722a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:142254320964:android:3671ba92477f9ad498fb11",
+        "android_client_info": {
+          "package_name": "com.example.darzo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDer_tHgYQ_wYbbEgWdIu6gRHgBwjbTAu0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
