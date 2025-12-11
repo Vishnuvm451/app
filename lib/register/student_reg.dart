@@ -1,14 +1,5 @@
-// student_register.dart
-// Student registration page with Firebase Auth + Firestore integration.
-// Replace your existing StudentRegisterPage with this file.
-// Make sure firebase_core is initialized in main.dart before using this page.
-
 import 'package:darzo/login/login.dart';
 import 'package:flutter/material.dart';
-
-// ADDED: Firebase packages
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StudentRegisterPage extends StatefulWidget {
   const StudentRegisterPage({super.key});
@@ -19,7 +10,7 @@ class StudentRegisterPage extends StatefulWidget {
 
 class _StudentRegisterPageState extends State<StudentRegisterPage> {
   // ─────────────────────────────────────────────
-  // TEXT CONTROLLERS
+  // TEXT CONTROLLERS (No backend – just UI)
   // ─────────────────────────────────────────────
   final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
@@ -30,140 +21,23 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   String? selectedDepartment;
   String? selectedYear;
 
-  // Loading state for register button
-  bool _isLoading = false;
-
   // ─────────────────────────────────────────────
   // DEPARTMENT LIST + DEPARTMENT -> YEARS MAP
+  // (Added: map to provide dept-specific year options)
   // ─────────────────────────────────────────────
-  final List<String> departments = [
-    "Department",
-    "Computer Science",
-    "Physics",
-    "BCom",
-  ];
+  final List<String> departments = ["Computer Science", "Physics", "BCom"];
 
+  // Map of department -> available years (department-specific)
   final Map<String, List<String>> deptToYears = {
     "Computer Science": ["CS1", "CS2", "CS3", "PG1", "PG2"],
     "Physics": ["PHY1", "PHY2", "PHY3", "PG1", "PG2"],
     "BCom": ["BCOM1", "BCOM2", "BCOM3", "MCOM1", "MCOM2"],
   };
 
+  // Helper getter: returns year list for the currently selected department
   List<String> get currentYearOptions {
     if (selectedDepartment == null) return <String>[];
     return deptToYears[selectedDepartment!] ?? <String>[];
-  }
-
-  // ─────────────────────────────────────────────
-  // FIREBASE INSTANCES (ADDED)
-  // ─────────────────────────────────────────────
-  final FirebaseAuth _auth = FirebaseAuth.instance; // ADDED: Firebase Auth
-  final FirebaseFirestore _firestore =
-      FirebaseFirestore.instance; // ADDED: Firestore
-
-  @override
-  void dispose() {
-    fullNameController.dispose();
-    emailController.dispose();
-    admissionController.dispose();
-    passwordController.dispose();
-    super.dispose();
-  }
-
-  // ─────────────────────────────────────────────
-  // REGISTER: Validate -> Create Auth user -> Save to Firestore
-  // ─────────────────────────────────────────────
-  Future<void> _registerStudent() async {
-    final fullName = fullNameController.text.trim();
-    final email = emailController.text.trim();
-    final password = passwordController.text;
-    final department = selectedDepartment;
-    final year = selectedYear;
-
-    // Basic validation (UI-only)
-    if (fullName.isEmpty ||
-        email.isEmpty ||
-        password.isEmpty ||
-        department == null ||
-        year == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please fill all fields')));
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // ADDED: create user with Firebase Auth
-      final UserCredential cred = await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-
-      final User? user = cred.user;
-      if (user == null) {
-        throw FirebaseAuthException(
-          code: 'NO_USER',
-          message: 'Failed to create user',
-        );
-      }
-
-      final uid = user.uid;
-
-      // ADDED: Save student details in Firestore under 'students' collection
-      await _firestore.collection('students').doc(uid).set({
-        'uid': uid,
-        'fullName': fullName,
-        'email': email,
-        'department': department,
-        'year': year,
-        'admissionNumber': admissionController.text.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      // Success - show message and navigate to Login (or dashboard)
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Registration successful')));
-
-      // Navigate back to login page (replace or pop)
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginPage()),
-      );
-    } on FirebaseAuthException catch (e) {
-      // Handle auth errors clearly
-      String message = 'Registration failed';
-      if (e.code == 'weak-password') {
-        message = 'Password is too weak';
-      } else if (e.code == 'email-already-in-use') {
-        message = 'Email already in use';
-      } else if (e.message != null) {
-        message = e.message!;
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      }
-    } catch (e) {
-      // Generic error
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
   }
 
   @override
@@ -260,12 +134,12 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                         controller: emailController,
                         label: "Email ID",
                         icon: Icons.school,
-                        keyboardType: TextInputType.emailAddress,
                       ),
                       const SizedBox(height: 15),
 
                       // ───────────────────────────────
                       // DEPARTMENT DROPDOWN
+                      // (Changed: this was previously 'Admission Number' dropdown)
                       // ───────────────────────────────
                       _buildDropdown(
                         value: selectedDepartment,
@@ -284,9 +158,10 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
                       // ───────────────────────────────
                       // YEAR DROPDOWN (Dynamic based on department)
+                      // (Changed: items now come from deptToYears via currentYearOptions)
                       // ───────────────────────────────
                       DropdownButtonFormField<String>(
-                        value: selectedYear,
+                        initialValue: selectedYear,
                         decoration: InputDecoration(
                           labelText: selectedDepartment == null
                               ? "Select Department first"
@@ -324,12 +199,17 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       const SizedBox(height: 25),
 
                       // ───────────────────────────────
-                      // REGISTER BUTTON (now calls Firebase code)
+                      // REGISTER BUTTON
                       // ───────────────────────────────
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _registerStudent,
+                          onPressed: () {
+                            // UI only: you can inspect selectedDepartment and selectedYear here
+                            debugPrint(
+                              'Dept: $selectedDepartment, Year: $selectedYear',
+                            );
+                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryBlue,
                             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -337,22 +217,13 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                               borderRadius: BorderRadius.circular(30),
                             ),
                           ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    // color not specified to respect theme defaults
-                                  ),
-                                )
-                              : const Text(
-                                  "REGISTER",
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                          child: const Text(
+                            "REGISTER",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
 
@@ -363,6 +234,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Text("Already have an account? "),
+
                           GestureDetector(
                             onTap: () {
                               Navigator.push(
@@ -401,12 +273,10 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     required String label,
     required IconData icon,
     bool obscure = false,
-    TextInputType keyboardType = TextInputType.text,
   }) {
     return TextField(
       controller: controller,
       obscureText: obscure,
-      keyboardType: keyboardType,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
@@ -417,6 +287,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
   // ───────────────────────────────
   // DROPDOWN BUILDER (Reusable)
+  // (used for Department)
   // ───────────────────────────────
   Widget _buildDropdown({
     required String? value,
@@ -426,7 +297,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     required void Function(String?) onChanged,
   }) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),

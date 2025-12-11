@@ -1,26 +1,24 @@
-// login.dart
-// Login page with Firebase Authentication + Firestore role check (student/teacher).
-// Make sure: firebase_core is initialized in main.dart and packages are added in pubspec.yaml.
-
 import 'package:darzo/register/student_reg.dart';
 import 'package:darzo/register/teacher_reg.dart';
 import 'package:flutter/material.dart';
 
-// ADDED: Firebase imports
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 /// ===============================
-///  ROOT LOGIN PAGE
+///  ROOT APP
 /// ===============================
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // CHANGED: Removed nested MaterialApp.
-    // The real MaterialApp is already in main.dart.
-    return const SmartAttendanceScreen();
+    return MaterialApp(
+      title: 'Smart Attendance',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: false,
+        primaryColor: const Color(0xFF2196F3),
+      ),
+      home: const SmartAttendanceScreen(),
+    );
   }
 }
 
@@ -56,7 +54,7 @@ class SmartAttendanceScreen extends StatelessWidget {
 }
 
 /// ===============================
-///  HEADER: TITLE + LOGO
+///  HEADER: TIME + TITLE + LOGO
 /// ===============================
 class HeaderSection extends StatelessWidget {
   const HeaderSection({super.key});
@@ -114,124 +112,11 @@ class _LoginCardState extends State<LoginCard> {
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  // ADDED: Firebase instances
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  // ADDED: loading state for login button
-  bool _isLoading = false;
-
   @override
   void dispose() {
     _idController.dispose();
     _passwordController.dispose();
     super.dispose();
-  }
-
-  // ADDED: login handler (Auth + Firestore check)
-  Future<void> _handleLogin() async {
-    final idText = _idController.text.trim();
-    final password = _passwordController.text;
-
-    // Basic validation
-    if (idText.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter ID and password')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // NOTE: Currently using email + password for both student & teacher.
-      // For teachers, make sure their "ID" is actually an email in Firebase Auth,
-      // OR change logic later to handle real teacher IDs.
-      final UserCredential cred = await _auth.signInWithEmailAndPassword(
-        email: idText,
-        password: password,
-      );
-
-      final user = cred.user;
-      if (user == null) {
-        throw FirebaseAuthException(
-          code: 'NO_USER',
-          message: 'Login failed. Try again.',
-        );
-      }
-
-      final uid = user.uid;
-
-      if (isStudentSelected) {
-        // ADDED: verify student document in Firestore
-        final doc = await _firestore.collection('students').doc(uid).get();
-
-        if (!doc.exists) {
-          // No student doc → sign out and show error
-          await _auth.signOut();
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No student record found for this account'),
-            ),
-          );
-          return;
-        }
-
-        // TODO: Navigate to Student Dashboard here
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Student login successful')),
-        );
-      } else {
-        // TEACHER LOGIN:
-        // For now, just Auth login. You can later:
-        // - create "teachers" collection
-        // - check Firestore like we did for students.
-        // Example (commented):
-        //
-        // final doc = await _firestore.collection('teachers').doc(uid).get();
-        // if (!doc.exists) { ... }
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Teacher login successful')),
-        );
-
-        // TODO: Navigate to Teacher Dashboard here
-      }
-    } on FirebaseAuthException catch (e) {
-      String message = 'Login failed';
-      if (e.code == 'user-not-found') {
-        message = 'No user found for this email';
-      } else if (e.code == 'wrong-password') {
-        message = 'Wrong password';
-      } else if (e.code == 'invalid-email') {
-        message = 'Invalid email address';
-      } else if (e.message != null) {
-        message = e.message!;
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
   }
 
   @override
@@ -280,17 +165,20 @@ class _LoginCardState extends State<LoginCard> {
             isStudentSelected: isStudentSelected,
             idController: _idController,
             passwordController: _passwordController,
-            // CHANGED: call our login logic instead of just debugPrint
-            onLoginPressed: _handleLogin,
+            onLoginPressed: () {
+              // For now just print. Replace with your logic.
+              debugPrint(
+                'Login as ${isStudentSelected ? "Student" : "Teacher"}',
+              );
+              debugPrint('ID: ${_idController.text}');
+              debugPrint('Password: ${_passwordController.text}');
+            },
             onForgotPassword: () {
-              // TODO: Add forgot password (send reset email)
               debugPrint('Forgot password tapped');
             },
             onRegisterNow: () {
               debugPrint('Register now tapped');
             },
-            // ADDED: pass loading state to disable button + show spinner
-            isLoading: _isLoading,
           ),
         ],
       ),
@@ -300,6 +188,7 @@ class _LoginCardState extends State<LoginCard> {
 
 /// ===============================
 ///  LOGIN TOGGLE WIDGET
+///  (STUDENT LOGIN / TEACHER LOGIN)
 /// ===============================
 class LoginToggle extends StatelessWidget {
   final bool isStudentSelected;
@@ -396,9 +285,6 @@ class LoginForm extends StatelessWidget {
   final VoidCallback onForgotPassword;
   final VoidCallback onRegisterNow;
 
-  // ADDED: loading flag to control button
-  final bool isLoading;
-
   const LoginForm({
     super.key,
     required this.isStudentSelected,
@@ -407,7 +293,6 @@ class LoginForm extends StatelessWidget {
     required this.onLoginPressed,
     required this.onForgotPassword,
     required this.onRegisterNow,
-    this.isLoading = false, // default false
   });
 
   @override
@@ -419,9 +304,6 @@ class LoginForm extends StatelessWidget {
         /// ID FIELD (Student ID / Teacher ID based on toggle)
         TextField(
           controller: idController,
-          keyboardType: isStudentSelected
-              ? TextInputType.emailAddress
-              : TextInputType.text,
           decoration: InputDecoration(
             labelText: isStudentSelected ? 'Email ID' : 'Teacher ID',
             prefixIcon: Icon(
@@ -445,17 +327,15 @@ class LoginForm extends StatelessWidget {
         TextField(
           controller: passwordController,
           obscureText: true,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Password',
-            prefixIcon: Icon(Icons.lock_outline),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-            ),
-            enabledBorder: OutlineInputBorder(
+            prefixIcon: const Icon(Icons.lock_outline),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            enabledBorder: const OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(12)),
               borderSide: BorderSide(color: primaryBlue),
             ),
-            focusedBorder: OutlineInputBorder(
+            focusedBorder: const OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(12)),
               borderSide: BorderSide(color: Color(0xFF1976D2), width: 2),
             ),
@@ -468,23 +348,18 @@ class LoginForm extends StatelessWidget {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: isLoading ? null : onLoginPressed,
+            onPressed: onLoginPressed,
             style: ElevatedButton.styleFrom(
+              backgroundColor: primaryBlue,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(30),
               ),
             ),
-            child: isLoading
-                ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text(
-                    'LOGIN',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
+            child: const Text(
+              'LOGIN',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ),
         ),
 
