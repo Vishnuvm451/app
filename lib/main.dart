@@ -4,6 +4,7 @@
 
 import 'package:darzo/login/login.dart';
 import 'package:flutter/material.dart';
+import 'dart:async';
 
 // import 'package:firebase_core/firebase_core.dart';
 
@@ -11,24 +12,81 @@ void main() async {
   // WidgetsFlutterBinding.ensureInitialized();
   // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  // Change global theme colors here if you want to alter the look app-wide.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Darzo',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primaryColor: const Color(0xFF2196F3),
-        scaffoldBackgroundColor: const Color(0xFF2196F3),
-        useMaterial3: false,
+    return MaterialApp(debugShowCheckedModeBanner: false, home: SplashScreen());
+  }
+}
+
+class SplashScreen extends StatefulWidget {
+  @override
+  _SplashScreenState createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+
+    // Move to login page with fade animation after 2 seconds
+    Timer(Duration(seconds: 2), () {
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          transitionDuration: Duration(milliseconds: 800),
+          pageBuilder: (_, __, ___) => LoginPage(),
+          transitionsBuilder: (_, animation, __, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF2BD6D6), Color(0xFF7B3CF0)],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Logo
+              Container(
+                width: 150,
+                height: 150,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Image.asset(
+                    'assets/darzo_logo.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+              SizedBox(height: 20),
+              Text(
+                "DARZO",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-      home: const LoginPage(), // <-- App opens to this page
     );
   }
 }
