@@ -1,55 +1,51 @@
-import 'package:darzo/login.dart';
+import 'package:demoapp/login/loginpage.dart';
 import 'package:flutter/material.dart';
 
-class StudentDashboardPage extends StatelessWidget {
+// ======================================================
+// STUDENT DASHBOARD PAGE (STATEFUL)
+// ======================================================
+class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
 
   @override
+  State<StudentDashboardPage> createState() => _StudentDashboardPageState();
+}
+
+class _StudentDashboardPageState extends State<StudentDashboardPage> {
+  final ScrollController _scrollController = ScrollController();
+  // --------------------------------------------------
+  // REMINDER DATA (student side)
+  // --------------------------------------------------
+  final List<Map<String, String>> reminders = [
+    {"title": "Record Submission", "subtitle": "This Friday"},
+    {"title": "Prepare for internal test", "subtitle": "Data Structures"},
+  ];
+
+  // --------------------------------------------------
+  // MAIN BUILD
+  // --------------------------------------------------
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Overall blue background
       backgroundColor: const Color(0xFF3F7EDB),
-
       body: SafeArea(
-        // Makes the page scrollable
         child: SingleChildScrollView(
+          controller: _scrollController,
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              AppBar(
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                ),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.logout, color: Colors.white),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const LoginPage(),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-                // title: const Text(
-                //   "Student Dashboard",
-                //   style: TextStyle(color: Colors.white),
-                // ),
-                // centerTitle: true,
+              _buildAppBar(context),
+              const SizedBox(height: 10),
+
+              // HEADER ICON
+              const Icon(
+                Icons.access_time_filled,
+                size: 80,
+                color: Colors.white,
               ),
-              // ================= HEADER ICON =================
-              Icon(Icons.access_time_filled, size: 80, color: Colors.white),
 
               const SizedBox(height: 10),
 
-              // ================= TITLE =================
               const Text(
                 "STUDENT DASHBOARD",
                 style: TextStyle(
@@ -73,135 +69,20 @@ class StudentDashboardPage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ---------- Attendance Summary Title ----------
-                    Center(
-                      child: const Text(
-                        "ATTENDANCE SUMMARY",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                    _attendanceSection(),
+                    const SizedBox(height: 25),
 
-                    const SizedBox(height: 15),
-
-                    // Text student name
-                    Center(
-                      child: const Text(
-                        "Heyy!+name",
-                        style: TextStyle(
-                          fontSize: 20,
-                          color: Colors.black,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 2,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 15),
-
-                    // ---------- Attendance Info Row ----------
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // ===== Circular Percentage =====
-                        Container(
-                          width: 120,
-                          height: 120,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              // // Outer circle
-                              // CircularProgressIndicator(
-                              //   value: 0.85, // 85%
-                              //   strokeWidth: 28,
-                              //   backgroundColor: Colors.grey.shade300,
-                              //   valueColor: const AlwaysStoppedAnimation(
-                              //     Color(0xFF3F7EDB),
-                              //   ),
-                              // ),
-
-                              // Center text
-                              Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: const [
-                                  Text(
-                                    "85%",
-                                    style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Text(
-                                    "Attendance\nPercentage",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // ===== Working Days =====
-                        Column(
-                          children: const [
-                            Text(
-                              "120",
-                              style: TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF3F7EDB),
-                              ),
-                            ),
-                            SizedBox(height: 5),
-                            Text("WORKING\nDAYS", textAlign: TextAlign.center),
-                          ],
-                        ),
-
-                        // Divider line
-                        Container(
-                          height: 50,
-                          width: 1,
-                          color: Colors.grey.shade300,
-                        ),
-
-                        // ===== Present Days =====
-                        Column(
-                          children: const [
-                            Text(
-                              "102",
-                              style: TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF3F7EDB),
-                              ),
-                            ),
-                            SizedBox(height: 5),
-                            Text("PRESENT\nDAYS", textAlign: TextAlign.center),
-                          ],
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // ================= BUTTONS =================
-
-                    // Students Button
+                    // DASHBOARD BUTTONS
                     _dashboardButton(title: "STUDENTS", onTap: () {}),
-
                     const SizedBox(height: 15),
-
-                    // Internal Button
                     _dashboardButton(title: "INTERNAL", onTap: () {}),
-
                     const SizedBox(height: 15),
-
-                    // Time Table Button
                     _dashboardButton(title: "TIME TABLE", onTap: () {}),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 25),
+
+                    // ================= REMINDERS SECTION =================
+                    _buildReminderSection(),
                   ],
                 ),
               ),
@@ -212,7 +93,168 @@ class StudentDashboardPage extends StatelessWidget {
     );
   }
 
-  // ================= REUSABLE BUTTON WIDGET =================
+  // ======================================================
+  // APP BAR
+  // ======================================================
+  Widget _buildAppBar(BuildContext context) {
+    return AppBar(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back, color: Colors.white),
+        onPressed: () => Navigator.pop(context),
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.logout, color: Colors.white),
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const Loginpage()),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // ======================================================
+  // ATTENDANCE SUMMARY (unchanged)
+  // ======================================================
+  Widget _attendanceSection() {
+    return Column(
+      children: [
+        const Center(
+          child: Text(
+            "ATTENDANCE SUMMARY",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(height: 15),
+        const Center(
+          child: Text(
+            "Heyy! + name",
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 2,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ======================================================
+  // REMINDERS (STUDENT)
+  // ======================================================
+  Widget _buildReminderSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // HEADER + ADD
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              "Tasks & Reminders",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add, color: Color(0xFF3F7EDB)),
+              onPressed: _addReminder,
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // REMINDER LIST
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: reminders.length,
+          itemBuilder: (context, index) {
+            final reminder = reminders[index];
+
+            return Dismissible(
+              key: UniqueKey(),
+              direction: DismissDirection.endToStart,
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                color: Colors.red,
+                child: const Icon(Icons.delete, color: Colors.white),
+              ),
+              onDismissed: (_) {
+                setState(() {
+                  reminders.removeAt(index);
+                });
+              },
+              child: Column(
+                children: [
+                  ListTile(
+                    // CHECKBOX → AUTO DELETE
+                    leading: Checkbox(
+                      value: false,
+                      onChanged: (_) {
+                        setState(() {
+                          reminders.removeAt(index);
+                        });
+                      },
+                    ),
+
+                    // EDITABLE TITLE
+                    title: TextFormField(
+                      initialValue: reminder["title"],
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                      ),
+                      onChanged: (value) {
+                        reminder["title"] = value;
+                      },
+                    ),
+
+                    // EDITABLE SUBTITLE
+                    subtitle: TextFormField(
+                      initialValue: reminder["subtitle"],
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                      ),
+                      onChanged: (value) {
+                        reminder["subtitle"] = value;
+                      },
+                    ),
+                  ),
+                  const Divider(),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // ======================================================
+  // ADD REMINDER
+  // ======================================================
+  void _addReminder() {
+    setState(() {
+      reminders.add({"title": "New Task", "subtitle": "Deadline/Subject"});
+    });
+    // Scroll to bottom AFTER UI updates
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  // ======================================================
+  // BUTTON WIDGET
+  // ======================================================
   Widget _dashboardButton({
     required String title,
     required VoidCallback onTap,
@@ -222,14 +264,12 @@ class StudentDashboardPage extends StatelessWidget {
       height: 55,
       child: ElevatedButton(
         onPressed: onTap,
-
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF3F7EDB),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-
         child: Text(
           title,
           style: const TextStyle(
