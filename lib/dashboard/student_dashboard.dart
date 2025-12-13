@@ -1,11 +1,13 @@
 import 'package:darzo/login.dart';
-import 'package:darzo/students/student_list.dart';
+import 'package:darzo/students/attendance_summary.dart';
 import 'package:flutter/material.dart';
-import 'dart:math';
+import 'package:darzo/students/student_list.dart';
 import 'package:darzo/students/view_internals.dart';
 
+// import 'package:darzo/students/timetable_page.dart'; // if you add later
+
 // ======================================================
-// STUDENT DASHBOARD PAGE (STATEFUL)
+// STUDENT DASHBOARD PAGE
 // ======================================================
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
@@ -16,8 +18,9 @@ class StudentDashboardPage extends StatefulWidget {
 
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   final ScrollController _scrollController = ScrollController();
+
   // --------------------------------------------------
-  // REMINDER DATA (student side)
+  // REMINDERS DATA
   // --------------------------------------------------
   final List<Map<String, String>> reminders = [
     {"title": "Record Submission", "subtitle": "This Friday"},
@@ -25,7 +28,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   ];
 
   // --------------------------------------------------
-  // MAIN BUILD
+  // BUILD
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -40,12 +43,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               _buildAppBar(context),
               const SizedBox(height: 10),
 
-              // HEADER ICON
-              const Icon(
-                Icons.access_time_filled,
-                size: 80,
-                color: Colors.white,
-              ),
+              const Icon(Icons.school, size: 80, color: Colors.white),
 
               const SizedBox(height: 10),
 
@@ -61,7 +59,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
 
               const SizedBox(height: 30),
 
-              // ================= MAIN WHITE CARD =================
+              // ================= MAIN CARD =================
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -72,39 +70,87 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ================= ATTENDANCE SUMMARY =================
                     _attendanceSection(),
-                    const SizedBox(height: 25),
-
-                    // DASHBOARD BUTTONS
-                    _dashboardButton(
-                      title: "STUDENTS",
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => StudentStudentsListPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 15),
-                    _dashboardButton(
-                      title: "INTERNAL",
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const StudentInternalMarksPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 15),
-                    _dashboardButton(title: "TIME TABLE", onTap: () {}),
 
                     const SizedBox(height: 25),
 
-                    // ================= REMINDERS SECTION =================
+                    // ================= QUICK ACTIONS =================
+                    const Text(
+                      "Quick Actions",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    GridView.count(
+                      crossAxisCount: 2,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      children: [
+                        _quickActionCard(
+                          icon: Icons.people,
+                          label: "Students",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const StudentStudentsListPage(),
+                              ),
+                            );
+                          },
+                        ),
+
+                        _quickActionCard(
+                          icon: Icons.bar_chart,
+                          label: "Internals",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const StudentInternalMarksPage(),
+                              ),
+                            );
+                          },
+                        ),
+
+                        _quickActionCard(
+                          icon: Icons.pie_chart,
+                          label: "Attendance",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const StudentAttendanceSummaryPage(),
+                              ),
+                            );
+                          },
+                        ),
+
+                        _quickActionCard(
+                          icon: Icons.schedule,
+                          label: "Time Table",
+                          onTap: () {
+                            // Navigator.push(
+                            //   context,
+                            //   MaterialPageRoute(
+                            //     builder: (_) => StudentTimetablePage(),
+                            //   ),
+                            // );
+                          },
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 25),
+
+                    // ================= REMINDERS =================
                     _buildReminderSection(),
                   ],
                 ),
@@ -142,40 +188,89 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   }
 
   // ======================================================
-  // ATTENDANCE SUMMARY (unchanged)
+  // ATTENDANCE SUMMARY CARD
   // ======================================================
   Widget _attendanceSection() {
-    return Column(
-      children: [
-        const Center(
-          child: Text(
-            "ATTENDANCE SUMMARY",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        const SizedBox(height: 15),
-        const Center(
-          child: Text(
-            "Heyy! + name",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 2,
+    // MOCK VALUES – replace with calculated data
+    final double attendancePercentage = 78.5;
+    final int workingDays = 120;
+    final double presentDays = 94.0;
+
+    Color percentColor = attendancePercentage >= 75 ? Colors.green : Colors.red;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Center(
+        child: Column(
+          children: [
+            const Text(
+              "ATTENDANCE SUMMARY",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-          ),
+            const SizedBox(height: 12),
+            Text(
+              "${attendancePercentage.toStringAsFixed(1)}%",
+              style: TextStyle(
+                fontSize: 36,
+                fontWeight: FontWeight.bold,
+                color: percentColor,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
         ),
-      ],
+      ),
     );
   }
 
   // ======================================================
-  // REMINDERS (STUDENT)
+  // QUICK ACTION CARD
+  // ======================================================
+  Widget _quickActionCard({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF3F7EDB).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF3F7EDB), width: 1.2),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 36, color: const Color(0xFF3F7EDB)),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ======================================================
+  // REMINDERS SECTION
   // ======================================================
   Widget _buildReminderSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // HEADER + ADD
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -190,15 +285,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           ],
         ),
         const SizedBox(height: 10),
-
-        // REMINDER LIST
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: reminders.length,
           itemBuilder: (context, index) {
             final reminder = reminders[index];
-
             return Dismissible(
               key: UniqueKey(),
               direction: DismissDirection.endToStart,
@@ -216,7 +308,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               child: Column(
                 children: [
                   ListTile(
-                    // CHECKBOX → AUTO DELETE
                     leading: Checkbox(
                       value: false,
                       onChanged: (_) {
@@ -225,8 +316,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                         });
                       },
                     ),
-
-                    // EDITABLE TITLE
                     title: TextFormField(
                       initialValue: reminder["title"],
                       decoration: const InputDecoration(
@@ -236,8 +325,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                         reminder["title"] = value;
                       },
                     ),
-
-                    // EDITABLE SUBTITLE
                     subtitle: TextFormField(
                       initialValue: reminder["subtitle"],
                       decoration: const InputDecoration(
@@ -263,9 +350,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // ======================================================
   void _addReminder() {
     setState(() {
-      reminders.add({"title": "New Task", "subtitle": "Deadline/Subject"});
+      reminders.add({"title": "New Task", "subtitle": "Deadline / Subject"});
     });
-    // Scroll to bottom AFTER UI updates
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
@@ -273,35 +359,5 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         curve: Curves.easeOut,
       );
     });
-  }
-
-  // ======================================================
-  // BUTTON WIDGET
-  // ======================================================
-  Widget _dashboardButton({
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      height: 55,
-      child: ElevatedButton(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF3F7EDB),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1,
-          ),
-        ),
-      ),
-    );
   }
 }
