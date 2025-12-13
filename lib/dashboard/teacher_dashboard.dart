@@ -29,7 +29,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Color(0xFF0D47A1),
+        backgroundColor: const Color(0xFF2196F3),
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -38,7 +38,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           },
         ),
       ),
-      backgroundColor: const Color(0xFF0D47A1), // Deep blue
+      backgroundColor: const Color(0xFF2196F3), // Deep blue
       body: SafeArea(
         child: SingleChildScrollView(
           controller: _scrollController,
@@ -149,7 +149,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 34, color: Colors.blue.shade800),
+          Icon(icon, size: 34, color: const Color(0xFF2196F3)),
           const SizedBox(height: 10),
           Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         ],
