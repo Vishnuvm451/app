@@ -1,3 +1,4 @@
+import 'package:darzo/dashboard/teacher_dashboard.dart';
 import 'package:darzo/register/student_reg.dart';
 import 'package:darzo/register/teacher_reg.dart';
 import 'package:flutter/material.dart';
@@ -67,10 +68,23 @@ class HeaderSection extends StatelessWidget {
         const SizedBox(height: 16),
 
         //demo check start
-        // Time icon
-        const SizedBox(height: 16),
+        Center(
+          child: ElevatedButton(
+            child: Text("Go to Teacher Screen"),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TeacherDashboardPage(),
+                ),
+              );
+            },
+          ),
+        ),
 
+        const SizedBox(height: 16),
         //demo check end
+
         // Title text
         const Text(
           'DARZO',
