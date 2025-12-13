@@ -2,7 +2,7 @@
 // Minimal Flutter app that opens the Login UI as the first screen.
 // Replace the default main.dart in a new Flutter project with this file.
 
-import 'package:darzo/login/login.dart';
+import 'package:darzo/login.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';

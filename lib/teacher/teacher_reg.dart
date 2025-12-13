@@ -1,6 +1,6 @@
 // teacher_register.dart
 
-import 'package:darzo/login/login.dart';
+import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
 // <-- CHANGE: path to your login page file — keep the import so "Login" navigates back.
 

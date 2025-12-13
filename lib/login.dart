@@ -1,6 +1,6 @@
 import 'package:darzo/dashboard/teacher_dashboard.dart';
-import 'package:darzo/register/student_reg.dart';
-import 'package:darzo/register/teacher_reg.dart';
+import 'package:darzo/students/student_reg.dart';
+import 'package:darzo/teacher/teacher_reg.dart';
 import 'package:flutter/material.dart';
 
 /// ===============================
