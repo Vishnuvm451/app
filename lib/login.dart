@@ -1,5 +1,6 @@
 import 'package:darzo/dashboard/student_dashboard.dart';
 import 'package:darzo/dashboard/teacher_dashboard.dart';
+import 'package:darzo/demo.dart';
 import 'package:darzo/students/student_reg.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
 import 'package:flutter/material.dart';
@@ -76,7 +77,7 @@ class HeaderSection extends StatelessWidget {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const StudentDashboardPage(),
+                  builder: (context) => const InternalMarksPage(),
                 ),
               );
             },
