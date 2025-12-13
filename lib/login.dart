@@ -1,18 +1,8 @@
-import 'dart:math';
-import 'package:darzo/students/student_list.dart';
-import 'package:darzo/students/view_internals.dart';
-import 'package:darzo/teacher/add_students.dart';
-import 'package:darzo/teacher/internal_mark.dart';
 import 'package:darzo/dashboard/admin_panel.dart';
-
-import 'package:darzo/teacher/attendance.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/dashboard/student_dashboard.dart';
-import 'package:darzo/dashboard/teacher_dashboard.dart';
 import 'package:darzo/students/student_reg.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
-
-import 'package:darzo/demo.dart';
 
 /// ===============================
 ///  ROOT APP
