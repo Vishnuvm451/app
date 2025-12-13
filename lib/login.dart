@@ -1,10 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:darzo/dashboard/student_dashboard.dart';
 import 'package:darzo/dashboard/teacher_dashboard.dart';
-import 'package:darzo/demo.dart';
 import 'package:darzo/students/student_reg.dart';
-import 'package:darzo/teacher/internal_mark.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
-import 'package:flutter/material.dart';
+
+import 'package:darzo/teacher/internal_mark.dart';
+import 'package:darzo/demo.dart';
 
 /// ===============================
 ///  ROOT APP
@@ -41,7 +42,7 @@ class SmartAttendanceScreen extends StatelessWidget {
         elevation: 0,
         actions: [
           Padding(
-            padding: const EdgeInsets.all(5.0),
+            padding: const EdgeInsets.only(right: 14.0),
             child: IconButton(
               onPressed: () {
                 Navigator.push(
@@ -49,7 +50,7 @@ class SmartAttendanceScreen extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => AdminDashboardPage()),
                 );
               },
-              icon: Icon(Icons.admin_panel_settings_outlined, size: 40),
+              icon: Icon(Icons.admin_panel_settings_outlined, size: 50),
             ),
           ),
         ],
