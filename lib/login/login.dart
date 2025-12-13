@@ -66,6 +66,11 @@ class HeaderSection extends StatelessWidget {
       children: [
         const SizedBox(height: 16),
 
+        //demo check start
+        // Time icon
+        const SizedBox(height: 16),
+
+        //demo check end
         // Title text
         const Text(
           'DARZO',
