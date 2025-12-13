@@ -1,6 +1,4 @@
 // teacher_register.dart
-// Pure UI only. No backend, no database, no extra navigation.
-// Edit controllers, labels, styles easily via the comments below.
 
 import 'package:darzo/login/login.dart';
 import 'package:flutter/material.dart';
@@ -14,16 +12,12 @@ class TeacherRegisterPage extends StatefulWidget {
 }
 
 class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
-  // -----------------------
-  // Text controllers (UI only)
-  // -----------------------
+  // Text Controllers
   final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  // -----------------------
   // Dropdown data
-  // -----------------------
   final List<String> departments = ["Computer Science", "Physics", "BCom"];
 
   String? selectedDepartment;
@@ -168,7 +162,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: () {
-                            // UI-only: inspect values in debug console if needed
                             debugPrint(
                               'Register teacher: ${fullNameController.text}, ${emailController.text}, dept=$selectedDepartment',
                             );
@@ -192,7 +185,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
                       const SizedBox(height: 14),
 
-                      // ALREADY HAVE ACCOUNT? LOGIN  <-- small change: navigates to LoginPage
+                      // ALREADY HAVE ACCOUNT? navigates to LoginPage
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -228,9 +221,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
-  // -----------------------
-  // Reusable text field builder
-  // -----------------------
+  // Text Field Builder (Reusable)
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
