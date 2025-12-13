@@ -1,4 +1,6 @@
 import 'package:darzo/login.dart';
+import 'package:darzo/students/student_list.dart';
+import 'package:darzo/teacher/internal_mark.dart';
 import 'package:flutter/material.dart';
 
 // ======================================================
@@ -103,6 +105,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   // ======================================================
   // QUICK ACTIONS
   // ======================================================
+
   Widget _buildQuickActions() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -125,10 +128,35 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
             children: [
-              _actionCard(Icons.people, "Students"),
-              _actionCard(Icons.edit, "Internal Marks"),
-              _actionCard(Icons.check_circle, "Attendance"),
-              _actionCard(Icons.schedule, "Timetable"),
+              _actionCard(
+                context: context,
+                icon: Icons.people,
+                title: "Students",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const StudentListAttendancePage(),
+                    ),
+                  );
+                },
+              ),
+
+              _actionCard(
+                context: context,
+                icon: Icons.people,
+                title: "Internals",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const InternalMarksPage(),
+                    ),
+                  );
+                },
+              ),
+              // _actionCard(Icons.check_circle, "Attendance"),
+              // _actionCard(Icons.schedule, "Timetable"),
             ],
           ),
         ],
@@ -139,20 +167,33 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   // --------------------------------------------------
   // SINGLE ACTION CARD
   // --------------------------------------------------
-  Widget _actionCard(IconData icon, String title) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade100),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 34, color: const Color(0xFF2196F3)),
-          const SizedBox(height: 10),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
+  Widget _actionCard({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap, // 👈 navigation happens here
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.blue.shade100),
+        ),
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 34, color: Colors.blue.shade800),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
       ),
     );
   }
