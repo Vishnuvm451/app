@@ -9,25 +9,25 @@ class StudentRegisterPage extends StatefulWidget {
 }
 
 class _StudentRegisterPageState extends State<StudentRegisterPage> {
-  // ─────────────────────────────────────────────
-  // TEXT CONTROLLERS (No backend – just UI)
-  // ─────────────────────────────────────────────
+  // TEXT CONTROLLERS
+
   final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController admissionController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
   // Dropdown values
+
   String? selectedDepartment;
   String? selectedYear;
 
-  // ─────────────────────────────────────────────
   // DEPARTMENT LIST + DEPARTMENT -> YEARS MAP
   // (Added: map to provide dept-specific year options)
-  // ─────────────────────────────────────────────
+
   final List<String> departments = ["Computer Science", "Physics", "BCom"];
 
   // Map of department -> available years (department-specific)
+
   final Map<String, List<String>> deptToYears = {
     "Computer Science": ["CS1", "CS2", "CS3", "PG1", "PG2"],
     "Physics": ["PHY1", "PHY2", "PHY3", "PG1", "PG2"],
@@ -55,9 +55,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
             child: Column(
               children: [
-                // ─────────────────────
-                // APP TITLE
-                // ─────────────────────
+                // App Title
                 const Text(
                   "DARZO",
                   style: TextStyle(
@@ -86,10 +84,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                 ),
 
                 const SizedBox(height: 30),
-
-                // ─────────────────────
-                // CARD (White Box)
-                // ─────────────────────
+                // MAIN WHITE CARD
                 Container(
                   padding: const EdgeInsets.all(20),
                   width: double.infinity,
@@ -119,9 +114,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
                       const SizedBox(height: 20),
 
-                      // ───────────────────────────────
                       // FULL NAME FIELD
-                      // ───────────────────────────────
                       _buildTextField(
                         controller: fullNameController,
                         label: "Full Name",
@@ -137,10 +130,8 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       ),
                       const SizedBox(height: 15),
 
-                      // ───────────────────────────────
                       // DEPARTMENT DROPDOWN
                       // (Changed: this was previously 'Admission Number' dropdown)
-                      // ───────────────────────────────
                       _buildDropdown(
                         value: selectedDepartment,
                         label: "Department",
@@ -156,10 +147,8 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       ),
                       const SizedBox(height: 15),
 
-                      // ───────────────────────────────
                       // YEAR DROPDOWN (Dynamic based on department)
                       // (Changed: items now come from deptToYears via currentYearOptions)
-                      // ───────────────────────────────
                       DropdownButtonFormField<String>(
                         initialValue: selectedYear,
                         decoration: InputDecoration(
@@ -197,10 +186,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       ),
 
                       const SizedBox(height: 25),
-
-                      // ───────────────────────────────
                       // REGISTER BUTTON
-                      // ───────────────────────────────
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -265,9 +251,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // ───────────────────────────────
-  // TEXT FIELD BUILDER (Reusable)
-  // ───────────────────────────────
+  // Text Field Builder (Reusable)
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -285,10 +269,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // ───────────────────────────────
-  // DROPDOWN BUILDER (Reusable)
-  // (used for Department)
-  // ───────────────────────────────
+  // Dropdown Builder (Reusable)
   Widget _buildDropdown({
     required String? value,
     required String label,
