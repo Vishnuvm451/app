@@ -1,5 +1,7 @@
 import 'dart:math';
+import 'package:darzo/students/student_list.dart';
 import 'package:darzo/students/view_internals.dart';
+import 'package:darzo/teacher/add_students.dart';
 import 'package:darzo/teacher/internal_mark.dart';
 import 'package:darzo/dashboard/admin_panel.dart';
 
@@ -99,9 +101,7 @@ class HeaderSection extends StatelessWidget {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const StudentInternalMarksPage(),
-                ),
+                MaterialPageRoute(builder: (context) => StudentDashboardPage()),
               );
             },
             child: Text("Button"),

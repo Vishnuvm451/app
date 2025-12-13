@@ -138,7 +138,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const StudentListAttendancePage(),
+                      builder: (_) => const StudentStudentsListPage(),
                     ),
                   );
                 },
