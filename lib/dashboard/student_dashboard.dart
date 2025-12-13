@@ -1,4 +1,4 @@
-import 'package:demoapp/login/loginpage.dart';
+import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
 
 // ======================================================
@@ -110,7 +110,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           onPressed: () {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (_) => const Loginpage()),
+              MaterialPageRoute(builder: (_) => const LoginPage()),
             );
           },
         ),
