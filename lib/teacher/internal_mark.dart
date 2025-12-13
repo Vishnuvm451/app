@@ -26,7 +26,7 @@ class _InternalMarksPageState extends State<InternalMarksPage> {
     "ECE - II Year": ["DSP", "VLSI", "EMF"],
   };
 
-  final List<String> internals = ["Internal 1", "Internal 2", "Model Exam"];
+  final List<String> internals = ["Internal ", "Internal 2", "Model Exam"];
 
   // --------------------------------------------------
   // SELECTED VALUES

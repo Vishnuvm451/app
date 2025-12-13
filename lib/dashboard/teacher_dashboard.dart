@@ -2,6 +2,7 @@ import 'package:darzo/login.dart';
 import 'package:darzo/students/student_list.dart';
 import 'package:darzo/teacher/internal_mark.dart';
 import 'package:flutter/material.dart';
+import 'package:darzo/teacher/attendance.dart';
 
 // ======================================================
 // TEACHER DASHBOARD PAGE
@@ -157,6 +158,19 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                 },
               ),
               // _actionCard(Icons.check_circle, "Attendance"),
+              _actionCard(
+                context: context,
+                icon: Icons.people,
+                title: "Internals",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AttendanceDailyPage(),
+                    ),
+                  );
+                },
+              ),
               // _actionCard(Icons.schedule, "Timetable"),
             ],
           ),

@@ -1,5 +1,7 @@
 import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
+import 'dart:math';
+import 'package:darzo/students/view_internals.dart';
 
 // ======================================================
 // STUDENT DASHBOARD PAGE (STATEFUL)
@@ -73,7 +75,17 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                     const SizedBox(height: 25),
 
                     // DASHBOARD BUTTONS
-                    _dashboardButton(title: "STUDENTS", onTap: () {}),
+                    _dashboardButton(
+                      title: "STUDENTS",
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const StudentInternalMarksPage(),
+                          ),
+                        );
+                      },
+                    ),
                     const SizedBox(height: 15),
                     _dashboardButton(title: "INTERNAL", onTap: () {}),
                     const SizedBox(height: 15),

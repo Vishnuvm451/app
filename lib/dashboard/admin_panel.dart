@@ -8,6 +8,7 @@ class AdminDashboardPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Color(0xFF2196F3),
       appBar: AppBar(
+        elevation: 0,
         title: const Text("Admin Panel"),
         backgroundColor: Color(0xFF2196F3),
       ),
