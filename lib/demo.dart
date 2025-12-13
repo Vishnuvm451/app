@@ -1,61 +1,102 @@
 import 'package:flutter/material.dart';
 
-class AdminDashboardPage extends StatelessWidget {
-  const AdminDashboardPage({super.key});
+class TeacherAddTimetablePage extends StatefulWidget {
+  const TeacherAddTimetablePage({super.key});
+
+  @override
+  State<TeacherAddTimetablePage> createState() =>
+      _TeacherAddTimetablePageState();
+}
+
+class _TeacherAddTimetablePageState extends State<TeacherAddTimetablePage> {
+  final List<String> days = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+  ];
+  final List<String> periods = [
+    "9:30–10:30",
+    "10:40–11:40",
+    "11:40–12:40",
+    "1:30–2:30",
+    "2:30–3:30",
+  ];
+
+  // Temporary timetable storage
+  Map<String, Map<String, String>> timetable = {};
+
+  @override
+  void initState() {
+    super.initState();
+    for (var day in days) {
+      timetable[day] = {};
+      for (var p in periods) {
+        timetable[day]![p] = "";
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFF2196F3),
       appBar: AppBar(
-        title: const Text("Admin Panel"),
-        backgroundColor: Color(0xFF2196F3),
+        title: const Padding(
+          padding: EdgeInsets.only(left: 12),
+          child: Text("Add Timetable"),
+        ),
+        backgroundColor: Colors.blue.shade800,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: GridView.count(
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          children: [
-            _adminCard(Icons.people, "Manage Teachers", context),
-            _adminCard(Icons.school, "Manage Students", context),
-            _adminCard(Icons.class_, "Classes & Subjects", context),
-            _adminCard(Icons.checklist, "Attendance Reports", context),
-            _adminCard(Icons.bar_chart, "Marks Reports", context),
-            _adminCard(Icons.settings, "Settings", context),
-          ],
+      body: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columns: [
+              const DataColumn(label: Text("Day")),
+              ...periods.map((p) => DataColumn(label: Text(p))),
+            ],
+            rows: days.map((day) {
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      day,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  ...periods.map((p) {
+                    return DataCell(
+                      SizedBox(
+                        width: 100,
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            hintText: "Subject",
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (value) {
+                            timetable[day]![p] = value;
+                          },
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              );
+            }).toList(),
+          ),
         ),
       ),
-    );
-  }
-
-  Widget _adminCard(IconData icon, String title, BuildContext context) {
-    return InkWell(
-      onTap: () {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("$title – coming soon")));
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 40, color: Colors.indigo),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          // 🔥 BACKEND HOOK
+          // Save timetable to Firestore
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("Timetable saved")));
+        },
+        label: const Text("Save"),
+        icon: const Icon(Icons.save),
       ),
     );
   }

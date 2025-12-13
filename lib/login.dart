@@ -1,3 +1,5 @@
+import 'package:darzo/dashboard/admin_panel.dart';
+import 'package:darzo/teacher/attendance.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/dashboard/student_dashboard.dart';
 import 'package:darzo/dashboard/teacher_dashboard.dart';
@@ -88,6 +90,22 @@ class HeaderSection extends StatelessWidget {
       children: [
         const SizedBox(height: 16),
 
+        // demo test start
+        Center(
+          child: ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AttendanceDailyPage(),
+                ),
+              );
+            },
+            child: Text("Button"),
+          ),
+        ),
+
+        // demo test end
         // Title text
         const Text(
           'DARZO',
