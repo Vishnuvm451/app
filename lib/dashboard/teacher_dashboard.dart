@@ -81,7 +81,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             SizedBox(height: 4),
             Text(
               "Department: Computer Science",
-              style: TextStyle(color: Colors.white70),
+              style: TextStyle(color: Colors.white, fontSize: 16),
             ),
           ],
         ),
@@ -128,6 +128,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
             children: [
+              // students list page navigation
               _actionCard(
                 context: context,
                 icon: Icons.people,
@@ -141,7 +142,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   );
                 },
               ),
-
+              // internals page navigation
               _actionCard(
                 context: context,
                 icon: Icons.people,

@@ -77,7 +77,9 @@ class HeaderSection extends StatelessWidget {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const AddStudentPage()),
+                MaterialPageRoute(
+                  builder: (context) => const TeacherDashboardPage(),
+                ),
               );
             },
           ),
