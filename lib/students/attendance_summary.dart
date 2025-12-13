@@ -21,7 +21,8 @@ class StudentAttendanceSummaryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double totalWorkingDays = attendanceMap.length.toDouble();
+    final int totalWorkingDays = attendanceMap.length;
+
     final double totalPresentDays = attendanceMap.values.fold(
       0.0,
       (a, b) => a + b,
@@ -33,7 +34,9 @@ class StudentAttendanceSummaryPage extends StatelessWidget {
 
     final double absentDays = totalWorkingDays - totalPresentDays;
 
-    Color percentColor = attendancePercentage >= 75 ? Colors.green : Colors.red;
+    final Color percentColor = attendancePercentage >= 75
+        ? Colors.green
+        : Colors.red;
 
     return Scaffold(
       appBar: AppBar(
@@ -47,7 +50,7 @@ class StudentAttendanceSummaryPage extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // ================= PERCENTAGE =================
+            // ================= ATTENDANCE % =================
             Text(
               "${attendancePercentage.toStringAsFixed(1)}%",
               style: TextStyle(
@@ -79,18 +82,18 @@ class StudentAttendanceSummaryPage extends StatelessWidget {
 
             const SizedBox(height: 30),
 
-            // ================= SUMMARY CARDS =================
+            // ================= PRESENT & WORKING DAYS =================
             Row(
               children: [
                 _summaryCard(
-                  title: "Present Days",
+                  title: "Total Present Days",
                   value: totalPresentDays.toStringAsFixed(1),
                   color: Colors.green,
                 ),
                 const SizedBox(width: 12),
                 _summaryCard(
-                  title: "Working Days",
-                  value: totalWorkingDays.toInt().toString(),
+                  title: "Total Working Days",
+                  value: totalWorkingDays.toString(),
                   color: Colors.blue,
                 ),
               ],
