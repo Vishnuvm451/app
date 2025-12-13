@@ -1,187 +1,62 @@
 import 'package:flutter/material.dart';
 
-class AddStudentPage extends StatefulWidget {
-  const AddStudentPage({super.key});
+class AdminDashboardPage extends StatelessWidget {
+  const AdminDashboardPage({super.key});
 
-  @override
-  State<AddStudentPage> createState() => _AddStudentPageState();
-}
-
-class _AddStudentPageState extends State<AddStudentPage> {
-  // --------------------------------------------------
-  // CONTROLLERS
-  // --------------------------------------------------
-  final TextEditingController rollController = TextEditingController();
-  final TextEditingController nameController = TextEditingController();
-  final TextEditingController admissionController = TextEditingController();
-
-  // --------------------------------------------------
-  // ATTENDANCE (AUTO – NOT EDITABLE)
-  // --------------------------------------------------
-  int presentPeriods = 0;
-  int totalPeriods = 0;
-
-  double get attendancePercentage {
-    if (totalPeriods == 0) return 0;
-    return (presentPeriods / totalPeriods) * 100;
-  }
-
-  // --------------------------------------------------
-  // FORM KEY
-  // --------------------------------------------------
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-
-  // --------------------------------------------------
-  // UI
-  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF1A237E),
       appBar: AppBar(
-        title: const Text("Add Student"),
-        backgroundColor: Colors.blue.shade800,
+        title: const Text("Admin Panel"),
+        backgroundColor: const Color(0xFF1A237E),
       ),
-      body: SingleChildScrollView(
+      body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ================= ROLL NO =================
-              _buildTextField(
-                controller: rollController,
-                label: "Roll Number",
-                hint: "Enter roll number",
-              ),
-
-              const SizedBox(height: 16),
-
-              // ================= STUDENT NAME =================
-              _buildTextField(
-                controller: nameController,
-                label: "Student Name",
-                hint: "Enter student name",
-              ),
-
-              const SizedBox(height: 16),
-
-              // ================= ADMISSION NUMBER =================
-              _buildTextField(
-                controller: admissionController,
-                label: "Admission Number",
-                hint: "Enter admission number",
-              ),
-
-              const SizedBox(height: 24),
-
-              // ================= AUTO ATTENDANCE DISPLAY =================
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.shade100),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      "Attendance %",
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      totalPeriods == 0
-                          ? "--"
-                          : "${attendancePercentage.toStringAsFixed(1)}%",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue.shade800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              // ================= SAVE BUTTON =================
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saveStudent,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade800,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text(
-                    "Save Student",
-                    style: TextStyle(fontSize: 16),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        child: GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          children: [
+            _adminCard(Icons.people, "Manage Teachers", context),
+            _adminCard(Icons.school, "Manage Students", context),
+            _adminCard(Icons.class_, "Classes & Subjects", context),
+            _adminCard(Icons.checklist, "Attendance Reports", context),
+            _adminCard(Icons.bar_chart, "Marks Reports", context),
+            _adminCard(Icons.settings, "Settings", context),
+          ],
         ),
       ),
     );
   }
 
-  // --------------------------------------------------
-  // TEXT FIELD WIDGET
-  // --------------------------------------------------
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
-        TextFormField(
-          controller: controller,
-          validator: (value) =>
-              value == null || value.isEmpty ? "Required field" : null,
-          decoration: InputDecoration(
-            hintText: hint,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-          ),
+  Widget _adminCard(IconData icon, String title, BuildContext context) {
+    return InkWell(
+      onTap: () {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("$title – coming soon")));
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
         ),
-      ],
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 40, color: Colors.indigo),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
     );
-  }
-
-  // --------------------------------------------------
-  // SAVE STUDENT LOGIC
-  // --------------------------------------------------
-  void _saveStudent() {
-    if (!_formKey.currentState!.validate()) return;
-
-    final studentData = {
-      "rollNo": rollController.text.trim(),
-      "name": nameController.text.trim(),
-      "admissionNo": admissionController.text.trim(),
-      "presentPeriods": 0,
-      "totalPeriods": 0,
-      // Attendance % is derived, NOT stored
-    };
-
-    // 🔥 BACKEND HOOK (Firestore)
-    // Save `studentData` to students collection
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Student added successfully")));
-
-    // Clear fields for next entry
-    rollController.clear();
-    nameController.clear();
-    admissionController.clear();
   }
 }

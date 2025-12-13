@@ -37,6 +37,23 @@ class SmartAttendanceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        elevation: 0,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.all(5.0),
+            child: IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => AdminDashboardPage()),
+                );
+              },
+              icon: Icon(Icons.admin_panel_settings_outlined, size: 40),
+            ),
+          ),
+        ],
+      ),
       backgroundColor: primaryBlue,
       body: SafeArea(
         child: Center(
@@ -69,24 +86,6 @@ class HeaderSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         const SizedBox(height: 16),
-
-        //demo check start
-        Center(
-          child: ElevatedButton(
-            child: Text("Go to Teacher Screen"),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const TeacherDashboardPage(),
-                ),
-              );
-            },
-          ),
-        ),
-
-        const SizedBox(height: 16),
-        //demo check end
 
         // Title text
         const Text(
