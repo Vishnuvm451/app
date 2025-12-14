@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 class TeacherApprovalPage extends StatelessWidget {
   const TeacherApprovalPage({super.key});
@@ -110,42 +109,18 @@ class TeacherApprovalPage extends StatelessWidget {
     required Map<String, dynamic> data,
   }) async {
     try {
-      // 1️⃣ Create Firebase Auth user
-      UserCredential cred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: data['email'],
-            password: "teacher@123", // TEMP password
-          );
-
-      final uid = cred.user!.uid;
-
-      // 2️⃣ Create Firestore user profile
-      await FirebaseFirestore.instance.collection("users").doc(uid).set({
-        "uid": uid,
-        "name": data['name'],
-        "email": data['email'],
-        "role": "teacher",
-        "created_at": FieldValue.serverTimestamp(),
-      });
-
-      // 3️⃣ Create teacher profile
-      await FirebaseFirestore.instance.collection("teachers").doc(uid).set({
-        "uid": uid,
-        "name": data['name'],
-        "email": data['email'],
-        "department": data['department'],
-        "created_at": FieldValue.serverTimestamp(),
-      });
-
-      // 4️⃣ Update request status
       await FirebaseFirestore.instance
           .collection("teacher_requests")
           .doc(requestId)
-          .update({"status": "approved"});
+          .update({
+            "status": "approved",
+            "approved_at": FieldValue.serverTimestamp(),
+          });
 
-      // 5️⃣ Success message
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Teacher approved successfully")),
+        const SnackBar(
+          content: Text("Approved. Teacher can now register using this email."),
+        ),
       );
     } catch (e) {
       ScaffoldMessenger.of(
