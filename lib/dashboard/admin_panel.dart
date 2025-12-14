@@ -21,6 +21,7 @@ class AdminDashboardPage extends StatelessWidget {
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
           children: [
+            // 1
             _adminCard(
               Icons.people,
               "Manage Teachers",
@@ -34,7 +35,9 @@ class AdminDashboardPage extends StatelessWidget {
                 );
               },
             ),
-
+            // 2
+            _adminCard(Icons.class_, "Classes & Subjects", context),
+            // 3
             _adminCard(
               Icons.school,
               "Add Students",
@@ -46,10 +49,9 @@ class AdminDashboardPage extends StatelessWidget {
                 );
               },
             ),
-
-            _adminCard(Icons.class_, "Classes & Subjects", context),
+            // 4
             _adminCard(Icons.checklist, "Attendance Reports", context),
-            _adminCard(Icons.bar_chart, "Marks Reports", context),
+            // 5
             _adminCard(Icons.settings, "Settings", context),
           ],
         ),
