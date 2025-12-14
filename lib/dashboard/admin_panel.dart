@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:darzo/admin/add_student.dart';
 import 'package:darzo/admin/teacher_approval_page.dart';
+import 'package:darzo/login.dart';
 
 class AdminDashboardPage extends StatelessWidget {
   const AdminDashboardPage({super.key});
@@ -13,6 +14,17 @@ class AdminDashboardPage extends StatelessWidget {
         elevation: 0,
         title: const Text("Admin Panel"),
         backgroundColor: Color(0xFF2196F3),
+        actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+              );
+            },
+            icon: Icon(Icons.logout, size: 40),
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
