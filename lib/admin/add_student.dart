@@ -23,7 +23,9 @@ class _AddStudentPageState extends State<AddStudentPage> {
   };
 
   Future<void> saveStudent() async {
-    if (admissionController.text.isEmpty ||
+    final admissionNo = admissionController.text.trim();
+
+    if (admissionNo.isEmpty ||
         nameController.text.isEmpty ||
         department == null ||
         year == null) {
@@ -31,20 +33,40 @@ class _AddStudentPageState extends State<AddStudentPage> {
       return;
     }
 
-    await FirebaseFirestore.instance
-        .collection("student_master")
-        .doc(admissionController.text.trim())
-        .set({
-          "admission_no": admissionController.text.trim(),
-          "name": nameController.text.trim(),
-          "department": department,
-          "year": year,
-          "is_registered": false,
-        });
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection("student_master")
+          .doc(admissionNo);
 
-    _snack("Student added successfully");
-    admissionController.clear();
-    nameController.clear();
+      // 🔍 CHECK IF ALREADY EXISTS
+      final docSnap = await docRef.get();
+
+      if (docSnap.exists) {
+        _snack("Admission number already exists");
+        return;
+      }
+
+      // ✅ CREATE ONLY IF NOT EXISTS
+      await docRef.set({
+        "admission_no": admissionNo,
+        "name": nameController.text.trim(),
+        "department": department,
+        "year": year,
+        "is_registered": false,
+        "created_at": FieldValue.serverTimestamp(),
+      });
+
+      _snack("Student added successfully");
+
+      admissionController.clear();
+      nameController.clear();
+      setState(() {
+        department = null;
+        year = null;
+      });
+    } catch (e) {
+      _snack("Error: $e");
+    }
   }
 
   void _snack(String msg) {
