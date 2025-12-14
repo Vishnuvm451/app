@@ -1,7 +1,6 @@
 // teacher_register.dart
 
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
 
@@ -32,11 +31,10 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     super.dispose();
   }
 
-  // ---------------- REGISTER TEACHER ----------------
+  // ---------------- SUBMIT TEACHER REQUEST ----------------
   Future<void> registerTeacher() async {
     if (fullNameController.text.isEmpty ||
         emailController.text.isEmpty ||
-        passwordController.text.isEmpty ||
         selectedDepartment == null) {
       _showDialog("Error", "Please fill all fields");
       return;
@@ -45,42 +43,31 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     setState(() => isLoading = true);
 
     try {
-      // 1️⃣ FIREBASE AUTH
-      UserCredential credential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: emailController.text.trim(),
-            password: passwordController.text.trim(),
-          );
-
-      // 2️⃣ FIRESTORE SAVE
-      await FirebaseFirestore.instance
-          .collection("teachers")
-          .doc(credential.user!.uid)
-          .set({
-            "uid": credential.user!.uid,
-            "name": fullNameController.text.trim(),
-            "email": emailController.text.trim(),
-            "department": selectedDepartment,
-            "role": "teacher",
-            "face_enabled": false,
-            "created_at": FieldValue.serverTimestamp(),
-          });
+      // 🔥 Save teacher request (NO AUTH)
+      await FirebaseFirestore.instance.collection("teacher_requests").add({
+        "name": fullNameController.text.trim(),
+        "email": emailController.text.trim(),
+        "department": selectedDepartment,
+        "status": "pending",
+        "created_at": FieldValue.serverTimestamp(),
+      });
 
       if (!mounted) return;
 
-      // 3️⃣ SUCCESS DIALOG (100% VISIBLE)
-      await _showDialog("Success", "User Registered Successfully");
+      // ✅ Correct message
+      await _showDialog(
+        "Request Sent",
+        "Your registration request has been sent to the admin.\n"
+            "You will be able to login after approval.",
+      );
 
       if (!mounted) return;
 
-      // 4️⃣ NAVIGATE TO LOGIN
+      // Navigate back to login
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      _showDialog("Registration Failed", e.message ?? "Firebase error");
     } catch (e) {
       if (!mounted) return;
       _showDialog("Error", e.toString());

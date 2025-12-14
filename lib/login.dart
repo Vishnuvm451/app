@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/dashboard/admin_panel.dart';
 import 'package:darzo/dashboard/student_dashboard.dart'; // Ensure this exists
 import 'package:darzo/students/student_reg.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
@@ -117,6 +119,10 @@ class _LoginCardState extends State<LoginCard> {
   bool isStudentSelected = true;
   bool _isLoading = false; // To show loading spinner
 
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -129,69 +135,63 @@ class _LoginCardState extends State<LoginCard> {
 
   // --- FIREBASE LOGIN FUNCTION ---
   Future<void> _handleLogin() async {
-    // 1. Basic Validation
-    if (_emailController.text.trim().isEmpty ||
-        _passwordController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter Email and Password')),
-      );
-      return;
-    }
+    Future<void> _handleLogin() async {
+      if (_emailController.text.trim().isEmpty ||
+          _passwordController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter Email and Password')),
+        );
+        return;
+      }
 
-    // 2. Start Loading
-    setState(() {
-      _isLoading = true;
-    });
+      setState(() => _isLoading = true);
 
-    try {
-      // 3. Attempt Firebase Sign In
-      // NOTE: Firebase Auth works with Emails. If your Teacher ID is not an email,
-      // you must append a domain (e.g., id + "@school.com") before sending it here.
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+      try {
+        // 1️⃣ Firebase Auth login
+        final UserCredential cred = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(
+              email: _emailController.text.trim(),
+              password: _passwordController.text.trim(),
+            );
 
-      // 4. Navigate on Success
-      if (mounted) {
-        // Here you would typically check Firestore to verify if the user is actually
-        // a Student or Teacher. For now, we route based on the toggle.
-        if (isStudentSelected) {
+        final String uid = cred.user!.uid;
+
+        // 2️⃣ Fetch user role from Firestore
+        final DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection("users")
+            .doc(uid)
+            .get();
+
+        if (!userDoc.exists) {
+          await FirebaseAuth.instance.signOut();
+          _showSnack("User profile not found");
+          return;
+        }
+
+        final String role = userDoc['role'];
+
+        // 3️⃣ ROLE-BASED ROUTING (UI UNCHANGED)
+        if (role == "admin") {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
+          );
+        } else if (role == "student") {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
           );
+        } else if (role == "teacher") {
+          _showSnack("Teacher dashboard not linked yet");
         } else {
-          // Replace with TeacherDashboard when you have the file
-          // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const TeacherDashboard()));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Logged in as Teacher (Dashboard not linked)'),
-            ),
-          );
+          _showSnack("Invalid user role");
         }
-      }
-    } on FirebaseAuthException catch (e) {
-      // 5. Handle Firebase Errors
-      String message = 'An error occurred';
-      if (e.code == 'user-not-found') {
-        message = 'No user found for that email.';
-      } else if (e.code == 'wrong-password') {
-        message = 'Wrong password provided.';
-      } else {
-        message = e.message ?? message;
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      // 6. Stop Loading
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+      } on FirebaseAuthException catch (e) {
+        _showSnack(e.message ?? "Login failed");
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }

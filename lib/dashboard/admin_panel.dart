@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:darzo/admin/add_student.dart';
+import 'package:darzo/admin/teacher_approval_page.dart';
 
 class AdminDashboardPage extends StatelessWidget {
   const AdminDashboardPage({super.key});
@@ -20,7 +21,20 @@ class AdminDashboardPage extends StatelessWidget {
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
           children: [
-            _adminCard(Icons.people, "Manage Teachers", context),
+            _adminCard(
+              Icons.people,
+              "Manage Teachers",
+              context,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const TeacherApprovalPage(),
+                  ),
+                );
+              },
+            ),
+
             _adminCard(
               Icons.school,
               "Add Students",
