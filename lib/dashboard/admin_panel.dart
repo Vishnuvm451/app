@@ -50,7 +50,7 @@ class AdminDashboardPage extends StatelessWidget {
               },
             ),
             // 4
-            _adminCard(Icons.checklist, "Attendance Reports", context),
+            _adminCard(Icons.person, "View Students", context),
             // 5
             _adminCard(Icons.settings, "Settings", context),
           ],
