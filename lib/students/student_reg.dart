@@ -97,6 +97,18 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       // 3️⃣ LOGOUT AFTER REGISTRATION (SAFE PRACTICE)
       await FirebaseAuth.instance.signOut();
 
+      // ✅ SHOW SUCCESS MESSAGE
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Student Registered Successfully"),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // ⏳ SMALL DELAY SO USER CAN SEE MESSAGE
+      await Future.delayed(const Duration(seconds: 2));
+
       // 4️⃣ GO TO LOGIN
       if (!mounted) return;
       Navigator.pushReplacement(

@@ -3,12 +3,8 @@ import 'package:darzo/students/attendance_summary.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/students/student_list.dart';
 import 'package:darzo/students/view_internals.dart';
-
 // import 'package:darzo/students/timetable_page.dart'; // if you add later
 
-// ======================================================
-// STUDENT DASHBOARD PAGE
-// ======================================================
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
 
@@ -27,23 +23,39 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     {"title": "Prepare for internal test", "subtitle": "Data Structures"},
   ];
 
-  // --------------------------------------------------
-  // BUILD
-  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white, size: 30),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 10.0),
+            child: IconButton(
+              icon: const Icon(Icons.logout, color: Colors.white, size: 40),
+              onPressed: () {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
       backgroundColor: const Color(0xFF3F7EDB),
       body: SafeArea(
         child: SingleChildScrollView(
           controller: _scrollController,
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(10),
           child: Column(
             children: [
-              _buildAppBar(context),
-              const SizedBox(height: 10),
-
-              const Icon(Icons.school, size: 80, color: Colors.white),
+              const Icon(Icons.school, size: 70, color: Colors.white),
 
               const SizedBox(height: 10),
 
@@ -56,7 +68,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   letterSpacing: 1,
                 ),
               ),
-
+              // _buildAppBar(context),
               const SizedBox(height: 30),
 
               // ================= MAIN CARD =================
@@ -159,31 +171,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           ),
         ),
       ),
-    );
-  }
-
-  // ======================================================
-  // APP BAR
-  // ======================================================
-  Widget _buildAppBar(BuildContext context) {
-    return AppBar(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back, color: Colors.white),
-        onPressed: () => Navigator.pop(context),
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.logout, color: Colors.white),
-          onPressed: () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const LoginPage()),
-            );
-          },
-        ),
-      ],
     );
   }
 

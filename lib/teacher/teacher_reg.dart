@@ -1,4 +1,4 @@
-// teacher_register.dart
+// lib/teacher/teacher_register.dart
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -32,10 +32,13 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     super.dispose();
   }
 
-  // ---------------- SUBMIT TEACHER REQUEST ----------------
+  // ======================================================
+  // REGISTER TEACHER (AFTER ADMIN APPROVAL)
+  // ======================================================
   Future<void> registerTeacher() async {
     if (fullNameController.text.isEmpty ||
         emailController.text.isEmpty ||
+        passwordController.text.isEmpty ||
         selectedDepartment == null) {
       _showDialog("Error", "Please fill all fields");
       return;
@@ -44,83 +47,96 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     setState(() => isLoading = true);
 
     try {
-      // 🔍 Check if admin approved this teacher
-      final approvalQuery = await FirebaseFirestore.instance
+      final email = emailController.text.trim();
+
+      // 🔍 Check if request exists
+      final requestQuery = await FirebaseFirestore.instance
           .collection("teacher_requests")
-          .where("email", isEqualTo: emailController.text.trim())
-          .where("status", isEqualTo: "approved")
+          .where("email", isEqualTo: email)
           .limit(1)
           .get();
 
-      if (approvalQuery.docs.isEmpty) {
+      // 🟡 FIRST TIME → CREATE REQUEST
+      if (requestQuery.docs.isEmpty) {
+        await FirebaseFirestore.instance.collection("teacher_requests").add({
+          "name": fullNameController.text.trim(),
+          "email": email,
+          "department": selectedDepartment,
+          "status": "pending",
+          "created_at": FieldValue.serverTimestamp(),
+        });
+
         _showDialog(
-          "Not Approved",
-          "Your account is not approved by admin yet.",
+          "Request Sent",
+          "Your request has been sent to admin.\nPlease wait for approval.",
         );
         return;
       }
-      // CREATE FIREBASE AUTH USER
 
-      UserCredential cred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: emailController.text.trim(),
-            password: passwordController.text.trim(),
-          );
+      final requestDoc = requestQuery.docs.first;
+      final status = requestDoc['status'];
 
-      final String uid = cred.user!.uid;
+      // 🟠 PENDING
+      if (status == "pending") {
+        _showDialog(
+          "Pending Approval",
+          "Your request is still under review by admin.",
+        );
+        return;
+      }
 
-      // CREATE users/{uid}
+      // 🔴 REJECTED
+      if (status == "rejected") {
+        _showDialog("Rejected", "Your request was rejected by admin.");
+        return;
+      }
 
-      await FirebaseFirestore.instance.collection("users").doc(uid).set({
-        "uid": uid,
-        "name": fullNameController.text.trim(),
-        "email": emailController.text.trim(),
-        "role": "teacher",
-        "created_at": FieldValue.serverTimestamp(),
-      });
+      // 🟢 APPROVED → REGISTER
+      if (status == "approved") {
+        // Create Auth user
+        UserCredential cred = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(
+              email: email,
+              password: passwordController.text.trim(),
+            );
 
-      // CREATE teachers/{uid}
+        final uid = cred.user!.uid;
 
-      await FirebaseFirestore.instance.collection("teachers").doc(uid).set({
-        "uid": uid,
-        "name": fullNameController.text.trim(),
-        "email": emailController.text.trim(),
-        "department": selectedDepartment,
-        "created_at": FieldValue.serverTimestamp(),
-      });
+        // users/{uid}
+        await FirebaseFirestore.instance.collection("users").doc(uid).set({
+          "uid": uid,
+          "name": fullNameController.text.trim(),
+          "email": email,
+          "role": "teacher",
+          "created_at": FieldValue.serverTimestamp(),
+        });
 
-      // MARK REQUEST AS REGISTERED
+        // teachers/{uid}
+        await FirebaseFirestore.instance.collection("teachers").doc(uid).set({
+          "uid": uid,
+          "name": fullNameController.text.trim(),
+          "email": email,
+          "department": selectedDepartment,
+          "created_at": FieldValue.serverTimestamp(),
+        });
 
-      await approvalQuery.docs.first.reference.update({"is_registered": true});
+        // mark registered
+        await requestDoc.reference.update({
+          "is_registered": true,
+          "registered_at": FieldValue.serverTimestamp(),
+        });
 
-      //
+        _showDialog(
+          "Success",
+          "Account created successfully.\nYou can now login.",
+        );
 
-      await FirebaseFirestore.instance.collection("teacher_requests").add({
-        "name": fullNameController.text.trim(),
-        "email": emailController.text.trim(),
-        "department": selectedDepartment,
-        "status": "pending",
-        "created_at": FieldValue.serverTimestamp(),
-      });
-
-      if (!mounted) return;
-
-      // ✅ Correct message
-      await _showDialog(
-        "Request Sent",
-        "Your registration request has been sent to the admin.\n"
-            "You will be able to login after approval.",
-      );
-
-      if (!mounted) return;
-
-      // Navigate back to login
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-      );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+      }
     } catch (e) {
-      if (!mounted) return;
       _showDialog("Error", e.toString());
     } finally {
       if (mounted) setState(() => isLoading = false);
@@ -145,7 +161,9 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
-  // ---------------- UI ----------------
+  // ======================================================
+  // UI
+  // ======================================================
   @override
   Widget build(BuildContext context) {
     const Color primaryBlue = Color(0xFF2196F3);
@@ -160,11 +178,12 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
               children: [
                 const SizedBox(height: 12),
                 const Text(
-                  "SMART ATTENDANCE",
+                  "DARZO",
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 34,
+                    fontSize: 56,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 2.2,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -276,7 +295,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                           const Text("Already have an account? "),
                           GestureDetector(
                             onTap: () {
-                              Navigator.push(
+                              Navigator.pushReplacement(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => const LoginPage(),

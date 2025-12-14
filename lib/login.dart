@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/dashboard/admin_panel.dart';
 import 'package:darzo/dashboard/student_dashboard.dart'; // Ensure this exists
+import 'package:darzo/dashboard/teacher_dashboard.dart';
 import 'package:darzo/students/student_reg.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
@@ -133,66 +134,67 @@ class _LoginCardState extends State<LoginCard> {
     super.dispose();
   }
 
-  // --- FIREBASE LOGIN FUNCTION ---
   Future<void> _handleLogin() async {
-    Future<void> _handleLogin() async {
-      if (_emailController.text.trim().isEmpty ||
-          _passwordController.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter Email and Password')),
-        );
+    if (_emailController.text.trim().isEmpty ||
+        _passwordController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter Email and Password')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      // 1️⃣ Firebase Auth login
+      UserCredential cred = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          );
+
+      final String uid = cred.user!.uid;
+
+      // 2️⃣ Read user role from Firestore
+      final userDoc = await FirebaseFirestore.instance
+          .collection("users")
+          .doc(uid)
+          .get();
+
+      if (!userDoc.exists) {
+        await FirebaseAuth.instance.signOut();
+        _showSnack("User profile not found. Contact admin.");
         return;
       }
 
-      setState(() => _isLoading = true);
+      final String role = userDoc.data()!['role'];
 
-      try {
-        // 1️⃣ Firebase Auth login
-        final UserCredential cred = await FirebaseAuth.instance
-            .signInWithEmailAndPassword(
-              email: _emailController.text.trim(),
-              password: _passwordController.text.trim(),
-            );
+      // 3️⃣ Route based on role
+      if (!mounted) return;
 
-        final String uid = cred.user!.uid;
-
-        // 2️⃣ Fetch user role from Firestore
-        final DocumentSnapshot userDoc = await FirebaseFirestore.instance
-            .collection("users")
-            .doc(uid)
-            .get();
-
-        if (!userDoc.exists) {
-          await FirebaseAuth.instance.signOut();
-          _showSnack("User profile not found");
-          return;
-        }
-
-        final String role = userDoc['role'];
-
-        // 3️⃣ ROLE-BASED ROUTING (UI UNCHANGED)
-        if (role == "admin") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
-          );
-        } else if (role == "student") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
-          );
-        } else if (role == "teacher") {
-          _showSnack("Teacher dashboard not linked yet");
-        } else {
-          _showSnack("Invalid user role");
-        }
-      } on FirebaseAuthException catch (e) {
-        _showSnack(e.message ?? "Login failed");
-      } finally {
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
+      if (role == "student") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
+        );
+      } else if (role == "teacher") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
+        );
+      } else if (role == "admin") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
+        );
+      } else {
+        await FirebaseAuth.instance.signOut();
+        _showSnack("Invalid user role");
       }
+    } on FirebaseAuthException catch (e) {
+      _showSnack(e.message ?? "Login failed");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

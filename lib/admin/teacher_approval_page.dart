@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -109,19 +110,55 @@ class TeacherApprovalPage extends StatelessWidget {
     required Map<String, dynamic> data,
   }) async {
     try {
+      // 1️⃣ CREATE AUTH USER
+      UserCredential cred = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: data['email'],
+            password: "teacher@123", // TEMP password (change later)
+          );
+
+      final String uid = cred.user!.uid;
+
+      // 2️⃣ CREATE users/{uid}
+      await FirebaseFirestore.instance.collection("users").doc(uid).set({
+        "uid": uid,
+        "name": data['name'],
+        "email": data['email'],
+        "role": "teacher",
+        "created_at": FieldValue.serverTimestamp(),
+      });
+
+      // 3️⃣ CREATE teachers/{uid}
+      await FirebaseFirestore.instance.collection("teachers").doc(uid).set({
+        "uid": uid,
+        "name": data['name'],
+        "email": data['email'],
+        "department": data['department'],
+        "created_at": FieldValue.serverTimestamp(),
+      });
+
+      // 4️⃣ UPDATE teacher_requests STATUS
       await FirebaseFirestore.instance
           .collection("teacher_requests")
           .doc(requestId)
           .update({
             "status": "approved",
             "approved_at": FieldValue.serverTimestamp(),
+            "auth_uid": uid,
           });
 
+      // 5️⃣ SUCCESS MESSAGE
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Approved. Teacher can now register using this email."),
+          content: Text(
+            "Teacher approved successfully.\nLogin credentials created.",
+          ),
         ),
       );
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Auth error: ${e.message}")));
     } catch (e) {
       ScaffoldMessenger.of(
         context,
