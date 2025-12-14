@@ -1,5 +1,6 @@
 // teacher_register.dart
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
@@ -43,7 +44,57 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     setState(() => isLoading = true);
 
     try {
-      // 🔥 Save teacher request (NO AUTH)
+      // 🔍 Check if admin approved this teacher
+      final approvalQuery = await FirebaseFirestore.instance
+          .collection("teacher_requests")
+          .where("email", isEqualTo: emailController.text.trim())
+          .where("status", isEqualTo: "approved")
+          .limit(1)
+          .get();
+
+      if (approvalQuery.docs.isEmpty) {
+        _showDialog(
+          "Not Approved",
+          "Your account is not approved by admin yet.",
+        );
+        return;
+      }
+      // CREATE FIREBASE AUTH USER
+
+      UserCredential cred = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: emailController.text.trim(),
+            password: passwordController.text.trim(),
+          );
+
+      final String uid = cred.user!.uid;
+
+      // CREATE users/{uid}
+
+      await FirebaseFirestore.instance.collection("users").doc(uid).set({
+        "uid": uid,
+        "name": fullNameController.text.trim(),
+        "email": emailController.text.trim(),
+        "role": "teacher",
+        "created_at": FieldValue.serverTimestamp(),
+      });
+
+      // CREATE teachers/{uid}
+
+      await FirebaseFirestore.instance.collection("teachers").doc(uid).set({
+        "uid": uid,
+        "name": fullNameController.text.trim(),
+        "email": emailController.text.trim(),
+        "department": selectedDepartment,
+        "created_at": FieldValue.serverTimestamp(),
+      });
+
+      // MARK REQUEST AS REGISTERED
+
+      await approvalQuery.docs.first.reference.update({"is_registered": true});
+
+      //
+
       await FirebaseFirestore.instance.collection("teacher_requests").add({
         "name": fullNameController.text.trim(),
         "email": emailController.text.trim(),
