@@ -83,4 +83,5 @@ class DefaultFirebaseOptions {
     authDomain: 'darzo-app-7722a.firebaseapp.com',
     storageBucket: 'darzo-app-7722a.firebasestorage.app',
   );
+
 }

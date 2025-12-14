@@ -1,9 +1,9 @@
-import 'package:darzo/dashboard/admin_panel.dart';
 import 'package:darzo/dashboard/student_dashboard.dart'; // Ensure this exists
 import 'package:darzo/students/student_reg.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
 import 'package:flutter/material.dart';
+import 'admin/admin_login.dart';
 
 /// ===============================
 ///  ROOT APP
@@ -34,13 +34,13 @@ class SmartAttendanceScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 14.0),
             child: IconButton(
+              icon: const Icon(Icons.admin_panel_settings_outlined, size: 40),
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => AdminDashboardPage()),
+                  MaterialPageRoute(builder: (_) => const AdminLoginPage()),
                 );
               },
-              icon: const Icon(Icons.admin_panel_settings_outlined, size: 50),
             ),
           ),
         ],
