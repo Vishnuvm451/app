@@ -1,7 +1,7 @@
 import 'package:darzo/login.dart';
 import 'package:darzo/students/attendance_summary.dart';
 import 'package:flutter/material.dart';
-import 'package:darzo/students/student_list.dart';
+import 'package:darzo/students/students.dart';
 import 'package:darzo/students/view_internals.dart';
 // import 'package:darzo/students/timetable_page.dart'; // if you add later
 
