@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:darzo/admin/add_student.dart';
 
 class AdminDashboardPage extends StatelessWidget {
   const AdminDashboardPage({super.key});
@@ -20,7 +21,18 @@ class AdminDashboardPage extends StatelessWidget {
           mainAxisSpacing: 12,
           children: [
             _adminCard(Icons.people, "Manage Teachers", context),
-            _adminCard(Icons.school, "Manage Students", context),
+            _adminCard(
+              Icons.school,
+              "Add Students",
+              context,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AddStudentPage()),
+                );
+              },
+            ),
+
             _adminCard(Icons.class_, "Classes & Subjects", context),
             _adminCard(Icons.checklist, "Attendance Reports", context),
             _adminCard(Icons.bar_chart, "Marks Reports", context),
@@ -31,13 +43,20 @@ class AdminDashboardPage extends StatelessWidget {
     );
   }
 
-  Widget _adminCard(IconData icon, String title, BuildContext context) {
+  Widget _adminCard(
+    IconData icon,
+    String title,
+    BuildContext context, {
+    VoidCallback? onTap,
+  }) {
     return InkWell(
-      onTap: () {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("$title – coming soon")));
-      },
+      onTap:
+          onTap ??
+          () {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text("$title – coming soon")));
+          },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
