@@ -46,9 +46,11 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   // 🔥 FIREBASE REGISTRATION LOGIC
   // -------------------------------
   Future<void> registerStudent() async {
-    if (fullNameController.text.isEmpty ||
-        emailController.text.isEmpty ||
-        passwordController.text.isEmpty ||
+    // BASIC VALIDATION
+    if (fullNameController.text.trim().isEmpty ||
+        emailController.text.trim().isEmpty ||
+        admissionController.text.trim().isEmpty ||
+        passwordController.text.trim().isEmpty ||
         selectedDepartment == null ||
         selectedYear == null) {
       ScaffoldMessenger.of(
@@ -60,41 +62,67 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     setState(() => isLoading = true);
 
     try {
-      // 1️⃣ Create Firebase Auth user
+      // 1️⃣ CREATE AUTH USER
       UserCredential cred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
             email: emailController.text.trim(),
             password: passwordController.text.trim(),
           );
 
-      // 2️⃣ Store user details in Firestore
-      await FirebaseFirestore.instance
-          .collection('students')
-          .doc(cred.user!.uid)
-          .set({
-            "uid": cred.user!.uid,
-            "name": fullNameController.text.trim(),
-            "email": emailController.text.trim(),
-            "department": selectedDepartment,
-            "year": selectedYear,
-            "face_enabled": false, // for future face login
-            "created_at": FieldValue.serverTimestamp(),
-          });
+      final String uid = cred.user!.uid;
 
-      // 3️⃣ Navigate to Login Page
+      // 2️⃣ ATOMIC FIRESTORE WRITE
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        // COMMON USERS COLLECTION (ROLE BASED LOGIN)
+        transaction
+            .set(FirebaseFirestore.instance.collection('users').doc(uid), {
+              "uid": uid,
+              "name": fullNameController.text.trim(),
+              "email": emailController.text.trim(),
+              "role": "student",
+              "created_at": FieldValue.serverTimestamp(),
+            });
+
+        // STUDENT SPECIFIC DATA
+        transaction
+            .set(FirebaseFirestore.instance.collection('students').doc(uid), {
+              "uid": uid,
+              "admission_no": admissionController.text.trim(),
+              "department": selectedDepartment,
+              "year": selectedYear,
+              "face_enabled": false,
+            });
+      });
+
+      // 3️⃣ LOGOUT AFTER REGISTRATION (SAFE PRACTICE)
+      await FirebaseAuth.instance.signOut();
+
+      // 4️⃣ GO TO LOGIN
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
     } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? "Registration failed")),
+      );
+    } catch (e) {
+      // SAFETY CLEANUP
+      await FirebaseAuth.instance.currentUser?.delete();
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(e.message ?? "Error")));
+      ).showSnackBar(const SnackBar(content: Text("Something went wrong")));
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
+  // -------------------------------
+  // UI
+  // -------------------------------
   @override
   Widget build(BuildContext context) {
     const Color primaryBlue = Color(0xFF2196F3);
@@ -118,7 +146,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                 ),
                 const SizedBox(height: 30),
 
-                // ---------------- WHITE CARD ----------------
                 Container(
                   padding: const EdgeInsets.all(20),
                   width: double.infinity,
@@ -148,6 +175,13 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                         controller: emailController,
                         label: "Email ID",
                         icon: Icons.email_outlined,
+                      ),
+                      const SizedBox(height: 15),
+
+                      _buildTextField(
+                        controller: admissionController,
+                        label: "Admission Number",
+                        icon: Icons.badge_outlined,
                       ),
                       const SizedBox(height: 15),
 
@@ -226,7 +260,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                           const Text("Already have an account? "),
                           GestureDetector(
                             onTap: () {
-                              Navigator.push(
+                              Navigator.pushReplacement(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => const LoginPage(),
@@ -293,5 +327,17 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
           .toList(),
       onChanged: onChanged,
     );
+  }
+
+  // -------------------------------
+  // CLEANUP
+  // -------------------------------
+  @override
+  void dispose() {
+    fullNameController.dispose();
+    emailController.dispose();
+    admissionController.dispose();
+    passwordController.dispose();
+    super.dispose();
   }
 }

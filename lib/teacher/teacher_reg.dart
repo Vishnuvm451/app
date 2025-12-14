@@ -1,8 +1,9 @@
 // teacher_register.dart
 
-import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
-// <-- CHANGE: path to your login page file — keep the import so "Login" navigates back.
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/login.dart';
 
 class TeacherRegisterPage extends StatefulWidget {
   const TeacherRegisterPage({super.key});
@@ -12,15 +13,16 @@ class TeacherRegisterPage extends StatefulWidget {
 }
 
 class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
-  // Text Controllers
+  // ---------------- CONTROLLERS ----------------
   final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  // Dropdown data
+  // ---------------- DROPDOWN ----------------
   final List<String> departments = ["Computer Science", "Physics", "BCom"];
-
   String? selectedDepartment;
+
+  bool isLoading = false;
 
   @override
   void dispose() {
@@ -30,6 +32,82 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     super.dispose();
   }
 
+  // ---------------- REGISTER TEACHER ----------------
+  Future<void> registerTeacher() async {
+    if (fullNameController.text.isEmpty ||
+        emailController.text.isEmpty ||
+        passwordController.text.isEmpty ||
+        selectedDepartment == null) {
+      _showDialog("Error", "Please fill all fields");
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      // 1️⃣ FIREBASE AUTH
+      UserCredential credential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: emailController.text.trim(),
+            password: passwordController.text.trim(),
+          );
+
+      // 2️⃣ FIRESTORE SAVE
+      await FirebaseFirestore.instance
+          .collection("teachers")
+          .doc(credential.user!.uid)
+          .set({
+            "uid": credential.user!.uid,
+            "name": fullNameController.text.trim(),
+            "email": emailController.text.trim(),
+            "department": selectedDepartment,
+            "role": "teacher",
+            "face_enabled": false,
+            "created_at": FieldValue.serverTimestamp(),
+          });
+
+      if (!mounted) return;
+
+      // 3️⃣ SUCCESS DIALOG (100% VISIBLE)
+      await _showDialog("Success", "User Registered Successfully");
+
+      if (!mounted) return;
+
+      // 4️⃣ NAVIGATE TO LOGIN
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _showDialog("Registration Failed", e.message ?? "Firebase error");
+    } catch (e) {
+      if (!mounted) return;
+      _showDialog("Error", e.toString());
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // ---------------- DIALOG HELPER ----------------
+  Future<void> _showDialog(String title, String message) {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     const Color primaryBlue = Color(0xFF2196F3);
@@ -42,7 +120,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                // APP TITLE
                 const SizedBox(height: 12),
                 const Text(
                   "SMART ATTENDANCE",
@@ -50,48 +127,33 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                     color: Colors.white,
                     fontSize: 34,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
                   ),
-                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 24),
 
-                // ICON CIRCLE (top logo)
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    // ignore: deprecated_member_use
                     color: Colors.white.withOpacity(0.18),
                   ),
                   child: const Icon(
-                    Icons.check_circle_outline,
+                    Icons.school_outlined,
                     size: 56,
                     color: Colors.white,
                   ),
                 ),
-
                 const SizedBox(height: 28),
 
-                // WHITE CARD CONTAINER
+                // WHITE CARD
                 Container(
-                  width: double.infinity,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(22),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 12,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
                   ),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // CARD TITLE
                       const Text(
                         "TEACHER REGISTRATION",
                         style: TextStyle(
@@ -99,10 +161,8 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       const SizedBox(height: 18),
 
-                      // Full Name
                       _buildTextField(
                         controller: fullNameController,
                         label: "Full Name",
@@ -110,7 +170,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       ),
                       const SizedBox(height: 14),
 
-                      // Email ID
                       _buildTextField(
                         controller: emailController,
                         label: "Email ID",
@@ -119,18 +178,13 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       ),
                       const SizedBox(height: 14),
 
-                      // Department Dropdown (Computer Science, Physics, BCom)
                       DropdownButtonFormField<String>(
-                        initialValue: selectedDepartment,
+                        value: selectedDepartment,
                         decoration: InputDecoration(
                           labelText: "Department",
                           prefixIcon: const Icon(Icons.apartment_outlined),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: primaryBlue),
                           ),
                         ),
                         items: departments
@@ -138,34 +192,23 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                               (d) => DropdownMenuItem(value: d, child: Text(d)),
                             )
                             .toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            selectedDepartment = value;
-                          });
-                        },
+                        onChanged: (value) =>
+                            setState(() => selectedDepartment = value),
                       ),
-
                       const SizedBox(height: 14),
 
-                      // Password
                       _buildTextField(
                         controller: passwordController,
                         label: "Password",
                         icon: Icons.lock_outline,
                         obscure: true,
                       ),
+                      const SizedBox(height: 22),
 
-                      const SizedBox(height: 20),
-
-                      // REGISTER BUTTON (UI only)
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: () {
-                            debugPrint(
-                              'Register teacher: ${fullNameController.text}, ${emailController.text}, dept=$selectedDepartment',
-                            );
-                          },
+                          onPressed: isLoading ? null : registerTeacher,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryBlue,
                             padding: const EdgeInsets.symmetric(vertical: 14),
@@ -173,30 +216,32 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                               borderRadius: BorderRadius.circular(30),
                             ),
                           ),
-                          child: const Text(
-                            "REGISTER",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          child: isLoading
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                              : const Text(
+                                  "REGISTER",
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                         ),
                       ),
 
                       const SizedBox(height: 14),
 
-                      // ALREADY HAVE ACCOUNT? navigates to LoginPage
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Text("Already have an account? "),
                           GestureDetector(
                             onTap: () {
-                              // NAVIGATION: opens your LoginPage
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const LoginPage(),
+                                  builder: (_) => const LoginPage(),
                                 ),
                               );
                             },
@@ -221,7 +266,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
-  // Text Field Builder (Reusable)
+  // ---------------- TEXT FIELD ----------------
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -237,14 +282,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         labelText: label,
         prefixIcon: Icon(icon),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF2196F3)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF1976D2), width: 2),
-        ),
       ),
     );
   }

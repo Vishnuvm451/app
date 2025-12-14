@@ -1,8 +1,9 @@
 import 'package:darzo/dashboard/admin_panel.dart';
-import 'package:flutter/material.dart';
-import 'package:darzo/dashboard/student_dashboard.dart';
+import 'package:darzo/dashboard/student_dashboard.dart'; // Ensure this exists
 import 'package:darzo/students/student_reg.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
+import 'package:flutter/material.dart';
 
 /// ===============================
 ///  ROOT APP
@@ -12,15 +13,7 @@ class LoginPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Smart Attendance',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: false,
-        primaryColor: const Color(0xFF2196F3),
-      ),
-      home: const SmartAttendanceScreen(),
-    );
+    return SmartAttendanceScreen();
   }
 }
 
@@ -47,7 +40,7 @@ class SmartAttendanceScreen extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => AdminDashboardPage()),
                 );
               },
-              icon: Icon(Icons.admin_panel_settings_outlined, size: 50),
+              icon: const Icon(Icons.admin_panel_settings_outlined, size: 50),
             ),
           ),
         ],
@@ -72,6 +65,8 @@ class SmartAttendanceScreen extends StatelessWidget {
   }
 }
 
+//
+
 /// ===============================
 ///  HEADER: TIME + TITLE + LOGO
 /// ===============================
@@ -84,22 +79,6 @@ class HeaderSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         const SizedBox(height: 16),
-
-        // demo test start
-        Center(
-          child: ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => StudentDashboardPage()),
-              );
-            },
-            child: Text("Button"),
-          ),
-        ),
-
-        // demo test end
-        // Title text
         const Text(
           'DARZO',
           textAlign: TextAlign.center,
@@ -111,13 +90,10 @@ class HeaderSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-
-        // Logo (simple circular icon)
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            // ignore: deprecated_member_use
             color: Colors.white.withOpacity(0.18),
           ),
           child: const Icon(Icons.access_time, size: 56, color: Colors.white),
@@ -128,7 +104,7 @@ class HeaderSection extends StatelessWidget {
 }
 
 /// ===============================
-///  LOGIN CARD (WHITE ROUNDED BOX)
+///  LOGIN CARD (LOGIC + UI)
 /// ===============================
 class LoginCard extends StatefulWidget {
   const LoginCard({super.key});
@@ -138,18 +114,86 @@ class LoginCard extends StatefulWidget {
 }
 
 class _LoginCardState extends State<LoginCard> {
-  /// true  = Student login selected
-  /// false = Teacher login selected
   bool isStudentSelected = true;
+  bool _isLoading = false; // To show loading spinner
 
-  final TextEditingController _idController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
   @override
   void dispose() {
-    _idController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  // --- FIREBASE LOGIN FUNCTION ---
+  Future<void> _handleLogin() async {
+    // 1. Basic Validation
+    if (_emailController.text.trim().isEmpty ||
+        _passwordController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter Email and Password')),
+      );
+      return;
+    }
+
+    // 2. Start Loading
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 3. Attempt Firebase Sign In
+      // NOTE: Firebase Auth works with Emails. If your Teacher ID is not an email,
+      // you must append a domain (e.g., id + "@school.com") before sending it here.
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      // 4. Navigate on Success
+      if (mounted) {
+        // Here you would typically check Firestore to verify if the user is actually
+        // a Student or Teacher. For now, we route based on the toggle.
+        if (isStudentSelected) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
+          );
+        } else {
+          // Replace with TeacherDashboard when you have the file
+          // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const TeacherDashboard()));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Logged in as Teacher (Dashboard not linked)'),
+            ),
+          );
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      // 5. Handle Firebase Errors
+      String message = 'An error occurred';
+      if (e.code == 'user-not-found') {
+        message = 'No user found for that email.';
+      } else if (e.code == 'wrong-password') {
+        message = 'Wrong password provided.';
+      } else {
+        message = e.message ?? message;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      // 6. Stop Loading
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -172,46 +216,19 @@ class _LoginCardState extends State<LoginCard> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          /// ---------------------------
-          /// TOGGLE: STUDENT / TEACHER
-          /// ---------------------------
           LoginToggle(
             isStudentSelected: isStudentSelected,
-            onStudentTap: () {
-              setState(() {
-                isStudentSelected = true;
-              });
-            },
-            onTeacherTap: () {
-              setState(() {
-                isStudentSelected = false;
-              });
-            },
+            onStudentTap: () => setState(() => isStudentSelected = true),
+            onTeacherTap: () => setState(() => isStudentSelected = false),
           ),
-
           const SizedBox(height: 24),
-
-          /// ---------------------------
-          /// LOGIN FORM
-          /// ---------------------------
           LoginForm(
             isStudentSelected: isStudentSelected,
-            idController: _idController,
+            isLoading: _isLoading, // Pass loading state
+            idController: _emailController,
             passwordController: _passwordController,
-            onLoginPressed: () {
-              // For now just print. Replace with your logic.
-              debugPrint(
-                'Login as ${isStudentSelected ? "Student" : "Teacher"}',
-              );
-              debugPrint('ID: ${_idController.text}');
-              debugPrint('Password: ${_passwordController.text}');
-            },
-            onForgotPassword: () {
-              debugPrint('Forgot password tapped');
-            },
-            onRegisterNow: () {
-              debugPrint('Register now tapped');
-            },
+            onLoginPressed: _handleLogin, // Call the async login function
+            onForgotPassword: () {},
           ),
         ],
       ),
@@ -220,8 +237,150 @@ class _LoginCardState extends State<LoginCard> {
 }
 
 /// ===============================
+///  LOGIN FORM WIDGET
+/// ===============================
+class LoginForm extends StatelessWidget {
+  final bool isStudentSelected;
+  final bool isLoading; // Added to handle UI state
+  final TextEditingController idController;
+  final TextEditingController passwordController;
+  final VoidCallback onLoginPressed;
+  final VoidCallback onForgotPassword;
+
+  const LoginForm({
+    super.key,
+    required this.isStudentSelected,
+    required this.isLoading,
+    required this.idController,
+    required this.passwordController,
+    required this.onLoginPressed,
+    required this.onForgotPassword,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const Color primaryBlue = SmartAttendanceScreen.primaryBlue;
+
+    return Column(
+      children: [
+        // EMAIL FIELD
+        TextField(
+          controller: idController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: InputDecoration(
+            labelText: isStudentSelected ? 'Student Email' : 'Teacher Email',
+            prefixIcon: Icon(
+              isStudentSelected ? Icons.school : Icons.person_outline,
+            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: primaryBlue),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // PASSWORD FIELD
+        TextField(
+          controller: passwordController,
+          obscureText: true,
+          decoration: InputDecoration(
+            labelText: 'Password',
+            prefixIcon: const Icon(Icons.lock_outline),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            enabledBorder: const OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+              borderSide: BorderSide(color: primaryBlue),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // LOGIN BUTTON (WITH LOADING STATE)
+        SizedBox(
+          width: double.infinity,
+          height: 50, // Fixed height to prevent resizing on spinner
+          child: ElevatedButton(
+            onPressed: isLoading ? null : onLoginPressed,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryBlue,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(30),
+              ),
+            ),
+            child: isLoading
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Text(
+                    'LOGIN',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+          ),
+        ),
+
+        TextButton(
+          onPressed: onForgotPassword,
+          child: Text(
+            'Forgot Password?',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Divider(color: Colors.grey.shade300, thickness: 1),
+        ),
+
+        // REGISTRATION BUTTONS
+        _buildRegisterButton(
+          context,
+          'REGISTER AS STUDENT',
+          const StudentRegisterPage(),
+        ),
+        const SizedBox(height: 12),
+        _buildRegisterButton(
+          context,
+          'REGISTER AS TEACHER',
+          const TeacherRegisterPage(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRegisterButton(BuildContext context, String text, Widget page) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => page),
+          );
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: SmartAttendanceScreen.primaryBlue,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+}
+
+/// ===============================
 ///  LOGIN TOGGLE WIDGET
-///  (STUDENT LOGIN / TEACHER LOGIN)
 /// ===============================
 class LoginToggle extends StatelessWidget {
   final bool isStudentSelected;
@@ -247,224 +406,49 @@ class LoginToggle extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // STUDENT TAB
-          Expanded(
-            child: GestureDetector(
-              onTap: onStudentTap,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: isStudentSelected ? primaryBlue : Colors.transparent,
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'STUDENT LOGIN',
-                  style: TextStyle(
-                    color: isStudentSelected
-                        ? Colors.white
-                        : Colors.grey.shade700,
-                    fontSize: 12,
-                    fontWeight: isStudentSelected
-                        ? FontWeight.bold
-                        : FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
+          _buildToggleOption(
+            "STUDENT LOGIN",
+            isStudentSelected,
+            onStudentTap,
+            primaryBlue,
           ),
-
-          // TEACHER TAB
-          Expanded(
-            child: GestureDetector(
-              onTap: onTeacherTap,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: !isStudentSelected ? primaryBlue : Colors.transparent,
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'TEACHER LOGIN',
-                  style: TextStyle(
-                    color: !isStudentSelected
-                        ? Colors.white
-                        : Colors.grey.shade700,
-                    fontSize: 12,
-                    fontWeight: !isStudentSelected
-                        ? FontWeight.bold
-                        : FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
+          _buildToggleOption(
+            "TEACHER LOGIN",
+            !isStudentSelected,
+            onTeacherTap,
+            primaryBlue,
           ),
         ],
       ),
     );
   }
-}
 
-/// ===============================
-///  LOGIN FORM WIDGET
-///  (TEXTFIELDS + BUTTONS)
-/// ===============================
-class LoginForm extends StatelessWidget {
-  final bool isStudentSelected;
-  final TextEditingController idController;
-  final TextEditingController passwordController;
-  final VoidCallback onLoginPressed;
-  final VoidCallback onForgotPassword;
-  final VoidCallback onRegisterNow;
-
-  const LoginForm({
-    super.key,
-    required this.isStudentSelected,
-    required this.idController,
-    required this.passwordController,
-    required this.onLoginPressed,
-    required this.onForgotPassword,
-    required this.onRegisterNow,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const Color primaryBlue = SmartAttendanceScreen.primaryBlue;
-
-    return Column(
-      children: [
-        /// ID FIELD (Student ID / Teacher ID based on toggle)
-        TextField(
-          controller: idController,
-          decoration: InputDecoration(
-            labelText: isStudentSelected ? 'Email ID' : 'Teacher ID',
-            prefixIcon: Icon(
-              isStudentSelected ? Icons.school : Icons.person_outline,
-            ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: primaryBlue),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF1976D2), width: 2),
-            ),
+  Widget _buildToggleOption(
+    String title,
+    bool isSelected,
+    VoidCallback onTap,
+    Color activeColor,
+  ) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? activeColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(30),
           ),
-        ),
-
-        const SizedBox(height: 16),
-
-        /// PASSWORD FIELD
-        TextField(
-          controller: passwordController,
-          obscureText: true,
-          decoration: InputDecoration(
-            labelText: 'Password',
-            prefixIcon: const Icon(Icons.lock_outline),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            enabledBorder: const OutlineInputBorder(
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-              borderSide: BorderSide(color: primaryBlue),
-            ),
-            focusedBorder: const OutlineInputBorder(
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-              borderSide: BorderSide(color: Color(0xFF1976D2), width: 2),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        /// LOGIN BUTTON
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: onLoginPressed,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryBlue,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
-              ),
-            ),
-            child: const Text(
-              'LOGIN',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-
-        /// FORGOT PASSWORD
-        TextButton(
-          onPressed: onForgotPassword,
+          alignment: Alignment.center,
           child: Text(
-            'Forgot Password?',
-            style: TextStyle(color: Colors.grey.shade600),
-          ),
-        ),
-
-        /// DIVIDER
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Divider(color: Colors.grey.shade300, thickness: 1),
-        ),
-
-        /// REGISTER AS STUDENT BUTTON
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const StudentRegisterPage(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryBlue,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
-              ),
-            ),
-            child: const Text(
-              'REGISTER AS STUDENT',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            title,
+            style: TextStyle(
+              color: isSelected ? Colors.white : Colors.grey.shade700,
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
             ),
           ),
         ),
-
-        const SizedBox(height: 12),
-
-        // REGISTER AS TEACHER BUTTON
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const TeacherRegisterPage(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryBlue,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
-              ),
-            ),
-            child: const Text(
-              'REGISTER AS TEACHER',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
