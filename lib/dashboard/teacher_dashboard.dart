@@ -1,5 +1,5 @@
 import 'package:darzo/login.dart';
-import 'package:darzo/students/student_list.dart';
+import 'package:darzo/students/students.dart';
 import 'package:darzo/teacher/internal_mark.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/teacher/attendance.dart';

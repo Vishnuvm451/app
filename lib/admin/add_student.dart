@@ -11,7 +11,7 @@ class AddStudentPage extends StatefulWidget {
 class _AddStudentPageState extends State<AddStudentPage> {
   final admissionController = TextEditingController();
   final nameController = TextEditingController();
-
+  final rollno = TextEditingController(); // extra add
   String? department;
   String? year;
 
@@ -48,8 +48,9 @@ class _AddStudentPageState extends State<AddStudentPage> {
 
       // ✅ CREATE ONLY IF NOT EXISTS
       await docRef.set({
-        "admission_no": admissionNo,
+        "rollno": rollno, // extra add
         "name": nameController.text.trim(),
+        "admission_no": admissionNo,
         "department": department,
         "year": year,
         "is_registered": false,
@@ -111,16 +112,22 @@ class _AddStudentPageState extends State<AddStudentPage> {
                 const SizedBox(height: 20),
 
                 _inputField(
-                  controller: admissionController,
-                  label: "Admission Number",
-                  icon: Icons.badge_outlined,
+                  controller: nameController,
+                  label: "Roll No",
+                  icon: Icons.numbers,
                 ),
-                const SizedBox(height: 14),
-
                 _inputField(
                   controller: nameController,
                   label: "Student Name",
                   icon: Icons.person_outline,
+                ),
+
+                const SizedBox(height: 14),
+
+                _inputField(
+                  controller: admissionController,
+                  label: "Admission Number",
+                  icon: Icons.badge_outlined,
                 ),
                 const SizedBox(height: 14),
 
