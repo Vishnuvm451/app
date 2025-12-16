@@ -1,193 +1,108 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-class StudentStudentsListPage extends StatelessWidget {
+class StudentStudentsListPage extends StatefulWidget {
   const StudentStudentsListPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final String uid = FirebaseAuth.instance.currentUser!.uid;
+  State<StudentStudentsListPage> createState() =>
+      _StudentStudentsListPageState();
+}
 
+class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  String? department;
+  String? year;
+
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMyClass();
+  }
+
+  // --------------------------------------------------
+  // FETCH LOGGED-IN STUDENT CLASS
+  // --------------------------------------------------
+  Future<void> _loadMyClass() async {
+    final uid = _auth.currentUser!.uid;
+
+    final doc = await _firestore.collection("students").doc(uid).get();
+
+    if (!doc.exists) return;
+
+    setState(() {
+      department = doc["department"];
+      year = doc["year"];
+      isLoading = false;
+    });
+  }
+
+  // --------------------------------------------------
+  // FETCH STUDENTS FROM SAME CLASS
+  // --------------------------------------------------
+  Stream<QuerySnapshot> _studentsStream() {
+    return _firestore
+        .collection("students")
+        .where("department", isEqualTo: department)
+        .where("year", isEqualTo: year)
+        .orderBy("admission_no")
+        .snapshots();
+  }
+
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text("My Class Students"),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: Colors.blue.shade800,
       ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : StreamBuilder<QuerySnapshot>(
+              stream: _studentsStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-      // --------------------------------------------------
-      // STEP 1: Get logged-in student's admission number
-      // --------------------------------------------------
-      body: FutureBuilder<DocumentSnapshot>(
-        future: FirebaseFirestore.instance
-            .collection("students")
-            .doc(uid)
-            .get(),
-        builder: (context, studentSnap) {
-          if (studentSnap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(child: Text("No students found"));
+                }
 
-          if (!studentSnap.hasData || !studentSnap.data!.exists) {
-            return const Center(child: Text("Student profile not found"));
-          }
+                final students = snapshot.data!.docs;
 
-          final String admissionNo =
-              (studentSnap.data!.data()
-                  as Map<String, dynamic>)['admission_no'];
+                return ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: students.length,
+                  itemBuilder: (context, index) {
+                    final data = students[index].data() as Map<String, dynamic>;
 
-          // --------------------------------------------------
-          // STEP 2: Get class from ADMIN data
-          // --------------------------------------------------
-          return FutureBuilder<DocumentSnapshot>(
-            future: FirebaseFirestore.instance
-                .collection("student_master")
-                .doc(admissionNo)
-                .get(),
-            builder: (context, masterSnap) {
-              if (masterSnap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (!masterSnap.hasData || !masterSnap.data!.exists) {
-                return const Center(
-                  child: Text("Admin student record not found"),
-                );
-              }
-
-              final masterData =
-                  masterSnap.data!.data() as Map<String, dynamic>;
-
-              final String department = masterData['department'];
-              final String year = masterData['year'];
-
-              // --------------------------------------------------
-              // STEP 3: Fetch classmates from ADMIN records
-              // --------------------------------------------------
-              return StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection("student_master")
-                    .where("department", isEqualTo: department)
-                    .where("year", isEqualTo: year)
-                    .orderBy("roll_no")
-                    .snapshots(),
-                builder: (context, classSnap) {
-                  if (classSnap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (!classSnap.hasData || classSnap.data!.docs.isEmpty) {
-                    return const Center(child: Text("No students found"));
-                  }
-
-                  final classmates = classSnap.data!.docs
-                      .where((doc) => doc.id != admissionNo)
-                      .toList();
-
-                  if (classmates.isEmpty) {
-                    return const Center(
-                      child: Text("You are the only student in this class"),
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          child: Text(
+                            data["admission_no"].toString().substring(
+                              data["admission_no"].length - 2,
+                            ),
+                          ),
+                        ),
+                        title: Text(data["name"]),
+                        subtitle: Text("Admission No: ${data["admission_no"]}"),
+                      ),
                     );
-                  }
-
-                  // --------------------------------------------------
-                  // STEP 4: Display list
-                  // --------------------------------------------------
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: classmates.length,
-                    itemBuilder: (context, index) {
-                      final data =
-                          classmates[index].data() as Map<String, dynamic>;
-
-                      return _StudentTile(data: data);
-                    },
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ======================================================
-// STUDENT LIST TILE
-// ======================================================
-class _StudentTile extends StatelessWidget {
-  final Map<String, dynamic> data;
-
-  const _StudentTile({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    final String admissionNo = data['admission_no'];
-    final int rollNo = data['roll_no'];
-    final String name = data['name'];
-
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection("attendance_summary")
-          .doc(admissionNo)
-          .get(),
-      builder: (context, snap) {
-        double attendancePercent = 0;
-        bool hasData = false;
-
-        if (snap.hasData && snap.data!.exists) {
-          final att = snap.data!.data() as Map<String, dynamic>;
-          final int present = att['present_periods'] ?? 0;
-          final int total = att['total_periods'] ?? 0;
-
-          if (total > 0) {
-            attendancePercent = (present / total) * 100;
-            hasData = true;
-          }
-        }
-
-        final Color attColor = attendancePercent >= 75
-            ? Colors.green
-            : Colors.red;
-
-        return Card(
-          elevation: 2,
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Roll No : $rollNo",
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text("Admission No : $admissionNo"),
-                const SizedBox(height: 6),
-                Text(
-                  hasData
-                      ? "Attendance : ${attendancePercent.toStringAsFixed(1)} %"
-                      : "Attendance : --",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: hasData ? attColor : Colors.grey,
-                  ),
-                ),
-              ],
+                  },
+                );
+              },
             ),
-          ),
-        );
-      },
     );
   }
 }
