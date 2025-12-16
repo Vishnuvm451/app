@@ -1,7 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:darzo/services/location_service.dart';
+import 'package:geolocator/geolocator.dart';
 
+// 🔥 Backend (Python / Cloud Function logic)
+
+/*
+
+def verify_location(student_lat, student_lng):
+    college_lat = 10.766056
+    college_lng = 76.406194
+    allowed_radius = 120  # meters
+
+    distance = haversine_distance(
+        student_lat, student_lng,
+        college_lat, college_lng
+    )
+
+    return distance <= allowed_radius
+
+
+*/
 class MarkAttendancePage extends StatefulWidget {
   const MarkAttendancePage({super.key});
 
@@ -43,25 +63,37 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     checkAttendance();
   }
 
-  // MARK ATTENDANCE (FACE / API HOOK)
   Future<void> markAttendance() async {
     if (alreadyMarked) return;
 
     setState(() => isLoading = true);
 
     try {
-      final uid = _auth.currentUser!.uid;
+      // 1️⃣ GET LOCATION
+      Position position = await LocationService.getCurrentLocation();
 
-      // 🔥 FACE RECOGNITION API HOOK (FUTURE)
+      final bool insideCampus = LocationService.isInsideCampus(
+        studentLat: position.latitude,
+        studentLng: position.longitude,
+      );
+
+      if (!insideCampus) {
+        _snack("You are outside college campus");
+        return;
+      }
+
+      // 2️⃣ FACE API HOOK (TEMP MOCK)
+      bool faceVerified = true;
       // bool faceVerified = await FaceApi.verify(uid);
-      bool faceVerified = true; // TEMP MOCK
 
       if (!faceVerified) {
         _snack("Face verification failed");
         return;
       }
 
-      // 🔥 FIRESTORE WRITE
+      final uid = _auth.currentUser!.uid;
+
+      // 3️⃣ SAVE ATTENDANCE
       await _firestore
           .collection("attendance")
           .doc(uid)
@@ -70,14 +102,16 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
           .set({
             "value": 1,
             "markedBy": "face",
+            "latitude": position.latitude,
+            "longitude": position.longitude,
+            "locationVerified": true,
             "markedAt": FieldValue.serverTimestamp(),
           });
 
       setState(() => alreadyMarked = true);
-
       _snack("Attendance marked successfully");
     } catch (e) {
-      _snack("Something went wrong");
+      _snack(e.toString());
     } finally {
       if (mounted) setState(() => isLoading = false);
     }

@@ -4,6 +4,7 @@ import 'package:darzo/dashboard/student_dashboard.dart'; // Ensure this exists
 import 'package:darzo/dashboard/teacher_dashboard.dart';
 import 'package:darzo/students/student_reg.dart';
 import 'package:darzo/teacher/teacher_reg.dart';
+import 'package:darzo/teacher/teacher_setup_page.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
 import 'package:flutter/material.dart';
 import 'admin/admin_login.dart';
@@ -170,10 +171,24 @@ class _LoginCardState extends State<LoginCard> {
           MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
         );
       } else if (role == "teacher") {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
-        );
+        final teacherDoc = await FirebaseFirestore.instance
+            .collection("teachers")
+            .doc(uid)
+            .get();
+
+        final setupDone = teacherDoc.data()?["setupCompleted"] ?? false;
+
+        if (setupDone) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
+          );
+        }
       } else if (role == "admin") {
         Navigator.pushReplacement(
           context,

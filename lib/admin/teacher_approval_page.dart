@@ -75,9 +75,7 @@ class TeacherApprovalPage extends StatelessWidget {
     );
   }
 
-  // --------------------------------------------------
   // DENY TEACHER REQUEST
-  // --------------------------------------------------
   Future<void> _denyTeacher({
     required BuildContext context,
     required String requestId,
@@ -133,7 +131,8 @@ class TeacherApprovalPage extends StatelessWidget {
         "uid": uid,
         "name": data['name'],
         "email": data['email'],
-        "department": data['department'],
+        "setupCompleted": false,
+        "assignments": [],
         "created_at": FieldValue.serverTimestamp(),
       });
 

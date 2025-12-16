@@ -37,6 +37,8 @@ dependencies:
   table_calendar: ^3.0.9
   pie_chart: ^5.4.0
   cupertino_icons: ^1.0.8
+  geolocator: ^10.1.0
+
 
 dev_dependencies:
   flutter_test:
