@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart'; // Required for the Admin fix
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -14,7 +15,6 @@ class TeacherApprovalPage extends StatelessWidget {
             .collection("teacher_requests")
             .where("status", isEqualTo: "pending")
             .snapshots(),
-
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -89,13 +89,17 @@ class TeacherApprovalPage extends StatelessWidget {
             "rejected_at": FieldValue.serverTimestamp(),
           });
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Teacher request rejected")));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Teacher request rejected")),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
     }
   }
 
@@ -107,12 +111,22 @@ class TeacherApprovalPage extends StatelessWidget {
     required String requestId,
     required Map<String, dynamic> data,
   }) async {
+    // We use a secondary app instance to prevent Admin logout
+    FirebaseApp? tempApp;
+
     try {
-      // 1️⃣ CREATE AUTH USER
-      UserCredential cred = await FirebaseAuth.instance
+      // 0️⃣ INITIALIZE TEMP APP
+      tempApp = await Firebase.initializeApp(
+        name: 'TemporaryRegisterApp',
+        options: Firebase.app().options,
+      );
+
+      // 1️⃣ CREATE AUTH USER (Using the teacher's password from registration)
+      UserCredential cred = await FirebaseAuth.instanceFor(app: tempApp)
           .createUserWithEmailAndPassword(
             email: data['email'],
-            password: "teacher@123", // TEMP password (change later)
+            // Use the password they typed during registration, or fallback to default
+            password: data['password'] ?? "teacher@123",
           );
 
       final String uid = cred.user!.uid;
@@ -131,6 +145,7 @@ class TeacherApprovalPage extends StatelessWidget {
         "uid": uid,
         "name": data['name'],
         "email": data['email'],
+        "department": data['department'],
         "setupCompleted": false,
         "assignments": [],
         "created_at": FieldValue.serverTimestamp(),
@@ -147,21 +162,30 @@ class TeacherApprovalPage extends StatelessWidget {
           });
 
       // 5️⃣ SUCCESS MESSAGE
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Teacher approved successfully.\nLogin credentials created.",
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Teacher approved successfully.\nLogin credentials created.",
+            ),
           ),
-        ),
-      );
+        );
+      }
     } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Auth error: ${e.message}")));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Auth error: ${e.message}")));
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    } finally {
+      // 6️⃣ CLEANUP TEMP APP
+      await tempApp?.delete();
     }
   }
 }
