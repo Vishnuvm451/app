@@ -4,9 +4,7 @@ import 'package:darzo/teacher/internal_mark.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/teacher/attendance.dart';
 
-// ======================================================
 // TEACHER DASHBOARD PAGE
-// ======================================================
 class TeacherDashboardPage extends StatefulWidget {
   const TeacherDashboardPage({super.key});
 
@@ -16,18 +14,14 @@ class TeacherDashboardPage extends StatefulWidget {
 
 class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   final ScrollController _scrollController = ScrollController();
-  // --------------------------------------------------
   // REMINDER DATA
   // NOTE: String-only map to avoid type errors
-  // --------------------------------------------------
   final List<Map<String, String>> reminders = [
     {"title": "Conduct Internal Exam ", "subtitle": "Next Monday"},
     {"title": "Record Correction", "subtitle": "This Friday"},
   ];
 
-  // --------------------------------------------------
   // MAIN BUILD
-  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -61,9 +55,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // ======================================================
   // HEADER
-  // ======================================================
   Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -81,7 +73,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             ),
             SizedBox(height: 4),
             Text(
-              "Department: Computer Science",
+              "Department: Department",
               style: TextStyle(color: Colors.white, fontSize: 16),
             ),
           ],
@@ -103,9 +95,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // ======================================================
   // QUICK ACTIONS
-  // ======================================================
 
   Widget _buildQuickActions() {
     return Container(
@@ -179,9 +169,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // --------------------------------------------------
   // SINGLE ACTION CARD
-  // --------------------------------------------------
   Widget _actionCard({
     required BuildContext context,
     required IconData icon,
@@ -213,12 +201,10 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // ======================================================
   // REMINDERS / TO-DO LIST
   // Checkbox = auto delete
   // Swipe = delete
   // Editable text
-  // ======================================================
   Widget _buildReminderSection() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -313,9 +299,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // ======================================================
   // ADD NEW REMINDER
-  // ======================================================
   void _addReminder() {
     setState(() {
       reminders.add({"title": "New Task", "subtitle": "Subject/Deadline"});
