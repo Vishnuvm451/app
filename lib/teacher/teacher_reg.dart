@@ -32,9 +32,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     super.dispose();
   }
 
-  // ======================================================
   // REGISTER TEACHER (AFTER ADMIN APPROVAL)
-  // ======================================================
   Future<void> registerTeacher() async {
     if (fullNameController.text.isEmpty ||
         emailController.text.isEmpty ||
@@ -56,7 +54,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
           .limit(1)
           .get();
 
-      // 🟡 FIRST TIME → CREATE REQUEST
+      //  FIRST TIME → CREATE REQUEST
       if (requestQuery.docs.isEmpty) {
         await FirebaseFirestore.instance.collection("teacher_requests").add({
           "name": fullNameController.text.trim(),
@@ -76,7 +74,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       final requestDoc = requestQuery.docs.first;
       final status = requestDoc['status'];
 
-      // 🟠 PENDING
+      //  PENDING
       if (status == "pending") {
         _showDialog(
           "Pending Approval",
