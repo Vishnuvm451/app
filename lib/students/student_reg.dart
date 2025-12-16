@@ -1,6 +1,5 @@
 import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
-
 // 🔥 Firebase imports
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,17 +12,13 @@ class StudentRegisterPage extends StatefulWidget {
 }
 
 class _StudentRegisterPageState extends State<StudentRegisterPage> {
-  // -------------------------------
   // TEXT CONTROLLERS
-  // -------------------------------
   final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController admissionController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  // -------------------------------
   // DROPDOWN VALUES
-  // -------------------------------
   String? selectedDepartment;
   String? selectedYear;
 
@@ -42,9 +37,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     return deptToYears[selectedDepartment!] ?? [];
   }
 
-  // -------------------------------
   // 🔥 FIREBASE REGISTRATION LOGIC
-  // -------------------------------
   Future<void> registerStudent() async {
     // BASIC VALIDATION
     if (fullNameController.text.trim().isEmpty ||
@@ -132,9 +125,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     }
   }
 
-  // -------------------------------
   // UI
-  // -------------------------------
   @override
   Widget build(BuildContext context) {
     const Color primaryBlue = Color(0xFF2196F3);
@@ -300,9 +291,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // -------------------------------
   // REUSABLE WIDGETS
-  // -------------------------------
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -341,9 +330,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // -------------------------------
   // CLEANUP
-  // -------------------------------
   @override
   void dispose() {
     fullNameController.dispose();
