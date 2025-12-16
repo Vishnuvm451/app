@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:darzo/admin/add_student.dart';
 import 'package:darzo/admin/teacher_approval_page.dart';
 import 'package:darzo/login.dart';
 
@@ -36,7 +35,7 @@ class AdminDashboardPage extends StatelessWidget {
             // 1
             _adminCard(
               Icons.people,
-              "Manage Teachers",
+              "Approve Teachers",
               context,
               onTap: () {
                 Navigator.push(
@@ -52,18 +51,16 @@ class AdminDashboardPage extends StatelessWidget {
             // 3
             _adminCard(
               Icons.school,
-              "Add Students",
+              "View Students",
               context,
               onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AddStudentPage()),
-                );
+                // Navigator.push(
+                //   context,
+                //   MaterialPageRoute(builder: (_) => ()),
+                //);
               },
             ),
             // 4
-            _adminCard(Icons.person, "View Students", context),
-            // 5
             _adminCard(Icons.settings, "Settings", context),
           ],
         ),
