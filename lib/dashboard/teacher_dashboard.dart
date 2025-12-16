@@ -1,6 +1,7 @@
 import 'package:darzo/login.dart';
 import 'package:darzo/students/students.dart';
 import 'package:darzo/teacher/internal_mark.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/teacher/attendance.dart';
 
@@ -30,8 +31,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pop(context);
+          onPressed: () async {
+            await FirebaseAuth.instance.signOut();
+            if (context.mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+              );
+            }
           },
         ),
       ),
