@@ -1,7 +1,7 @@
-import 'package:darzo/dashboard/teacher_dashboard.dart';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/dashboard/teacher_dashboard.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
 class TeacherSetupPage extends StatefulWidget {
   const TeacherSetupPage({super.key});
@@ -11,169 +11,203 @@ class TeacherSetupPage extends StatefulWidget {
 }
 
 class _TeacherSetupPageState extends State<TeacherSetupPage> {
-  final List<Map<String, String>> assignments = [];
+  // ---------------------------------------------------
+  // DATA: Hardcoded lists for now (You can fetch these later)
+  // ---------------------------------------------------
+  final List<String> availableClasses = [
+    "BSc CS - Year 1",
+    "BSc CS - Year 2",
+    "BSc CS - Year 3",
+    "BSc Physics - Year 1",
+    "BCom - Year 1",
+  ];
 
-  String? department;
-  String? selectedClass;
-  String? subject;
+  final List<String> availableSubjects = [
+    "Java Programming",
+    "Data Structures",
+    "Web Development",
+    "Digital Electronics",
+    "Mathematics",
+    "Physics I",
+    "Accounting",
+  ];
 
-  bool isSaving = false;
+  // ---------------------------------------------------
+  // STATE: What the teacher has selected
+  // ---------------------------------------------------
+  final List<String> selectedClasses = [];
+  final List<String> selectedSubjects = [];
+  bool isLoading = false;
 
-  final departments = ["Computer Science", "Physics", "BCom"];
-  final classes = {
-    "Computer Science": ["CS1", "CS2", "CS3"],
-    "Physics": ["PHY1", "PHY2"],
-    "BCom": ["BCOM1", "BCOM2"],
-  };
+  // ---------------------------------------------------
+  // LOGIC: Save choices & complete profile
+  // ---------------------------------------------------
+  Future<void> _saveProfile() async {
+    if (selectedClasses.isEmpty || selectedSubjects.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select at least 1 Class and 1 Subject"),
+        ),
+      );
+      return;
+    }
 
-  final subjects = ["OS", "CN", "DBMS", "Maths", "Physics"];
+    setState(() => isLoading = true);
 
-  // --------------------------------------------------
-  // ADD ASSIGNMENT
-  // --------------------------------------------------
-  void addAssignment() {
-    if (department == null || selectedClass == null || subject == null) return;
+    try {
+      final uid = FirebaseAuth.instance.currentUser!.uid;
 
-    assignments.add({
-      "department": department!,
-      "class": selectedClass!,
-      "subject": subject!,
-    });
+      // 1. Update TEACHER details
+      await FirebaseFirestore.instance.collection('teachers').doc(uid).update({
+        'classes': selectedClasses,
+        'subjects': selectedSubjects,
+        'setupCompleted': true,
+      });
 
+      // 2. Update USER profile (so they don't see this page again)
+      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+        'profile_completed': true,
+      });
+
+      if (mounted) {
+        // 3. Go to Dashboard
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error saving profile: $e")));
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // ---------------------------------------------------
+  // HELPER: Toggle Selection
+  // ---------------------------------------------------
+  void _onClassChanged(bool? selected, String className) {
     setState(() {
-      department = null;
-      selectedClass = null;
-      subject = null;
+      selected == true
+          ? selectedClasses.add(className)
+          : selectedClasses.remove(className);
     });
   }
 
-  // --------------------------------------------------
-  // SAVE TO FIRESTORE (ONE TIME)
-  // --------------------------------------------------
-  Future<void> saveSetup() async {
-    if (assignments.isEmpty) return;
-
-    setState(() => isSaving = true);
-
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-
-    await FirebaseFirestore.instance.collection("teachers").doc(uid).update({
-      "assignments": assignments,
-      "setupCompleted": true,
+  void _onSubjectChanged(bool? selected, String subjectName) {
+    setState(() {
+      selected == true
+          ? selectedSubjects.add(subjectName)
+          : selectedSubjects.remove(subjectName);
     });
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
-    );
   }
 
-  // --------------------------------------------------
+  // ===================================================
   // UI
-  // --------------------------------------------------
+  // ===================================================
   @override
   Widget build(BuildContext context) {
+    const Color primaryBlue = Color(0xFF2196F3);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Teacher Setup"),
-        backgroundColor: Colors.blue.shade800,
+        backgroundColor: primaryBlue,
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Assign Classes & Subjects",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-
-            const SizedBox(height: 16),
-
-            _dropdown(
-              label: "Department",
-              value: department,
-              items: departments,
-              onChanged: (v) {
-                setState(() {
-                  department = v;
-                  selectedClass = null;
-                });
-              },
-            ),
-
-            const SizedBox(height: 12),
-
-            _dropdown(
-              label: "Class",
-              value: selectedClass,
-              items: department == null ? [] : classes[department]!,
-              onChanged: (v) => setState(() => selectedClass = v),
-            ),
-
-            const SizedBox(height: 12),
-
-            _dropdown(
-              label: "Subject",
-              value: subject,
-              items: subjects,
-              onChanged: (v) => setState(() => subject = v),
-            ),
-
-            const SizedBox(height: 16),
-
-            ElevatedButton(
-              onPressed: addAssignment,
-              child: const Text("Add Assignment"),
-            ),
-
-            const SizedBox(height: 20),
-
-            // ASSIGNMENT LIST
-            ...assignments.map(
-              (a) => ListTile(
-                title: Text("${a["subject"]}"),
-                subtitle: Text("${a["department"]} - ${a["class"]}"),
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: isSaving ? null : saveSetup,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade800,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: isSaving
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        "SAVE & CONTINUE",
-                        style: TextStyle(fontSize: 16),
+      body: SafeArea(
+        child: isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Welcome, Teacher!",
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
                       ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "Please select the classes and subjects you will be teaching.",
+                      style: TextStyle(fontSize: 16, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 24),
 
-  Widget _dropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required Function(String?) onChanged,
-  }) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      decoration: InputDecoration(labelText: label),
-      items: items
-          .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-          .toList(),
-      onChanged: onChanged,
+                    // --- CLASSES SECTION ---
+                    const Text(
+                      "Select Classes",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: primaryBlue,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ...availableClasses.map(
+                      (cls) => CheckboxListTile(
+                        title: Text(cls),
+                        value: selectedClasses.contains(cls),
+                        activeColor: primaryBlue,
+                        onChanged: (val) => _onClassChanged(val, cls),
+                      ),
+                    ),
+
+                    const Divider(height: 40, thickness: 1),
+
+                    // --- SUBJECTS SECTION ---
+                    const Text(
+                      "Select Subjects",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: primaryBlue,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ...availableSubjects.map(
+                      (sub) => CheckboxListTile(
+                        title: Text(sub),
+                        value: selectedSubjects.contains(sub),
+                        activeColor: primaryBlue,
+                        onChanged: (val) => _onSubjectChanged(val, sub),
+                      ),
+                    ),
+
+                    const SizedBox(height: 40),
+
+                    // --- SAVE BUTTON ---
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _saveProfile,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryBlue,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        child: const Text(
+                          "SAVE & CONTINUE",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+      ),
     );
   }
 }
