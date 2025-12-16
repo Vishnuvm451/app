@@ -1,3 +1,4 @@
+import 'package:darzo/admin/admin_class_subject_page.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/admin/teacher_approval_page.dart';
 import 'package:darzo/login.dart';
@@ -47,7 +48,20 @@ class AdminDashboardPage extends StatelessWidget {
               },
             ),
             // 2
-            _adminCard(Icons.class_, "Classes & Subjects", context),
+            _adminCard(
+              Icons.book,
+              "Classes & Subjects",
+              context,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AdminClassSubjectPage(),
+                  ),
+                );
+              },
+            ),
+
             // 3
             _adminCard(
               Icons.school,
