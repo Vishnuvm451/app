@@ -20,9 +20,7 @@ class LoginPage extends StatelessWidget {
   }
 }
 
-/// ===============================
 ///  MAIN SCREEN (SCAFFOLD)
-/// ===============================
 class SmartAttendanceScreen extends StatelessWidget {
   const SmartAttendanceScreen({super.key});
 
@@ -68,11 +66,7 @@ class SmartAttendanceScreen extends StatelessWidget {
   }
 }
 
-//
-
-/// ===============================
 ///  HEADER: TIME + TITLE + LOGO
-/// ===============================
 class HeaderSection extends StatelessWidget {
   const HeaderSection({super.key});
 
@@ -106,9 +100,7 @@ class HeaderSection extends StatelessWidget {
   }
 }
 
-/// ===============================
 ///  LOGIN CARD (LOGIC + UI)
-/// ===============================
 class LoginCard extends StatefulWidget {
   const LoginCard({super.key});
 
@@ -238,9 +230,7 @@ class _LoginCardState extends State<LoginCard> {
   }
 }
 
-/// ===============================
 ///  LOGIN FORM WIDGET
-/// ===============================
 class LoginForm extends StatelessWidget {
   final bool isStudentSelected;
   final bool isLoading; // Added to handle UI state
@@ -381,9 +371,7 @@ class LoginForm extends StatelessWidget {
   }
 }
 
-/// ===============================
 ///  LOGIN TOGGLE WIDGET
-/// ===============================
 class LoginToggle extends StatelessWidget {
   final bool isStudentSelected;
   final VoidCallback onStudentTap;
