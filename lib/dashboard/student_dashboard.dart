@@ -3,6 +3,7 @@ import 'package:darzo/students/attendance_summary.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/students/students.dart';
 import 'package:darzo/students/view_internals.dart';
+import 'package:darzo/students/mark_attendance_page.dart';
 
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
@@ -89,8 +90,39 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _attendanceSection(),
-          const SizedBox(height: 25),
-
+          const Divider(),
+          const SizedBox(height: 15),
+          // ✅ MARK ATTENDANCE BUTTON (SAFE)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MarkAttendancePage()),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF3F7EDB),
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+              child: const Text(
+                "MARK ATTENDANCE",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 15),
+          const Divider(),
+          const SizedBox(height: 15),
           const Text(
             "Quick Actions",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
