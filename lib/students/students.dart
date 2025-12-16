@@ -25,9 +25,7 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
     _loadMyClass();
   }
 
-  // --------------------------------------------------
   // FETCH LOGGED-IN STUDENT CLASS
-  // --------------------------------------------------
   Future<void> _loadMyClass() async {
     final uid = _auth.currentUser!.uid;
 
@@ -42,9 +40,7 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
     });
   }
 
-  // --------------------------------------------------
   // FETCH STUDENTS FROM SAME CLASS
-  // --------------------------------------------------
   Stream<QuerySnapshot> _studentsStream() {
     return _firestore
         .collection("students")
@@ -54,9 +50,7 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
         .snapshots();
   }
 
-  // --------------------------------------------------
   // UI
-  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(

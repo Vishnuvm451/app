@@ -21,9 +21,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   String get todayKey =>
       "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
 
-  // --------------------------------------------------
   // CHECK IF ATTENDANCE ALREADY MARKED
-  // --------------------------------------------------
   Future<void> checkAttendance() async {
     final uid = _auth.currentUser!.uid;
 
@@ -45,9 +43,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     checkAttendance();
   }
 
-  // --------------------------------------------------
   // MARK ATTENDANCE (FACE / API HOOK)
-  // --------------------------------------------------
   Future<void> markAttendance() async {
     if (alreadyMarked) return;
 
@@ -91,9 +87,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // --------------------------------------------------
   // UI
-  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
