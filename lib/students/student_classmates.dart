@@ -15,7 +15,6 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
   String searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
 
-  // We need to fetch the current student's details first
   late Future<Map<String, String>?> _myDetailsFuture;
 
   @override
@@ -38,8 +37,10 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
       final data = doc.data()!;
       return {
         'class_name': data['class_name'] ?? '',
-        'departmentId': data['departmentId'] ?? '',
-        'myUid': uid, // To highlight "You" in the list
+        // ✅ FIX 1: Read 'department' (Name) instead of 'departmentId'
+        // based on your screenshot showing "department": "Computer Science"
+        'department': data['department'] ?? '',
+        'myUid': uid,
       };
     }
     return null;
@@ -56,22 +57,26 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
         title: const Text("My Classmates"),
         backgroundColor: primaryBlue,
         elevation: 0,
+        // Add back button support manually if needed, or rely on default
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: FutureBuilder<Map<String, String>?>(
         future: _myDetailsFuture,
         builder: (context, snapshot) {
-          // 1. LOADING STATE
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          // 2. ERROR STATE
           if (snapshot.hasError || !snapshot.hasData || snapshot.data == null) {
             return _emptyState("Could not load your class details.");
           }
 
           final myClass = snapshot.data!['class_name']!;
-          final myDeptId = snapshot.data!['departmentId']!;
+          // ✅ FIX 2: Use the variable we fetched above
+          final myDept = snapshot.data!['department']!;
           final myUid = snapshot.data!['myUid']!;
 
           if (myClass.isEmpty) {
@@ -96,8 +101,16 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    // Optional: Show Department
+                    Text(
+                      "Dept: $myDept",
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
                     const SizedBox(height: 12),
-                    // SEARCH BAR
                     TextField(
                       controller: _searchController,
                       onChanged: (val) =>
@@ -124,7 +137,8 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
                   stream: FirebaseFirestore.instance
                       .collection('students')
                       .where('class_name', isEqualTo: myClass)
-                      .where('departmentId', isEqualTo: myDeptId)
+                      // ✅ FIX 3: Query by 'department' field
+                      .where('department', isEqualTo: myDept)
                       .orderBy('name')
                       .snapshots(),
                   builder: (context, streamSnap) {
@@ -144,9 +158,14 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
                           .toLowerCase();
                       final regNo = (data['register_number'] ?? '')
                           .toString()
-                          .toLowerCase();
+                          .toLowerCase(); // Check if your DB uses 'register_number' or 'admission_no'
+                      final admissionNo = (data['admission_no'] ?? '')
+                          .toString()
+                          .toLowerCase(); // Covering both cases
+
                       return name.contains(searchQuery) ||
-                          regNo.contains(searchQuery);
+                          regNo.contains(searchQuery) ||
+                          admissionNo.contains(searchQuery);
                     }).toList();
 
                     if (students.isEmpty) {
@@ -161,10 +180,15 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
                         final data = doc.data() as Map<String, dynamic>;
                         final bool isMe = doc.id == myUid;
 
+                        // Check DB field name for display
+                        final displayRegNo =
+                            data['register_number'] ??
+                            data['admission_no'] ??
+                            'N/A';
+
                         return Card(
                           margin: const EdgeInsets.only(bottom: 12),
                           elevation: 2,
-                          // ✅ FIXED: Single 'shape' definition merging both logic
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                             side: isMe
@@ -229,7 +253,7 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
                             subtitle: Padding(
                               padding: const EdgeInsets.only(top: 6.0),
                               child: Text(
-                                "Reg No: ${data['register_number'] ?? 'N/A'}",
+                                "Reg No: $displayRegNo",
                                 style: TextStyle(
                                   color: Colors.grey.shade700,
                                   fontWeight: FontWeight.w500,
@@ -250,7 +274,6 @@ class _StudentViewClassmatesPageState extends State<StudentViewClassmatesPage> {
     );
   }
 
-  // ---------------- HELPER UI ----------------
   Widget _emptyState(String message) {
     return Center(
       child: Column(

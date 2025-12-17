@@ -88,11 +88,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           radius: 24,
           backgroundColor: Colors.white,
           child: IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginPage()),
-              );
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (context.mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginPage()),
+                );
+              }
             },
             icon: const Icon(Icons.logout, color: Colors.blue),
           ),
@@ -133,6 +136,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
+                      // Ensure 'StudentStudentsListPage' is imported from darzo/students/students.dart
                       builder: (_) => const StudentStudentsListPage(),
                     ),
                   );
@@ -166,12 +170,13 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   );
                 },
               ),
-              //  timetable
+              //  timetable (Placeholder)
               _actionCard(
                 context: context,
                 icon: Icons.calendar_month,
                 title: "TimeTable",
                 onTap: () {
+                  // Reusing AttendancePage as placeholder per your previous code
                   Navigator.push(
                     context,
                     MaterialPageRoute(
