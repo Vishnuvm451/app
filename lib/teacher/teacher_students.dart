@@ -36,6 +36,7 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
         .get();
 
     if (doc.exists && doc.data() != null) {
+      // 🔥 UPDATED: Using standardized 'departmentId'
       return doc.data()!['departmentId'] as String?;
     }
     return null;
@@ -83,7 +84,7 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: StreamBuilder<QuerySnapshot>(
-                        // Only fetch classes belonging to this Teacher's Department
+                        // 🔥 UPDATED: Fetch classes using 'departmentId'
                         stream: FirebaseFirestore.instance
                             .collection('classes')
                             .where('departmentId', isEqualTo: teacherDeptId)
@@ -245,7 +246,10 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      data['class_name'] ?? 'No Class',
+                                      // 🔥 UPDATED: Use 'className' if available, fallback to 'class_name'
+                                      data['className'] ??
+                                          data['class_name'] ??
+                                          'No Class',
                                       style: const TextStyle(fontSize: 13),
                                     ),
                                   ],
@@ -295,11 +299,13 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
     );
 
     // 1. BASE QUERY: Only show students from Teacher's Department
+    // 🔥 UPDATED: Using 'departmentId' for filtering
     Query query = studentsRef.where('departmentId', isEqualTo: teacherDeptId);
 
     // 2. FILTER: If a class is selected, filter by class name
     if (selectedClass != null && selectedClass!.isNotEmpty) {
-      query = query.where('class_name', isEqualTo: selectedClass);
+      // 🔥 UPDATED: Using 'className' for filtering
+      query = query.where('className', isEqualTo: selectedClass);
     }
 
     // 3. ORDER: Alphabetical
@@ -347,8 +353,8 @@ class _StudentStudentsListPageState extends State<StudentStudentsListPage> {
               _detailRow("Name", data['name']),
               _detailRow("Register No", data['register_number']),
               // _detailRow("Email", data['email']), // 🔒 REMOVED FOR PRIVACY
-              _detailRow("Class", data['class_name']),
-              _detailRow("Semester", data['semester']),
+              _detailRow("Class", data['className'] ?? data['class_name']),
+              _detailRow("Course", data['course_type']),
               const SizedBox(height: 20),
             ],
           ),
