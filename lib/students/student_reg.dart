@@ -1,8 +1,8 @@
-import 'package:darzo/login.dart';
-import 'package:flutter/material.dart';
-// 🔥 Firebase imports
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/login.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // 🔥 Required for InputFormatters
 
 class StudentRegisterPage extends StatefulWidget {
   const StudentRegisterPage({super.key});
@@ -12,40 +12,48 @@ class StudentRegisterPage extends StatefulWidget {
 }
 
 class _StudentRegisterPageState extends State<StudentRegisterPage> {
-  // TEXT CONTROLLERS
+  // ---------------- CONTROLLERS ----------------
   final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController admissionController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  // DROPDOWN VALUES
-  String? selectedDepartment;
-  String? selectedYear;
+  // ---------------- STATE VARIABLES ----------------
+  // 🔥 CRITICAL: Using String IDs to prevent Dropdown Crashes
+  String? selectedDeptId;
+  String? selectedDeptName;
 
-  final List<String> departments = ["Computer Science", "Physics", "BCom"];
+  String? selectedClassId;
+  String? selectedClassName;
 
-  final Map<String, List<String>> deptToYears = {
-    "Computer Science": ["CS1", "CS2", "CS3", "PG1", "PG2"],
-    "Physics": ["PHY1", "PHY2", "PHY3", "PG1", "PG2"],
-    "BCom": ["BCOM1", "BCOM2", "BCOM3", "MCOM1", "MCOM2"],
-  };
+  String? selectedCourseType;
+
+  final List<String> courseTypes = ["UG", "PG"];
 
   bool isLoading = false;
+  bool _isPasswordVisible = false; // Toggle for Password visibility
 
-  List<String> get currentYearOptions {
-    if (selectedDepartment == null) return [];
-    return deptToYears[selectedDepartment!] ?? [];
+  @override
+  void dispose() {
+    fullNameController.dispose();
+    emailController.dispose();
+    admissionController.dispose();
+    passwordController.dispose();
+    super.dispose();
   }
 
-  // 🔥 FIREBASE REGISTRATION LOGIC
+  // ======================================================
+  // REGISTRATION LOGIC
+  // ======================================================
   Future<void> registerStudent() async {
-    // BASIC VALIDATION
+    // 1. Validate Inputs
     if (fullNameController.text.trim().isEmpty ||
         emailController.text.trim().isEmpty ||
         admissionController.text.trim().isEmpty ||
         passwordController.text.trim().isEmpty ||
-        selectedDepartment == null ||
-        selectedYear == null) {
+        selectedDeptId == null ||
+        selectedCourseType == null ||
+        selectedClassId == null) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text("Please fill all fields")));
@@ -55,7 +63,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     setState(() => isLoading = true);
 
     try {
-      // 1️⃣ CREATE AUTH USER
+      // 2. Create Auth User
       UserCredential cred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
             email: emailController.text.trim(),
@@ -64,9 +72,9 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final String uid = cred.user!.uid;
 
-      // 2️⃣ ATOMIC FIRESTORE WRITE
+      // 3. Save Data (Using Golden Schema)
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        // COMMON USERS COLLECTION (ROLE BASED LOGIN)
+        // Users Collection (For Role Login)
         transaction
             .set(FirebaseFirestore.instance.collection('users').doc(uid), {
               "uid": uid,
@@ -74,23 +82,34 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
               "email": emailController.text.trim(),
               "role": "student",
               "created_at": FieldValue.serverTimestamp(),
+              "profile_completed": true,
             });
 
-        // STUDENT SPECIFIC DATA
-        transaction
-            .set(FirebaseFirestore.instance.collection('students').doc(uid), {
-              "uid": uid,
-              "admission_no": admissionController.text.trim(),
-              "department": selectedDepartment,
-              "year": selectedYear,
-              "face_enabled": false,
-            });
+        // Students Collection (Profile Data)
+        transaction.set(
+          FirebaseFirestore.instance.collection('students').doc(uid),
+          {
+            "uid": uid,
+            "name": fullNameController.text.trim(),
+            "email": emailController.text.trim(),
+            "register_number": admissionController.text.trim(),
+            "role": "student",
+
+            // Unified Structure: Saving BOTH ID and Name
+            "departmentId": selectedDeptId,
+            "departmentName": selectedDeptName,
+            "course_type": selectedCourseType,
+            "classId": selectedClassId,
+            "className": selectedClassName,
+
+            "face_enabled": false,
+          },
+        );
       });
 
-      // 3️⃣ LOGOUT AFTER REGISTRATION (SAFE PRACTICE)
+      // 4. Logout & Redirect
       await FirebaseAuth.instance.signOut();
 
-      // ✅ SHOW SUCCESS MESSAGE
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -99,10 +118,8 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         ),
       );
 
-      // ⏳ SMALL DELAY SO USER CAN SEE MESSAGE
       await Future.delayed(const Duration(seconds: 2));
 
-      // 4️⃣ GO TO LOGIN
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -113,19 +130,19 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         SnackBar(content: Text(e.message ?? "Registration failed")),
       );
     } catch (e) {
-      // SAFETY CLEANUP
+      // Cleanup if Firestore fails
       await FirebaseAuth.instance.currentUser?.delete();
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text("Something went wrong")));
+      ).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}")));
     } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
-  // UI
+  // ======================================================
+  // UI BUILD
+  // ======================================================
   @override
   Widget build(BuildContext context) {
     const Color primaryBlue = Color(0xFF2196F3);
@@ -175,59 +192,186 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       const SizedBox(height: 15),
 
                       _buildTextField(
-                        controller: emailController,
-                        label: "Email ID",
-                        icon: Icons.email_outlined,
-                      ),
-                      const SizedBox(height: 15),
-
-                      _buildTextField(
                         controller: admissionController,
                         label: "Admission Number",
                         icon: Icons.badge_outlined,
                       ),
                       const SizedBox(height: 15),
 
-                      _buildDropdown(
-                        value: selectedDepartment,
-                        label: "Department",
-                        items: departments,
-                        icon: Icons.account_balance_outlined,
-                        onChanged: (value) {
-                          setState(() {
-                            selectedDepartment = value;
-                            selectedYear = null;
-                          });
-                        },
+                      // Email (No spaces allowed)
+                      _buildTextField(
+                        controller: emailController,
+                        label: "Email ID",
+                        icon: Icons.email_outlined,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
                       ),
                       const SizedBox(height: 15),
 
-                      DropdownButtonFormField<String>(
-                        value: selectedYear,
-                        decoration: InputDecoration(
-                          labelText: "Year",
-                          prefixIcon: const Icon(Icons.bookmark_outline),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        items: currentYearOptions
-                            .map(
-                              (y) => DropdownMenuItem(value: y, child: Text(y)),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          setState(() => selectedYear = value);
-                        },
-                      ),
-                      const SizedBox(height: 15),
-
+                      // Password (No spaces + Toggle Visibility)
                       _buildTextField(
                         controller: passwordController,
                         label: "Password",
                         icon: Icons.lock_outline,
-                        obscure: true,
+                        isPassword: true, // Enable toggle logic
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
                       ),
+                      const SizedBox(height: 15),
+
+                      // 🔥 DEPARTMENT DROPDOWN (Safe String Logic)
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('departments')
+                            .orderBy('name')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return Text("Error: ${snapshot.error}");
+                          }
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: LinearProgressIndicator(),
+                            );
+                          }
+
+                          final docs = snapshot.data!.docs;
+
+                          if (docs.isEmpty) {
+                            return const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Text(
+                                "No Departments Found. Contact Admin.",
+                              ),
+                            );
+                          }
+
+                          // Validation: Ensure selected ID still exists in the new list
+                          final ids = docs.map((e) => e.id).toSet();
+                          if (selectedDeptId != null &&
+                              !ids.contains(selectedDeptId)) {
+                            selectedDeptId = null;
+                            selectedDeptName = null;
+                          }
+
+                          return DropdownButtonFormField<String>(
+                            value: selectedDeptId,
+                            decoration: InputDecoration(
+                              labelText: "Department",
+                              prefixIcon: const Icon(
+                                Icons.account_balance_outlined,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            hint: const Text("Select Department"),
+                            items: docs.map((doc) {
+                              return DropdownMenuItem(
+                                value: doc
+                                    .id, // 🔥 Value is String ID (Fixes Crash)
+                                child: Text(doc['name']),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              setState(() {
+                                selectedDeptId = val;
+                                // Find name safely
+                                selectedDeptName = docs.firstWhere(
+                                  (d) => d.id == val,
+                                )['name'];
+
+                                // Reset Dependents (Course & Class must be re-selected)
+                                selectedCourseType = null;
+                                selectedClassId = null;
+                                selectedClassName = null;
+                              });
+                            },
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 15),
+
+                      // COURSE TYPE DROPDOWN
+                      _buildDropdownField(
+                        value: selectedCourseType,
+                        label: "Course Type",
+                        icon: Icons.school_outlined,
+                        items: courseTypes
+                            .map(
+                              (t) => DropdownMenuItem(value: t, child: Text(t)),
+                            )
+                            .toList(),
+                        onChanged: (val) => setState(() {
+                          selectedCourseType = val;
+                          // Reset Class when Course Type changes
+                          selectedClassId = null;
+                          selectedClassName = null;
+                        }),
+                      ),
+                      const SizedBox(height: 15),
+
+                      // 🔥 CLASS DROPDOWN (Safe String Logic)
+                      if (selectedDeptId != null && selectedCourseType != null)
+                        StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('classes')
+                              .where('departmentId', isEqualTo: selectedDeptId)
+                              .where('type', isEqualTo: selectedCourseType)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) {
+                              return const Center(
+                                child: LinearProgressIndicator(),
+                              );
+                            }
+
+                            final docs = snapshot.data!.docs;
+                            if (docs.isEmpty) {
+                              return const Text(
+                                "No Classes found for this selection.",
+                              );
+                            }
+
+                            // Validation: Ensure selected ID exists
+                            final ids = docs.map((e) => e.id).toSet();
+                            if (selectedClassId != null &&
+                                !ids.contains(selectedClassId)) {
+                              selectedClassId = null;
+                              selectedClassName = null;
+                            }
+
+                            return DropdownButtonFormField<String>(
+                              value: selectedClassId,
+                              decoration: InputDecoration(
+                                labelText: "Class",
+                                prefixIcon: const Icon(Icons.class_outlined),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              hint: const Text("Select Class"),
+                              items: docs.map((doc) {
+                                return DropdownMenuItem(
+                                  value: doc
+                                      .id, // 🔥 Value is String ID (Fixes Crash)
+                                  child: Text(doc['name']),
+                                );
+                              }).toList(),
+                              onChanged: (val) {
+                                setState(() {
+                                  selectedClassId = val;
+                                  selectedClassName = docs.firstWhere(
+                                    (d) => d.id == val,
+                                  )['name'];
+                                });
+                              },
+                            );
+                          },
+                        ),
+
                       const SizedBox(height: 25),
 
                       SizedBox(
@@ -291,52 +435,55 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // REUSABLE WIDGETS
+  // ---------------- HELPER WIDGETS ----------------
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
     required IconData icon,
-    bool obscure = false,
+    bool isPassword = false,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextField(
       controller: controller,
-      obscureText: obscure,
+      obscureText: isPassword ? !_isPasswordVisible : false,
+      inputFormatters: inputFormatters,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        suffixIcon: isPassword
+            ? IconButton(
+                icon: Icon(
+                  _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                  color: Colors.grey,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _isPasswordVisible = !_isPasswordVisible;
+                  });
+                },
+              )
+            : null,
       ),
     );
   }
 
-  Widget _buildDropdown({
-    required String? value,
+  Widget _buildDropdownField<T>({
+    required T? value,
     required String label,
-    required List<String> items,
     required IconData icon,
-    required void Function(String?) onChanged,
+    required List<DropdownMenuItem<T>> items,
+    required void Function(T?) onChanged,
   }) {
-    return DropdownButtonFormField<String>(
+    return DropdownButtonFormField<T>(
       value: value,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       ),
-      items: items
-          .map((item) => DropdownMenuItem(value: item, child: Text(item)))
-          .toList(),
+      items: items,
       onChanged: onChanged,
     );
-  }
-
-  // CLEANUP
-  @override
-  void dispose() {
-    fullNameController.dispose();
-    emailController.dispose();
-    admissionController.dispose();
-    passwordController.dispose();
-    super.dispose();
   }
 }
