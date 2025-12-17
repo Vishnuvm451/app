@@ -28,11 +28,17 @@ class TeacherApprovalPage extends StatelessWidget {
             children: snapshot.data!.docs.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
 
+              // Handle both new and old data structures for display
+              final deptName =
+                  data['departmentName'] ??
+                  data['department'] ??
+                  'Unknown Dept';
+
               return Card(
                 margin: const EdgeInsets.all(12),
                 child: ListTile(
-                  title: Text(data['name']),
-                  subtitle: Text("${data['email']}\n${data['department']}"),
+                  title: Text(data['name'] ?? "No Name"),
+                  subtitle: Text("${data['email']}\n$deptName"),
                   isThreeLine: true,
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -138,16 +144,21 @@ class TeacherApprovalPage extends StatelessWidget {
         "email": data['email'],
         "role": "teacher",
         "created_at": FieldValue.serverTimestamp(),
+        "profile_completed": false, // Important for routing logic
       });
 
       // 3️⃣ CREATE teachers/{uid}
+      // 🔥 UPDATED: Saving departmentId and departmentName correctly
       await FirebaseFirestore.instance.collection("teachers").doc(uid).set({
         "uid": uid,
         "name": data['name'],
         "email": data['email'],
-        "department": data['department'],
+
+        // Unified Structure
+        "departmentId": data['departmentId'],
+        "departmentName": data['departmentName'] ?? data['department'],
+
         "setupCompleted": false,
-        "assignments": [],
         "created_at": FieldValue.serverTimestamp(),
       });
 
