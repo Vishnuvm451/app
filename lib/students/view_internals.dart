@@ -1,126 +1,175 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-class StudentInternalMarksPage extends StatelessWidget {
+class StudentInternalMarksPage extends StatefulWidget {
   const StudentInternalMarksPage({super.key});
 
-  // --------------------------------------------------
-  // TEMP MOCK DATA (Replace with Firestore)
-  // --------------------------------------------------
-  final List<Map<String, dynamic>> internals = const [
-    {
-      "subject": "Operating Systems",
-      "internal1": 18,
-      "internal2": 20,
-      "assignment": 9,
-      "total": 47,
-    },
-    {
-      "subject": "Computer Networks",
-      "internal1": 15,
-      "internal2": 17,
-      "assignment": 8,
-      "total": 40,
-    },
-    {
-      "subject": "Software Engineering",
-      "internal1": 19,
-      "internal2": 18,
-      "assignment": 10,
-      "total": 47,
-    },
-  ];
+  @override
+  State<StudentInternalMarksPage> createState() =>
+      _StudentInternalMarksPageState();
+}
 
+class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    const Color primaryBlue = Color(0xFF2196F3);
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: const Padding(
-          padding: EdgeInsets.only(left: 12),
-          child: Text("My Internal Marks"),
+        title: const Text("My Internals"),
+        backgroundColor: primaryBlue,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
         ),
-        backgroundColor: Colors.blue.shade800,
       ),
-      body: internals.isEmpty
-          ? const Center(
-              child: Text(
-                "Internal marks not published yet",
-                style: TextStyle(fontSize: 16),
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: internals.length,
-              itemBuilder: (context, index) {
-                final item = internals[index];
+      body: uid == null
+          ? const Center(child: Text("User not logged in"))
+          : StreamBuilder<QuerySnapshot>(
+              // 🔥 QUERY: Get marks specifically for this student
+              stream: FirebaseFirestore.instance
+                  .collection('internals')
+                  .where('studentId', isEqualTo: uid)
+                  .orderBy('date', descending: true) // Show newest first
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ================= SUBJECT =================
-                        Text(
-                          item["subject"],
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return _emptyState("No internal marks found yet.");
+                }
 
-                        const SizedBox(height: 10),
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    final data =
+                        snapshot.data!.docs[index].data()
+                            as Map<String, dynamic>;
 
-                        // ================= MARKS ROW =================
-                        _markRow("Internal 1", item["internal1"]),
-                        _markRow("Internal 2", item["internal2"]),
-                        _markRow("Assignment", item["assignment"]),
-
-                        const Divider(height: 20),
-
-                        // ================= TOTAL =================
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 2,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              "Total",
-                              style: TextStyle(fontWeight: FontWeight.bold),
+                            // Header: Subject & Date
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    data['subjectName'] ?? "Unknown Subject",
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                _buildDateChip(data['date']),
+                              ],
                             ),
-                            Text(
-                              item["total"].toString(),
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue.shade800,
-                              ),
+                            const SizedBox(height: 8),
+                            const Divider(),
+                            const SizedBox(height: 8),
+
+                            // Body: Exam Name & Score
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  data['examName'] ?? "Internal",
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade700,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      "${data['marks']}",
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: primaryBlue,
+                                      ),
+                                    ),
+                                    Text(
+                                      " / ${data['maxMarks']}",
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
+                      ),
+                    );
+                  },
                 );
               },
             ),
     );
   }
 
-  // --------------------------------------------------
-  // REUSABLE MARK ROW
-  // --------------------------------------------------
-  Widget _markRow(String label, int value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  // Helper to format Timestamp slightly
+  Widget _buildDateChip(dynamic dateVal) {
+    String text = "N/A";
+    if (dateVal is Timestamp) {
+      final dt = dateVal.toDate();
+      text = "${dt.day}/${dt.month}/${dt.year}";
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Color(0xFF2196F3),
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyState(String message) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(label),
+          Icon(
+            Icons.assignment_outlined,
+            size: 60,
+            color: Colors.grey.shade400,
+          ),
+          const SizedBox(height: 16),
           Text(
-            value.toString(),
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            message,
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
           ),
         ],
       ),
