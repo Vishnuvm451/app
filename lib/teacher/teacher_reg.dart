@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
 
@@ -10,16 +11,16 @@ class TeacherRegisterPage extends StatefulWidget {
 }
 
 class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
-  // ---------------- CONTROLLERS ----------------
   final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  // ---------------- DROPDOWN ----------------
-  final List<String> departments = ["Computer Science", "Physics", "BCom"];
-  String? selectedDepartment;
+  // 🔥 CHANGED TO STRING ID
+  String? selectedDeptId;
+  String? selectedDeptName;
 
   bool isLoading = false;
+  bool _isPasswordVisible = false;
 
   @override
   void dispose() {
@@ -29,14 +30,11 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     super.dispose();
   }
 
-  // ======================================================
-  // REGISTER TEACHER (REQUEST ONLY – NO AUTH HERE)
-  // ======================================================
   Future<void> registerTeacher() async {
     if (fullNameController.text.trim().isEmpty ||
         emailController.text.trim().isEmpty ||
         passwordController.text.trim().isEmpty ||
-        selectedDepartment == null) {
+        selectedDeptId == null) {
       _showDialog("Error", "Please fill all fields");
       return;
     }
@@ -46,26 +44,23 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     try {
       final email = emailController.text.trim();
 
-      // ---------------------------------------------------------
-      // NOTE: usage of .get() removed to prevent Permission Denied error.
-      // We directly submit the request. Admin handles duplicates.
-      // ---------------------------------------------------------
-
-      // 🟢 CREATE REQUEST (NO AUTH ACCOUNT YET)
       await FirebaseFirestore.instance.collection("teacher_requests").add({
         "name": fullNameController.text.trim(),
         "email": email,
-        "password": passwordController.text.trim(), // used AFTER approval
-        "department": selectedDepartment,
+        "password": passwordController.text.trim(),
+
+        // Save ID and Name strings
+        "departmentId": selectedDeptId,
+        "departmentName": selectedDeptName,
+
         "status": "pending",
         "created_at": FieldValue.serverTimestamp(),
       });
 
-      // Clear fields after success (Optional, keeps UI clean)
       fullNameController.clear();
       emailController.clear();
       passwordController.clear();
-      setState(() => selectedDepartment = null);
+      setState(() => selectedDeptId = null);
 
       _showDialog(
         "Request Sent",
@@ -78,7 +73,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     }
   }
 
-  // ---------------- DIALOG HELPER ----------------
   Future<void> _showDialog(String title, String message) {
     return showDialog(
       context: context,
@@ -88,7 +82,10 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              Navigator.of(context).pop();
+              if (title == "Request Sent") Navigator.of(context).pop();
+            },
             child: const Text("OK"),
           ),
         ],
@@ -96,9 +93,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
-  // ======================================================
-  // UI (UNCHANGED)
-  // ======================================================
   @override
   Widget build(BuildContext context) {
     const Color primaryBlue = Color(0xFF2196F3);
@@ -122,7 +116,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -166,33 +159,69 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                         label: "Email ID",
                         icon: Icons.email_outlined,
                         keyboardType: TextInputType.emailAddress,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
                       ),
                       const SizedBox(height: 14),
 
-                      DropdownButtonFormField<String>(
-                        value: selectedDepartment,
-                        decoration: InputDecoration(
-                          labelText: "Department",
-                          prefixIcon: const Icon(Icons.apartment_outlined),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        items: departments
-                            .map(
-                              (d) => DropdownMenuItem(value: d, child: Text(d)),
-                            )
-                            .toList(),
-                        onChanged: (value) =>
-                            setState(() => selectedDepartment = value),
+                      // 🔥 DEPARTMENT DROPDOWN (String ID)
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('departments')
+                            .orderBy('name')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData)
+                            return const SizedBox(
+                              height: 55,
+                              child: Center(child: LinearProgressIndicator()),
+                            );
+
+                          final docs = snapshot.data!.docs;
+
+                          // Reset if ID not valid
+                          if (selectedDeptId != null &&
+                              !docs.any((doc) => doc.id == selectedDeptId)) {
+                            selectedDeptId = null;
+                            selectedDeptName = null;
+                          }
+
+                          return DropdownButtonFormField<String>(
+                            value: selectedDeptId,
+                            decoration: InputDecoration(
+                              labelText: "Department",
+                              prefixIcon: const Icon(Icons.apartment_outlined),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            items: docs.map((doc) {
+                              return DropdownMenuItem(
+                                value: doc.id, // String ID
+                                child: Text(doc['name']),
+                              );
+                            }).toList(),
+                            onChanged: (value) => setState(() {
+                              selectedDeptId = value;
+                              selectedDeptName = docs.firstWhere(
+                                (d) => d.id == value,
+                              )['name'];
+                            }),
+                          );
+                        },
                       ),
+
                       const SizedBox(height: 14),
 
                       _buildTextField(
                         controller: passwordController,
                         label: "Password",
                         icon: Icons.lock_outline,
-                        obscure: true,
+                        isPassword: true,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
                       ),
                       const SizedBox(height: 22),
 
@@ -222,20 +251,17 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       ),
 
                       const SizedBox(height: 14),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Text("Already have an account? "),
                           GestureDetector(
-                            onTap: () {
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const LoginPage(),
-                                ),
-                              );
-                            },
+                            onTap: () => Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const LoginPage(),
+                              ),
+                            ),
                             child: const Text(
                               "Login",
                               style: TextStyle(
@@ -257,22 +283,33 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
-  // ---------------- TEXT FIELD ----------------
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
     required IconData icon,
-    bool obscure = false,
+    bool isPassword = false,
     TextInputType keyboardType = TextInputType.text,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextField(
       controller: controller,
-      obscureText: obscure,
+      obscureText: isPassword ? !_isPasswordVisible : false,
       keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        suffixIcon: isPassword
+            ? IconButton(
+                icon: Icon(
+                  _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                  color: Colors.grey,
+                ),
+                onPressed: () =>
+                    setState(() => _isPasswordVisible = !_isPasswordVisible),
+              )
+            : null,
       ),
     );
   }
