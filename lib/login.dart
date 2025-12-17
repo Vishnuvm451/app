@@ -376,7 +376,7 @@ class LoginToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Color primaryBlue = SmartAttendanceScreen.primaryBlue;
+    const Color _ = SmartAttendanceScreen.primaryBlue;
 
     return Container(
       padding: const EdgeInsets.all(4),
