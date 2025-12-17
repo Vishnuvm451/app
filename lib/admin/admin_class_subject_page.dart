@@ -10,15 +10,25 @@ class AdminClassSubjectPage extends StatefulWidget {
 
 class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   // ---------------- CONTROLLERS ----------------
-  final _deptController = TextEditingController();
-  final _classController = TextEditingController(); // For "CS1", "CS2"
-  final _subjectController = TextEditingController();
+  // Department
+  final _deptNameController = TextEditingController();
+  final _deptIdController = TextEditingController(); // e.g. "CSE", "MECH"
+
+  // Class
+  final _classNameController = TextEditingController();
+  final _classIdController = TextEditingController(); // e.g. "CSE-2025"
+
+  // Subject
+  final _subjectNameController = TextEditingController();
+  final _subjectCodeController = TextEditingController(); // e.g. "CS101"
 
   // ---------------- SELECTIONS ----------------
   String? selectedDeptId;
   String? selectedCourseType; // "UG" or "PG"
   String? selectedSemester; // "Semester 1", "Semester 2"...
-  List<String> selectedSubjectClasses = [];
+
+  // Stores list of Class IDs now, not names
+  List<String> selectedClassIds = [];
 
   bool isLoading = false;
   static const Color primaryBlue = Color(0xFF2196F3);
@@ -26,10 +36,12 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   // ---------------- STATIC DATA ----------------
   final List<String> courseTypes = ["UG", "PG"];
 
-  // Dynamic semester list getter
   List<String> get currentSemesterList {
     if (selectedCourseType == "UG") {
-      return List.generate(6, (index) => "Semester ${index + 1}");
+      return List.generate(
+        8,
+        (index) => "Semester ${index + 1}",
+      ); // Updated to standard 8
     } else if (selectedCourseType == "PG") {
       return List.generate(4, (index) => "Semester ${index + 1}");
     }
@@ -61,7 +73,12 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
                     title: "1. Add Department",
                     children: [
                       _textField(
-                        _deptController,
+                        _deptIdController,
+                        "Department ID (Unique code e.g. CSE)",
+                      ),
+                      const SizedBox(height: 12),
+                      _textField(
+                        _deptNameController,
                         "Department Name (e.g. Computer Science)",
                       ),
                       const SizedBox(height: 12),
@@ -71,22 +88,27 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
 
                   // 2. ADD CLASS (YEAR)
                   _buildCard(
-                    title: "2. Add Class / Year",
+                    title: "2. Add Class / Section",
                     children: [
                       _departmentDropdown(),
                       const SizedBox(height: 12),
-                      _ugPgDropdown(isForClass: true), // Resets sem if changed
+                      _ugPgDropdown(isForClass: true),
                       const SizedBox(height: 12),
                       _textField(
-                        _classController,
-                        "Class Name (e.g. CS1, CS2, BCA-I)",
+                        _classIdController,
+                        "Class ID (Unique e.g. CS-A-2025)",
+                      ),
+                      const SizedBox(height: 12),
+                      _textField(
+                        _classNameController,
+                        "Class Name (e.g. CS - Section A)",
                       ),
                       const SizedBox(height: 12),
                       _saveButton("Save Class", _addClass),
                     ],
                   ),
 
-                  // 3. ADD SUBJECT (SEMESTER WISE)
+                  // 3. ADD SUBJECT
                   _buildCard(
                     title: "3. Add Subject",
                     children: [
@@ -94,18 +116,35 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
                       const SizedBox(height: 12),
                       _ugPgDropdown(isForClass: false),
                       const SizedBox(height: 12),
-                      _semesterDropdown(), // Dynamic based on UG/PG
+                      _semesterDropdown(),
                       const SizedBox(height: 12),
-                      _textField(_subjectController, "Subject Name"),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _textField(
+                              _subjectCodeController,
+                              "Sub Code (CS101)",
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: _textField(
+                              _subjectNameController,
+                              "Subject Name",
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
                       const Text(
-                        "Select Classes for this Subject:",
+                        "Select Classes attending this Subject:",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.grey,
                         ),
                       ),
-                      _classMultiSelect(), // Filters by Dept + UG/PG
+                      _classMultiSelect(),
                       const SizedBox(height: 12),
                       _saveButton("Save Subject", _addSubject),
                     ],
@@ -117,7 +156,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   }
 
   // ==================================================
-  // WIDGET HELPERS
+  // WIDGET HELPERS (NO CHANGES TO STYLE)
   // ==================================================
 
   Widget _buildCard({required String title, required List<Widget> children}) {
@@ -198,12 +237,13 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
             border: OutlineInputBorder(),
           ),
           items: snapshot.data!.docs.map((doc) {
+            // Value is the ID (e.g., "CSE"), Child is the Name
             return DropdownMenuItem(value: doc.id, child: Text(doc["name"]));
           }).toList(),
           onChanged: (val) {
             setState(() {
               selectedDeptId = val;
-              selectedSubjectClasses.clear();
+              selectedClassIds.clear();
             });
           },
         );
@@ -224,15 +264,14 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
       onChanged: (val) {
         setState(() {
           selectedCourseType = val;
-          selectedSemester = null; // Reset semester if type changes
-          selectedSubjectClasses.clear(); // Clear class selection
+          selectedSemester = null;
+          selectedClassIds.clear();
         });
       },
     );
   }
 
   Widget _semesterDropdown() {
-    // Only show if UG/PG is selected
     if (selectedCourseType == null) {
       return const SizedBox(
         width: double.infinity,
@@ -270,15 +309,11 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
       );
     }
 
-    // Filter classes by Dept AND UG/PG
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection("classes")
           .where("departmentId", isEqualTo: selectedDeptId)
-          .where(
-            "type",
-            isEqualTo: selectedCourseType,
-          ) // Filter strictly by UG/PG
+          .where("type", isEqualTo: selectedCourseType)
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox();
@@ -299,17 +334,23 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
           ),
           child: Column(
             children: snapshot.data!.docs.map((doc) {
-              final name = doc["name"];
+              final className = doc["name"];
+              final classId = doc.id; // Using the ID
+
               return CheckboxListTile(
                 dense: true,
-                title: Text(name),
-                value: selectedSubjectClasses.contains(name),
+                title: Text(className), // Show Name
+                subtitle: Text(
+                  classId,
+                  style: TextStyle(fontSize: 10, color: Colors.grey),
+                ), // Show ID small
+                value: selectedClassIds.contains(classId),
                 activeColor: primaryBlue,
                 onChanged: (val) {
                   setState(() {
                     val == true
-                        ? selectedSubjectClasses.add(name)
-                        : selectedSubjectClasses.remove(name);
+                        ? selectedClassIds.add(classId)
+                        : selectedClassIds.remove(classId);
                   });
                 },
               );
@@ -321,7 +362,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   }
 
   // ==================================================
-  // FIRESTORE LOGIC
+  // FIRESTORE LOGIC (Using Manual IDs)
   // ==================================================
 
   void _showSnack(String msg) {
@@ -329,29 +370,31 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   }
 
   Future<void> _addDepartment() async {
-    final name = _deptController.text.trim();
-    if (name.isEmpty) return _showSnack("Enter department name");
+    final id = _deptIdController.text
+        .trim()
+        .toUpperCase(); // Force Upper e.g. "CSE"
+    final name = _deptNameController.text.trim();
+
+    if (id.isEmpty || name.isEmpty) return _showSnack("Enter ID and Name");
 
     setState(() => isLoading = true);
 
-    // Check Duplicate
-    final existing = await FirebaseFirestore.instance
-        .collection("departments")
-        .where("name_lower", isEqualTo: name.toLowerCase())
-        .get();
+    // Use .doc(id).set(...) to create custom ID
+    final docRef = FirebaseFirestore.instance.collection("departments").doc(id);
+    final docSnap = await docRef.get();
 
-    if (existing.docs.isNotEmpty) {
+    if (docSnap.exists) {
       setState(() => isLoading = false);
-      return _showSnack("Department already exists!");
+      return _showSnack("Department ID '$id' already exists!");
     }
 
-    await FirebaseFirestore.instance.collection("departments").add({
+    await docRef.set({
       "name": name,
-      "name_lower": name.toLowerCase(),
       "created_at": FieldValue.serverTimestamp(),
     });
 
-    _deptController.clear();
+    _deptIdController.clear();
+    _deptNameController.clear();
     setState(() => isLoading = false);
     _showSnack("Department Added!");
   }
@@ -360,33 +403,32 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
     if (selectedDeptId == null || selectedCourseType == null) {
       return _showSnack("Select Department and UG/PG");
     }
-    final name = _classController.text.trim();
-    if (name.isEmpty) return _showSnack("Enter class name");
+    final id = _classIdController.text.trim().toUpperCase();
+    final name = _classNameController.text.trim();
+
+    if (id.isEmpty || name.isEmpty) {
+      return _showSnack("Enter Class ID and Name");
+    }
 
     setState(() => isLoading = true);
 
-    // Check Duplicate: Same Name + Same Dept + Same Type
-    final existing = await FirebaseFirestore.instance
-        .collection("classes")
-        .where("name_lower", isEqualTo: name.toLowerCase())
-        .where("departmentId", isEqualTo: selectedDeptId)
-        .where("type", isEqualTo: selectedCourseType)
-        .get();
+    final docRef = FirebaseFirestore.instance.collection("classes").doc(id);
+    final docSnap = await docRef.get();
 
-    if (existing.docs.isNotEmpty) {
+    if (docSnap.exists) {
       setState(() => isLoading = false);
-      return _showSnack("Class already exists in this Department/Type!");
+      return _showSnack("Class ID '$id' already exists!");
     }
 
-    await FirebaseFirestore.instance.collection("classes").add({
+    await docRef.set({
       "name": name,
-      "name_lower": name.toLowerCase(),
-      "departmentId": selectedDeptId,
-      "type": selectedCourseType, // UG or PG
+      "departmentId": selectedDeptId, // Links to Dept ID
+      "type": selectedCourseType,
       "created_at": FieldValue.serverTimestamp(),
     });
 
-    _classController.clear();
+    _classIdController.clear();
+    _classNameController.clear();
     setState(() => isLoading = false);
     _showSnack("Class Added!");
   }
@@ -397,38 +439,36 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
         selectedSemester == null) {
       return _showSnack("Select Dept, UG/PG and Semester");
     }
-    final name = _subjectController.text.trim();
-    if (name.isEmpty) return _showSnack("Enter subject name");
-    if (selectedSubjectClasses.isEmpty)
+    final code = _subjectCodeController.text.trim().toUpperCase();
+    final name = _subjectNameController.text.trim();
+
+    if (code.isEmpty || name.isEmpty) return _showSnack("Enter Code and Name");
+    if (selectedClassIds.isEmpty) {
       return _showSnack("Select at least one class");
+    }
 
     setState(() => isLoading = true);
 
-    // Check Duplicate: Same Subject Name in Same Dept & Semester
-    final existing = await FirebaseFirestore.instance
-        .collection("subjects")
-        .where("name_lower", isEqualTo: name.toLowerCase())
-        .where("departmentId", isEqualTo: selectedDeptId)
-        .where("semester", isEqualTo: selectedSemester)
-        .get();
+    final docRef = FirebaseFirestore.instance.collection("subjects").doc(code);
+    final docSnap = await docRef.get();
 
-    if (existing.docs.isNotEmpty) {
+    if (docSnap.exists) {
       setState(() => isLoading = false);
-      return _showSnack("Subject already exists in this Semester!");
+      return _showSnack("Subject Code '$code' already exists!");
     }
 
-    await FirebaseFirestore.instance.collection("subjects").add({
+    await docRef.set({
       "name": name,
-      "name_lower": name.toLowerCase(),
       "departmentId": selectedDeptId,
       "type": selectedCourseType,
-      "semester": selectedSemester, // e.g. "Semester 1"
-      "classes": selectedSubjectClasses, // Linked Classes
+      "semester": selectedSemester,
+      "classIds": selectedClassIds, // Storing IDs now
       "created_at": FieldValue.serverTimestamp(),
     });
 
-    _subjectController.clear();
-    selectedSubjectClasses.clear();
+    _subjectCodeController.clear();
+    _subjectNameController.clear();
+    selectedClassIds.clear();
     setState(() => isLoading = false);
     _showSnack("Subject Added!");
   }

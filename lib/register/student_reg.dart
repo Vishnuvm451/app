@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // 🔥 Required for InputFormatters
+import 'package:flutter/services.dart'; // Required for InputFormatters
 
 class StudentRegisterPage extends StatefulWidget {
   const StudentRegisterPage({super.key});
@@ -19,7 +19,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   final TextEditingController passwordController = TextEditingController();
 
   // ---------------- STATE VARIABLES ----------------
-  // 🔥 CRITICAL: Using String IDs to prevent Dropdown Crashes
+  // Store String IDs (e.g. "CSE") and Names for easier display later
   String? selectedDeptId;
   String? selectedDeptName;
 
@@ -27,11 +27,10 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   String? selectedClassName;
 
   String? selectedCourseType;
-
   final List<String> courseTypes = ["UG", "PG"];
 
   bool isLoading = false;
-  bool _isPasswordVisible = false; // Toggle for Password visibility
+  bool _isPasswordVisible = false;
 
   @override
   void dispose() {
@@ -72,9 +71,9 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final String uid = cred.user!.uid;
 
-      // 3. Save Data (Using Golden Schema)
+      // 3. Save Data (Using Transaction for safety)
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        // Users Collection (For Role Login)
+        // A. Users Collection (For Role Login)
         transaction
             .set(FirebaseFirestore.instance.collection('users').doc(uid), {
               "uid": uid,
@@ -85,7 +84,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
               "profile_completed": true,
             });
 
-        // Students Collection (Profile Data)
+        // B. Students Collection (Profile Data)
         transaction.set(
           FirebaseFirestore.instance.collection('students').doc(uid),
           {
@@ -95,14 +94,16 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
             "register_number": admissionController.text.trim(),
             "role": "student",
 
-            // Unified Structure: Saving BOTH ID and Name
-            "departmentId": selectedDeptId,
-            "departmentName": selectedDeptName,
-            "course_type": selectedCourseType,
-            "classId": selectedClassId,
-            "className": selectedClassName,
+            // Saving Linked Data
+            "departmentId": selectedDeptId, // e.g. "CSE"
+            "departmentName": selectedDeptName, // e.g. "Computer Science"
 
-            "face_enabled": false,
+            "course_type": selectedCourseType, // "UG" or "PG"
+
+            "classId": selectedClassId, // e.g. "CSE-A-2025"
+            "className": selectedClassName, // e.g. "B.Tech CS - Sec A"
+
+            "face_enabled": false, // Default
           },
         );
       });
@@ -198,7 +199,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       ),
                       const SizedBox(height: 15),
 
-                      // Email (No spaces allowed)
                       _buildTextField(
                         controller: emailController,
                         label: "Email ID",
@@ -209,28 +209,24 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       ),
                       const SizedBox(height: 15),
 
-                      // Password (No spaces + Toggle Visibility)
                       _buildTextField(
                         controller: passwordController,
                         label: "Password",
                         icon: Icons.lock_outline,
-                        isPassword: true, // Enable toggle logic
+                        isPassword: true,
                         inputFormatters: [
                           FilteringTextInputFormatter.deny(RegExp(r'\s')),
                         ],
                       ),
                       const SizedBox(height: 15),
 
-                      // 🔥 DEPARTMENT DROPDOWN (Safe String Logic)
+                      // 1. DEPARTMENT DROPDOWN
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('departments')
                             .orderBy('name')
                             .snapshots(),
                         builder: (context, snapshot) {
-                          if (snapshot.hasError) {
-                            return Text("Error: ${snapshot.error}");
-                          }
                           if (!snapshot.hasData) {
                             return const Center(
                               child: LinearProgressIndicator(),
@@ -239,25 +235,25 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
                           final docs = snapshot.data!.docs;
 
-                          if (docs.isEmpty) {
-                            return const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child: Text(
-                                "No Departments Found. Contact Admin.",
-                              ),
-                            );
+                          // SAFETY: Check if selected ID still exists in the list
+                          // If Admin deleted "CSE" while Student was selecting it
+                          if (selectedDeptId != null &&
+                              !docs.any((doc) => doc.id == selectedDeptId)) {
+                            // We use a local variable check logic or reset here carefully
+                            // But inside build, we usually just pass null to value if not found
+                            // to avoid setstate loops.
+                            // Better Approach: Validate value property of Dropdown.
                           }
 
-                          // Validation: Ensure selected ID still exists in the new list
-                          final ids = docs.map((e) => e.id).toSet();
-                          if (selectedDeptId != null &&
-                              !ids.contains(selectedDeptId)) {
-                            selectedDeptId = null;
-                            selectedDeptName = null;
+                          // Determine effective value for Dropdown
+                          String? validValue = selectedDeptId;
+                          if (validValue != null &&
+                              !docs.any((d) => d.id == validValue)) {
+                            validValue = null;
                           }
 
                           return DropdownButtonFormField<String>(
-                            value: selectedDeptId,
+                            value: validValue,
                             decoration: InputDecoration(
                               labelText: "Department",
                               prefixIcon: const Icon(
@@ -267,23 +263,20 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                                 borderRadius: BorderRadius.circular(14),
                               ),
                             ),
-                            hint: const Text("Select Department"),
                             items: docs.map((doc) {
                               return DropdownMenuItem(
-                                value: doc
-                                    .id, // 🔥 Value is String ID (Fixes Crash)
+                                value: doc.id, // MANUAL STRING ID (e.g. "CSE")
                                 child: Text(doc['name']),
                               );
                             }).toList(),
                             onChanged: (val) {
                               setState(() {
                                 selectedDeptId = val;
-                                // Find name safely
                                 selectedDeptName = docs.firstWhere(
                                   (d) => d.id == val,
                                 )['name'];
 
-                                // Reset Dependents (Course & Class must be re-selected)
+                                // Reset Dependents
                                 selectedCourseType = null;
                                 selectedClassId = null;
                                 selectedClassName = null;
@@ -294,7 +287,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       ),
                       const SizedBox(height: 15),
 
-                      // COURSE TYPE DROPDOWN
+                      // 2. COURSE TYPE DROPDOWN
                       _buildDropdownField(
                         value: selectedCourseType,
                         label: "Course Type",
@@ -306,14 +299,15 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                             .toList(),
                         onChanged: (val) => setState(() {
                           selectedCourseType = val;
-                          // Reset Class when Course Type changes
+                          // Reset Class
                           selectedClassId = null;
                           selectedClassName = null;
                         }),
                       ),
                       const SizedBox(height: 15),
 
-                      // 🔥 CLASS DROPDOWN (Safe String Logic)
+                      // 3. CLASS DROPDOWN
+                      // Only show if Dept and Type are selected
                       if (selectedDeptId != null && selectedCourseType != null)
                         StreamBuilder<QuerySnapshot>(
                           stream: FirebaseFirestore.instance
@@ -329,22 +323,26 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                             }
 
                             final docs = snapshot.data!.docs;
+
                             if (docs.isEmpty) {
-                              return const Text(
-                                "No Classes found for this selection.",
+                              return const Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: Text(
+                                  "No Classes found. Contact Admin.",
+                                  style: TextStyle(color: Colors.red),
+                                ),
                               );
                             }
 
-                            // Validation: Ensure selected ID exists
-                            final ids = docs.map((e) => e.id).toSet();
-                            if (selectedClassId != null &&
-                                !ids.contains(selectedClassId)) {
-                              selectedClassId = null;
-                              selectedClassName = null;
+                            // SAFETY: Validate ID existence
+                            String? validClassValue = selectedClassId;
+                            if (validClassValue != null &&
+                                !docs.any((d) => d.id == validClassValue)) {
+                              validClassValue = null;
                             }
 
                             return DropdownButtonFormField<String>(
-                              value: selectedClassId,
+                              value: validClassValue,
                               decoration: InputDecoration(
                                 labelText: "Class",
                                 prefixIcon: const Icon(Icons.class_outlined),
@@ -352,11 +350,10 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                               ),
-                              hint: const Text("Select Class"),
                               items: docs.map((doc) {
                                 return DropdownMenuItem(
-                                  value: doc
-                                      .id, // 🔥 Value is String ID (Fixes Crash)
+                                  value:
+                                      doc.id, // MANUAL STRING ID (e.g. "CSE-A")
                                   child: Text(doc['name']),
                                 );
                               }).toList(),

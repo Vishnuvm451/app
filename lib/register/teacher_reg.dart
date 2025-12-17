@@ -15,7 +15,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
-  // 🔥 CHANGED TO STRING ID
+  // Stores the Manual ID (e.g. "CSE") and Name
   String? selectedDeptId;
   String? selectedDeptName;
 
@@ -44,14 +44,16 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     try {
       final email = emailController.text.trim();
 
+      // Creates a request in 'teacher_requests'
+      // The Admin must 'Approve' this later to create the actual 'teachers' document
       await FirebaseFirestore.instance.collection("teacher_requests").add({
         "name": fullNameController.text.trim(),
         "email": email,
-        "password": passwordController.text.trim(),
-
-        // Save ID and Name strings
-        "departmentId": selectedDeptId,
-        "departmentName": selectedDeptName,
+        "password": passwordController.text
+            .trim(), // Note: Hash this in real apps
+        // Linking to the Manual ID from Departments
+        "departmentId": selectedDeptId, // e.g. "CSE"
+        "departmentName": selectedDeptName, // e.g. "Computer Science"
 
         "status": "pending",
         "created_at": FieldValue.serverTimestamp(),
@@ -60,7 +62,10 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       fullNameController.clear();
       emailController.clear();
       passwordController.clear();
-      setState(() => selectedDeptId = null);
+      setState(() {
+        selectedDeptId = null;
+        selectedDeptName = null;
+      });
 
       _showDialog(
         "Request Sent",
@@ -165,30 +170,32 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       ),
                       const SizedBox(height: 14),
 
-                      // 🔥 DEPARTMENT DROPDOWN (String ID)
+                      // Department Dropdown
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('departments')
                             .orderBy('name')
                             .snapshots(),
                         builder: (context, snapshot) {
-                          if (!snapshot.hasData)
+                          if (!snapshot.hasData) {
                             return const SizedBox(
                               height: 55,
                               child: Center(child: LinearProgressIndicator()),
                             );
+                          }
 
                           final docs = snapshot.data!.docs;
 
-                          // Reset if ID not valid
-                          if (selectedDeptId != null &&
-                              !docs.any((doc) => doc.id == selectedDeptId)) {
-                            selectedDeptId = null;
-                            selectedDeptName = null;
+                          // SAFE VALIDATION: Ensure selected ID still exists
+                          // We use a local variable to avoid calling setState during build
+                          String? validValue = selectedDeptId;
+                          if (validValue != null &&
+                              !docs.any((doc) => doc.id == validValue)) {
+                            validValue = null;
                           }
 
                           return DropdownButtonFormField<String>(
-                            value: selectedDeptId,
+                            value: validValue,
                             decoration: InputDecoration(
                               labelText: "Department",
                               prefixIcon: const Icon(Icons.apartment_outlined),
@@ -198,16 +205,20 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                             ),
                             items: docs.map((doc) {
                               return DropdownMenuItem(
-                                value: doc.id, // String ID
+                                value:
+                                    doc.id, // Using the Manual ID (e.g. "CSE")
                                 child: Text(doc['name']),
                               );
                             }).toList(),
-                            onChanged: (value) => setState(() {
-                              selectedDeptId = value;
-                              selectedDeptName = docs.firstWhere(
-                                (d) => d.id == value,
-                              )['name'];
-                            }),
+                            onChanged: (value) {
+                              setState(() {
+                                selectedDeptId = value;
+                                // Store name for easier display later
+                                selectedDeptName = docs.firstWhere(
+                                  (d) => d.id == value,
+                                )['name'];
+                              });
+                            },
                           );
                         },
                       ),
