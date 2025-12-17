@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
 import 'package:darzo/teacher/internal_mark.dart';
 import 'package:darzo/teacher/teacher_students.dart';
@@ -15,11 +16,45 @@ class TeacherDashboardPage extends StatefulWidget {
 
 class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   final ScrollController _scrollController = ScrollController();
+
+  // TEACHER DATA STATE
+  String teacherName = "Loading...";
+  String departmentName = "Loading...";
+
   // REMINDER DATA
   final List<Map<String, String>> reminders = [
     {"title": "Conduct Internal Exam ", "subtitle": "Next Monday"},
     {"title": "Record Correction", "subtitle": "This Friday"},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchTeacherData();
+  }
+
+  // 🔥 FETCH TEACHER PROFILE
+  Future<void> _fetchTeacherData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('teachers')
+            .doc(user.uid)
+            .get();
+
+        if (doc.exists && mounted) {
+          final data = doc.data()!;
+          setState(() {
+            teacherName = data['name'] ?? "Teacher";
+            departmentName = data['departmentName'] ?? "Unknown Dept";
+          });
+        }
+      } catch (e) {
+        debugPrint("Error fetching teacher data: $e");
+      }
+    }
+  }
 
   // MAIN BUILD
   @override
@@ -61,26 +96,26 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // HEADER
+  // HEADER (Dynamic Data)
   Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Welcome, Teacher 👋",
-              style: TextStyle(
+              "Welcome, $teacherName 👋", // 🔥 Dynamic Name
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
-              "Department: Department",
-              style: TextStyle(color: Colors.white, fontSize: 16),
+              "Department: $departmentName", // 🔥 Dynamic Dept
+              style: const TextStyle(color: Colors.white, fontSize: 16),
             ),
           ],
         ),
@@ -136,7 +171,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      // Ensure 'StudentStudentsListPage' is imported from darzo/students/students.dart
                       builder: (_) => const StudentStudentsListPage(),
                     ),
                   );
@@ -176,7 +210,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                 icon: Icons.calendar_month,
                 title: "TimeTable",
                 onTap: () {
-                  // Reusing AttendancePage as placeholder per your previous code
+                  // Reusing AttendancePage as placeholder
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -286,11 +320,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                         },
                       ),
 
-                      // EDITABLE TITLE (WITH PADDING ADDED HERE)
+                      // EDITABLE TITLE
                       title: Padding(
-                        padding: const EdgeInsets.only(
-                          bottom: 8.0,
-                        ), // 🟢 Added Space
+                        padding: const EdgeInsets.only(bottom: 8.0),
                         child: TextFormField(
                           initialValue: reminder["title"],
                           decoration: const InputDecoration(

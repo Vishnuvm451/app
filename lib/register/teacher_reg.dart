@@ -177,6 +177,9 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                             .orderBy('name')
                             .snapshots(),
                         builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return Text("Error: ${snapshot.error}");
+                          }
                           if (!snapshot.hasData) {
                             return const SizedBox(
                               height: 55,
@@ -186,8 +189,8 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
                           final docs = snapshot.data!.docs;
 
-                          // SAFE VALIDATION: Ensure selected ID still exists
-                          // We use a local variable to avoid calling setState during build
+                          // SAFE VALIDATION: Ensure selected ID still exists in the list
+                          // If Admin deleted "CSE" while Teacher was selecting it
                           String? validValue = selectedDeptId;
                           if (validValue != null &&
                               !docs.any((doc) => doc.id == validValue)) {
@@ -214,9 +217,11 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                               setState(() {
                                 selectedDeptId = value;
                                 // Store name for easier display later
-                                selectedDeptName = docs.firstWhere(
-                                  (d) => d.id == value,
-                                )['name'];
+                                if (value != null) {
+                                  selectedDeptName = docs.firstWhere(
+                                    (d) => d.id == value,
+                                  )['name'];
+                                }
                               });
                             },
                           );
