@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/admin/admin_login.dart';
 import 'package:darzo/dashboard/admin_panel.dart';
 import 'package:darzo/dashboard/student_dashboard.dart';
 import 'package:darzo/dashboard/teacher_dashboard.dart';
@@ -7,10 +8,10 @@ import 'package:darzo/teacher/teacher_reg.dart';
 import 'package:darzo/teacher/teacher_setup_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'admin/admin_login.dart';
+import 'package:flutter/services.dart'; // 🔥 REQUIRED FOR INPUT FORMATTERS
 
 /// ===============================
-///  ROOT APP
+///  ROOT APP (Wrapper)
 /// ===============================
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -39,6 +40,7 @@ class SmartAttendanceScreen extends StatelessWidget {
             padding: const EdgeInsets.only(right: 14.0),
             child: IconButton(
               icon: const Icon(Icons.admin_panel_settings_outlined, size: 40),
+              tooltip: "Admin Login",
               onPressed: () {
                 Navigator.push(
                   context,
@@ -104,7 +106,7 @@ class HeaderSection extends StatelessWidget {
 }
 
 /// ===============================
-///  LOGIN CARD (UI SAME)
+///  LOGIN CARD
 /// ===============================
 class LoginCard extends StatefulWidget {
   const LoginCard({super.key});
@@ -125,7 +127,7 @@ class _LoginCardState extends State<LoginCard> {
   }
 
   /// ===============================
-  ///  FIXED LOGIN LOGIC (ONLY LOGIC CHANGED)
+  ///  LOGIN LOGIC
   /// ===============================
   Future<void> _handleLogin() async {
     if (_emailController.text.trim().isEmpty ||
@@ -137,7 +139,7 @@ class _LoginCardState extends State<LoginCard> {
     setState(() => _isLoading = true);
 
     try {
-      // 🔐 AUTH FIRST (CRITICAL FIX)
+      // 1. Auth Login
       final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
@@ -145,7 +147,7 @@ class _LoginCardState extends State<LoginCard> {
 
       final uid = cred.user!.uid;
 
-      // 🔎 READ ROLE AFTER AUTH
+      // 2. Fetch User Role Data
       final userDoc = await FirebaseFirestore.instance
           .collection("users")
           .doc(uid)
@@ -153,11 +155,14 @@ class _LoginCardState extends State<LoginCard> {
 
       if (!userDoc.exists) {
         await FirebaseAuth.instance.signOut();
-        _showSnack("User profile not found");
+        _showSnack("User profile not found in database.");
         return;
       }
 
       final role = userDoc["role"];
+
+      // 3. Routing
+      if (!mounted) return;
 
       if (role == "student") {
         Navigator.pushReplacement(
@@ -165,33 +170,39 @@ class _LoginCardState extends State<LoginCard> {
           MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
         );
       } else if (role == "teacher") {
-        // 4️⃣ CHECK SETUP STATUS
-        final bool setupCompleted =
-            userDoc.data()!.containsKey('profile_completed') &&
-            userDoc['profile_completed'] == true;
+        // Teacher Setup Logic
+        final teacherDoc = await FirebaseFirestore.instance
+            .collection('teachers')
+            .doc(uid)
+            .get();
+        final bool setupDone =
+            (userDoc.data()!.containsKey('profile_completed') &&
+                userDoc['profile_completed'] == true) ||
+            (teacherDoc.exists &&
+                teacherDoc.data()!.containsKey('setupCompleted') &&
+                teacherDoc['setupCompleted'] == true);
 
-        // 5️⃣ NAVIGATION
-        if (setupCompleted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
-          );
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
-          );
-        }
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => setupDone
+                ? const TeacherDashboardPage()
+                : const TeacherSetupPage(),
+          ),
+        );
       } else if (role == "admin") {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
         );
       } else {
-        _showSnack("Invalid user role");
+        _showSnack("Invalid user role: $role");
+        await FirebaseAuth.instance.signOut();
       }
     } on FirebaseAuthException catch (e) {
       _showSnack(e.message ?? "Login failed");
+    } catch (e) {
+      _showSnack("Error: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -228,8 +239,10 @@ class _LoginCardState extends State<LoginCard> {
             isLoading: _isLoading,
             idController: _emailController,
             passwordController: _passwordController,
-            onLoginPressed: _handleLogin, // ✅ FIXED
-            onForgotPassword: () {},
+            onLoginPressed: _handleLogin,
+            onForgotPassword: () {
+              _showSnack("Please contact Admin to reset password.");
+            },
           ),
         ],
       ),
@@ -238,9 +251,9 @@ class _LoginCardState extends State<LoginCard> {
 }
 
 /// ===============================
-///  LOGIN FORM (UI UNCHANGED)
+///  LOGIN FORM (Converted to Stateful for Password Toggle)
 /// ===============================
-class LoginForm extends StatelessWidget {
+class LoginForm extends StatefulWidget {
   final bool isStudentSelected;
   final bool isLoading;
   final TextEditingController idController;
@@ -259,17 +272,31 @@ class LoginForm extends StatelessWidget {
   });
 
   @override
+  State<LoginForm> createState() => _LoginFormState();
+}
+
+class _LoginFormState extends State<LoginForm> {
+  // 🔥 State to track password visibility
+  bool _isPasswordVisible = false;
+
+  @override
   Widget build(BuildContext context) {
     const Color primaryBlue = SmartAttendanceScreen.primaryBlue;
 
     return Column(
       children: [
+        // EMAIL FIELD
         TextField(
-          controller: idController,
+          controller: widget.idController,
+          keyboardType: TextInputType.emailAddress,
+          // 🔥 Prevent Spaces
+          inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
           decoration: InputDecoration(
-            labelText: isStudentSelected ? 'Student Email' : 'Teacher Email',
+            labelText: widget.isStudentSelected
+                ? 'Student Email'
+                : 'Teacher Email',
             prefixIcon: Icon(
-              isStudentSelected ? Icons.school : Icons.person_outline,
+              widget.isStudentSelected ? Icons.school : Icons.person_outline,
             ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             enabledBorder: OutlineInputBorder(
@@ -280,12 +307,27 @@ class LoginForm extends StatelessWidget {
         ),
         const SizedBox(height: 16),
 
+        // PASSWORD FIELD (With Toggle)
         TextField(
-          controller: passwordController,
-          obscureText: true,
+          controller: widget.passwordController,
+          obscureText: !_isPasswordVisible, // 🔥 Toggle logic
+          // 🔥 Prevent Spaces
+          inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
           decoration: InputDecoration(
             labelText: 'Password',
             prefixIcon: const Icon(Icons.lock_outline),
+            // 🔥 EYE ICON BUTTON
+            suffixIcon: IconButton(
+              icon: Icon(
+                _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                color: Colors.grey,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isPasswordVisible = !_isPasswordVisible;
+                });
+              },
+            ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             enabledBorder: const OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(12)),
@@ -299,14 +341,14 @@ class LoginForm extends StatelessWidget {
           width: double.infinity,
           height: 50,
           child: ElevatedButton(
-            onPressed: isLoading ? null : onLoginPressed,
+            onPressed: widget.isLoading ? null : widget.onLoginPressed,
             style: ElevatedButton.styleFrom(
               backgroundColor: primaryBlue,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(30),
               ),
             ),
-            child: isLoading
+            child: widget.isLoading
                 ? const CircularProgressIndicator(color: Colors.white)
                 : const Text(
                     'LOGIN',
@@ -316,7 +358,7 @@ class LoginForm extends StatelessWidget {
         ),
 
         TextButton(
-          onPressed: onForgotPassword,
+          onPressed: widget.onForgotPassword,
           child: const Text("Forgot Password?"),
         ),
         const Divider(),
@@ -360,7 +402,7 @@ class LoginForm extends StatelessWidget {
 }
 
 /// ===============================
-///  LOGIN TOGGLE (UNCHANGED)
+///  LOGIN TOGGLE
 /// ===============================
 class LoginToggle extends StatelessWidget {
   final bool isStudentSelected;
@@ -376,8 +418,6 @@ class LoginToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Color _ = SmartAttendanceScreen.primaryBlue;
-
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
