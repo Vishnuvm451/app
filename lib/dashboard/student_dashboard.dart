@@ -1,7 +1,7 @@
 import 'package:darzo/login.dart';
 import 'package:darzo/students/attendance_summary.dart';
 import 'package:flutter/material.dart';
-import 'package:darzo/students/students.dart';
+import 'package:darzo/students/student_classmates.dart';
 import 'package:darzo/students/view_internals.dart';
 import 'package:darzo/students/mark_attendance_page.dart';
 
@@ -143,7 +143,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const StudentStudentsListPage(),
+                      builder: (_) => const StudentViewClassmatesPage(),
                     ),
                   );
                 },
