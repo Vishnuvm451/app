@@ -1,6 +1,5 @@
-// lib/admin/admin_register.dart
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // 🔥 Required for InputFormatters
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -20,6 +19,7 @@ class _AdminRegisterPageState extends State<AdminRegisterPage> {
   final TextEditingController passwordController = TextEditingController();
 
   bool isLoading = false;
+  bool _isPasswordVisible = false; // 🔥 Toggle State for Password
 
   @override
   void dispose() {
@@ -57,7 +57,7 @@ class _AdminRegisterPageState extends State<AdminRegisterPage> {
         "uid": uid,
         "name": nameController.text.trim(),
         "email": emailController.text.trim(),
-        "role": "admin",
+        "role": "admin", // 🔥 Key Role
         "created_at": FieldValue.serverTimestamp(),
       });
 
@@ -90,7 +90,7 @@ class _AdminRegisterPageState extends State<AdminRegisterPage> {
       appBar: AppBar(
         backgroundColor: primaryBlue,
         elevation: 0,
-        title: const Text("Admin Setup (One-Time)"),
+        title: const Text("One-Time Admin Setup"),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -105,7 +105,7 @@ class _AdminRegisterPageState extends State<AdminRegisterPage> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
@@ -120,11 +120,12 @@ class _AdminRegisterPageState extends State<AdminRegisterPage> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  "ONE-TIME ADMIN REGISTER",
+                  "REGISTER ADMIN",
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 20),
 
+                // NAME FIELD
                 TextField(
                   controller: nameController,
                   decoration: const InputDecoration(
@@ -134,9 +135,15 @@ class _AdminRegisterPageState extends State<AdminRegisterPage> {
                 ),
                 const SizedBox(height: 14),
 
+                // EMAIL FIELD (No Spaces)
                 TextField(
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.deny(
+                      RegExp(r'\s'),
+                    ), // 🔥 No Spaces
+                  ],
                   decoration: const InputDecoration(
                     labelText: "Admin Email",
                     prefixIcon: Icon(Icons.email_outlined),
@@ -144,12 +151,32 @@ class _AdminRegisterPageState extends State<AdminRegisterPage> {
                 ),
                 const SizedBox(height: 14),
 
+                // PASSWORD FIELD (No Spaces + Toggle)
                 TextField(
                   controller: passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
+                  obscureText: !_isPasswordVisible, // 🔥 Toggle Logic
+                  inputFormatters: [
+                    FilteringTextInputFormatter.deny(
+                      RegExp(r'\s'),
+                    ), // 🔥 No Spaces
+                  ],
+                  decoration: InputDecoration(
                     labelText: "Password",
-                    prefixIcon: Icon(Icons.lock_outline),
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    // 🔥 Eye Icon Button
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _isPasswordVisible
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                        color: Colors.grey,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _isPasswordVisible = !_isPasswordVisible;
+                        });
+                      },
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
