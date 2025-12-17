@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:darzo/dashboard/admin_panel.dart';
-import 'package:darzo/dashboard/student_dashboard.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
-// Imports for your pages (Ensure these exist or will be created in next steps)
+// ✅ PAGE IMPORTS (Ensure these files exist in your project)
 import 'package:darzo/login.dart';
+import 'package:darzo/dashboard/admin_panel.dart';
+import 'package:darzo/dashboard/student_dashboard.dart';
 import 'package:darzo/dashboard/teacher_dashboard.dart';
 import 'firebase_options.dart';
 
@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Darzo',
-      // ✅ GLOBAL BLUE THEME (Kept exactly as you requested)
+      // ✅ GLOBAL BLUE THEME (Kept exactly as requested)
       theme: ThemeData(
         useMaterial3: false,
         primaryColor: const Color(0xFF2196F3),
@@ -77,9 +77,9 @@ class _SplashScreenState extends State<SplashScreen> {
     _handleStartUp();
   }
 
-  // 🔥 NEW: Check for existing login session
+  // 🔥 NEW: Enhanced Logic for Role + Approval Check
   Future<void> _handleStartUp() async {
-    // Wait for the splash animation/timer (2 seconds)
+    // Wait for the splash animation (2 seconds)
     await Future.delayed(const Duration(seconds: 2));
 
     if (!mounted) return;
@@ -90,34 +90,66 @@ class _SplashScreenState extends State<SplashScreen> {
       // 1. No User -> Go to Login
       _navigateTo(const LoginPage());
     } else {
-      // 2. User Exists -> Check Role in Firestore
       try {
+        // 2. Fetch User Role from 'users' collection
         DocumentSnapshot userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(currentUser.uid)
             .get();
 
         if (userDoc.exists) {
-          String role = userDoc.get('role');
+          String role = userDoc.get('role'); // "student", "teacher", or "admin"
 
-          // Route based on role
           if (role == 'admin') {
             _navigateTo(const AdminDashboardPage());
-          } else if (role == 'teacher') {
-            _navigateTo(const TeacherDashboardPage());
           } else if (role == 'student') {
             _navigateTo(const StudentDashboardPage());
+          } else if (role == 'teacher') {
+            // 🚨 EXTRA SECURITY: Check if Teacher is Approved
+            DocumentSnapshot teacherDoc = await FirebaseFirestore.instance
+                .collection('teachers')
+                .doc(currentUser.uid)
+                .get();
+
+            bool isApproved = false;
+            if (teacherDoc.exists && teacherDoc.data() != null) {
+              // Safely check for the field, default to false if missing
+              Map<String, dynamic> data =
+                  teacherDoc.data() as Map<String, dynamic>;
+              if (data.containsKey('isApproved')) {
+                isApproved = data['isApproved'];
+              }
+            }
+
+            if (isApproved) {
+              _navigateTo(const TeacherDashboardPage());
+            } else {
+              // Teacher is NOT approved yet.
+              // Option A: Send to a "Waiting for Approval" screen
+              // Option B: Sign out and show SnackBar (Simplest for now)
+              await FirebaseAuth.instance.signOut();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Account pending approval by Admin.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                _navigateTo(const LoginPage());
+              }
+            }
           } else {
             // Fallback for unknown role
             _navigateTo(const LoginPage());
           }
         } else {
-          // User in Auth but not in Firestore? Rare, but safe to logout.
+          // User exists in Auth but not in Firestore DB? Cleanup.
           await FirebaseAuth.instance.signOut();
           _navigateTo(const LoginPage());
         }
       } catch (e) {
         // Error fetching role (e.g. network), go to login
+        debugPrint("Startup Error: $e");
         _navigateTo(const LoginPage());
       }
     }
@@ -150,13 +182,12 @@ class _SplashScreenState extends State<SplashScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Logo
+              // Logo Container
               Container(
                 width: 150,
                 height: 150,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  // Placeholder shadow for better visibility
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.2),
@@ -171,7 +202,6 @@ class _SplashScreenState extends State<SplashScreen> {
                     'assets/darzo_logo.png',
                     fit: BoxFit.contain,
                     errorBuilder: (context, error, stackTrace) {
-                      // Fallback if image missing
                       return const Icon(
                         Icons.school,
                         size: 80,
