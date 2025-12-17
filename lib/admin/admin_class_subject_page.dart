@@ -9,69 +9,154 @@ class AdminClassSubjectPage extends StatefulWidget {
 }
 
 class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
+  // ---------------- CONTROLLERS ----------------
   final _deptController = TextEditingController();
-  final _classController = TextEditingController();
+  final _classController = TextEditingController(); // For "CS1", "CS2"
   final _subjectController = TextEditingController();
 
-  String? selectedDepartmentId;
+  // ---------------- SELECTIONS ----------------
+  String? selectedDeptId;
+  String? selectedCourseType; // "UG" or "PG"
+  String? selectedSemester; // "Semester 1", "Semester 2"...
   List<String> selectedSubjectClasses = [];
 
+  bool isLoading = false;
+  static const Color primaryBlue = Color(0xFF2196F3);
+
+  // ---------------- STATIC DATA ----------------
+  final List<String> courseTypes = ["UG", "PG"];
+
+  // Dynamic semester list getter
+  List<String> get currentSemesterList {
+    if (selectedCourseType == "UG") {
+      return List.generate(6, (index) => "Semester ${index + 1}");
+    } else if (selectedCourseType == "PG") {
+      return List.generate(4, (index) => "Semester ${index + 1}");
+    }
+    return [];
+  }
+
+  // ==================================================
+  // UI BUILD
+  // ==================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text("Departments • Classes • Subjects"),
-        backgroundColor: Colors.blue.shade800,
+        title: const Text("Manage Academics"),
+        backgroundColor: primaryBlue,
+        elevation: 0,
+        centerTitle: true,
       ),
-      body: SingleChildScrollView(
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1. ADD DEPARTMENT
+                  _buildCard(
+                    title: "1. Add Department",
+                    children: [
+                      _textField(
+                        _deptController,
+                        "Department Name (e.g. Computer Science)",
+                      ),
+                      const SizedBox(height: 12),
+                      _saveButton("Save Department", _addDepartment),
+                    ],
+                  ),
+
+                  // 2. ADD CLASS (YEAR)
+                  _buildCard(
+                    title: "2. Add Class / Year",
+                    children: [
+                      _departmentDropdown(),
+                      const SizedBox(height: 12),
+                      _ugPgDropdown(isForClass: true), // Resets sem if changed
+                      const SizedBox(height: 12),
+                      _textField(
+                        _classController,
+                        "Class Name (e.g. CS1, CS2, BCA-I)",
+                      ),
+                      const SizedBox(height: 12),
+                      _saveButton("Save Class", _addClass),
+                    ],
+                  ),
+
+                  // 3. ADD SUBJECT (SEMESTER WISE)
+                  _buildCard(
+                    title: "3. Add Subject",
+                    children: [
+                      _departmentDropdown(),
+                      const SizedBox(height: 12),
+                      _ugPgDropdown(isForClass: false),
+                      const SizedBox(height: 12),
+                      _semesterDropdown(), // Dynamic based on UG/PG
+                      const SizedBox(height: 12),
+                      _textField(_subjectController, "Subject Name"),
+                      const SizedBox(height: 12),
+                      const Text(
+                        "Select Classes for this Subject:",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      _classMultiSelect(), // Filters by Dept + UG/PG
+                      const SizedBox(height: 12),
+                      _saveButton("Save Subject", _addSubject),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  // ==================================================
+  // WIDGET HELPERS
+  // ==================================================
+
+  Widget _buildCard({required String title, required List<Widget> children}) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.only(bottom: 24),
+      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _sectionTitle("Add Department"),
-            _textField(_deptController, "Department name"),
-            _saveButton("Save Department", _addDepartment),
-
-            const Divider(height: 40),
-
-            _sectionTitle("Add Class"),
-            _departmentDropdown(),
-            _textField(_classController, "Class name (CS2, CS3...)"),
-            _saveButton("Save Class", _addClass),
-
-            const Divider(height: 40),
-
-            _sectionTitle("Add Subject"),
-            _departmentDropdown(),
-            _textField(_subjectController, "Subject name"),
-            _classMultiSelect(),
-            _saveButton("Save Subject", _addSubject),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: primaryBlue,
+              ),
+            ),
+            const Divider(height: 24),
+            ...children,
           ],
         ),
       ),
     );
   }
 
-  // ---------------- UI HELPERS ----------------
-
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
   Widget _textField(TextEditingController c, String hint) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        controller: c,
-        decoration: InputDecoration(
-          hintText: hint,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+    return TextField(
+      controller: c,
+      decoration: InputDecoration(
+        labelText: hint,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 14,
         ),
       ),
     );
@@ -83,10 +168,14 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
       child: ElevatedButton(
         onPressed: onTap,
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blue.shade800,
+          backgroundColor: primaryBlue,
           padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        child: Text(text),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
@@ -95,91 +184,252 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
 
   Widget _departmentDropdown() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection("departments").snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection("departments")
+          .orderBy("name")
+          .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const SizedBox();
+        if (!snapshot.hasData) return const LinearProgressIndicator();
 
         return DropdownButtonFormField<String>(
-          value: selectedDepartmentId,
-          hint: const Text("Select Department"),
+          value: selectedDeptId,
+          decoration: const InputDecoration(
+            labelText: "Select Department",
+            border: OutlineInputBorder(),
+          ),
           items: snapshot.data!.docs.map((doc) {
             return DropdownMenuItem(value: doc.id, child: Text(doc["name"]));
           }).toList(),
           onChanged: (val) {
             setState(() {
-              selectedDepartmentId = val;
+              selectedDeptId = val;
               selectedSubjectClasses.clear();
             });
           },
-          decoration: const InputDecoration(border: OutlineInputBorder()),
         );
       },
+    );
+  }
+
+  Widget _ugPgDropdown({required bool isForClass}) {
+    return DropdownButtonFormField<String>(
+      value: selectedCourseType,
+      decoration: const InputDecoration(
+        labelText: "Select Course Type",
+        border: OutlineInputBorder(),
+      ),
+      items: courseTypes
+          .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+          .toList(),
+      onChanged: (val) {
+        setState(() {
+          selectedCourseType = val;
+          selectedSemester = null; // Reset semester if type changes
+          selectedSubjectClasses.clear(); // Clear class selection
+        });
+      },
+    );
+  }
+
+  Widget _semesterDropdown() {
+    // Only show if UG/PG is selected
+    if (selectedCourseType == null) {
+      return const SizedBox(
+        width: double.infinity,
+        child: Padding(
+          padding: EdgeInsets.all(12.0),
+          child: Text(
+            "Select UG/PG to view Semesters",
+            style: TextStyle(color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<String>(
+      value: selectedSemester,
+      decoration: const InputDecoration(
+        labelText: "Select Semester",
+        border: OutlineInputBorder(),
+      ),
+      items: currentSemesterList
+          .map((sem) => DropdownMenuItem(value: sem, child: Text(sem)))
+          .toList(),
+      onChanged: (val) => setState(() => selectedSemester = val),
     );
   }
 
   Widget _classMultiSelect() {
-    if (selectedDepartmentId == null) return const SizedBox();
+    if (selectedDeptId == null || selectedCourseType == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text(
+          "Select Department & Course Type first.",
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
+      );
+    }
 
+    // Filter classes by Dept AND UG/PG
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection("classes")
-          .where("departmentId", isEqualTo: selectedDepartmentId)
+          .where("departmentId", isEqualTo: selectedDeptId)
+          .where(
+            "type",
+            isEqualTo: selectedCourseType,
+          ) // Filter strictly by UG/PG
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox();
+        if (snapshot.data!.docs.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(8.0),
+            child: Text(
+              "No classes found. Add a Class above first.",
+              style: TextStyle(color: Colors.red),
+            ),
+          );
+        }
 
-        return Column(
-          children: snapshot.data!.docs.map((doc) {
-            return CheckboxListTile(
-              title: Text(doc["name"]),
-              value: selectedSubjectClasses.contains(doc["name"]),
-              onChanged: (val) {
-                setState(() {
-                  val == true
-                      ? selectedSubjectClasses.add(doc["name"])
-                      : selectedSubjectClasses.remove(doc["name"]);
-                });
-              },
-            );
-          }).toList(),
+        return Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: snapshot.data!.docs.map((doc) {
+              final name = doc["name"];
+              return CheckboxListTile(
+                dense: true,
+                title: Text(name),
+                value: selectedSubjectClasses.contains(name),
+                activeColor: primaryBlue,
+                onChanged: (val) {
+                  setState(() {
+                    val == true
+                        ? selectedSubjectClasses.add(name)
+                        : selectedSubjectClasses.remove(name);
+                  });
+                },
+              );
+            }).toList(),
+          ),
         );
       },
     );
   }
 
-  // ---------------- FIRESTORE ACTIONS ----------------
+  // ==================================================
+  // FIRESTORE LOGIC
+  // ==================================================
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   Future<void> _addDepartment() async {
+    final name = _deptController.text.trim();
+    if (name.isEmpty) return _showSnack("Enter department name");
+
+    setState(() => isLoading = true);
+
+    // Check Duplicate
+    final existing = await FirebaseFirestore.instance
+        .collection("departments")
+        .where("name_lower", isEqualTo: name.toLowerCase())
+        .get();
+
+    if (existing.docs.isNotEmpty) {
+      setState(() => isLoading = false);
+      return _showSnack("Department already exists!");
+    }
+
     await FirebaseFirestore.instance.collection("departments").add({
-      "name": _deptController.text.trim(),
-      "active": true,
+      "name": name,
+      "name_lower": name.toLowerCase(),
+      "created_at": FieldValue.serverTimestamp(),
     });
+
     _deptController.clear();
+    setState(() => isLoading = false);
+    _showSnack("Department Added!");
   }
 
   Future<void> _addClass() async {
-    if (selectedDepartmentId == null) return;
+    if (selectedDeptId == null || selectedCourseType == null) {
+      return _showSnack("Select Department and UG/PG");
+    }
+    final name = _classController.text.trim();
+    if (name.isEmpty) return _showSnack("Enter class name");
+
+    setState(() => isLoading = true);
+
+    // Check Duplicate: Same Name + Same Dept + Same Type
+    final existing = await FirebaseFirestore.instance
+        .collection("classes")
+        .where("name_lower", isEqualTo: name.toLowerCase())
+        .where("departmentId", isEqualTo: selectedDeptId)
+        .where("type", isEqualTo: selectedCourseType)
+        .get();
+
+    if (existing.docs.isNotEmpty) {
+      setState(() => isLoading = false);
+      return _showSnack("Class already exists in this Department/Type!");
+    }
 
     await FirebaseFirestore.instance.collection("classes").add({
-      "name": _classController.text.trim(),
-      "departmentId": selectedDepartmentId,
-      "active": true,
+      "name": name,
+      "name_lower": name.toLowerCase(),
+      "departmentId": selectedDeptId,
+      "type": selectedCourseType, // UG or PG
+      "created_at": FieldValue.serverTimestamp(),
     });
+
     _classController.clear();
+    setState(() => isLoading = false);
+    _showSnack("Class Added!");
   }
 
   Future<void> _addSubject() async {
-    if (selectedDepartmentId == null || selectedSubjectClasses.isEmpty) return;
+    if (selectedDeptId == null ||
+        selectedCourseType == null ||
+        selectedSemester == null) {
+      return _showSnack("Select Dept, UG/PG and Semester");
+    }
+    final name = _subjectController.text.trim();
+    if (name.isEmpty) return _showSnack("Enter subject name");
+    if (selectedSubjectClasses.isEmpty)
+      return _showSnack("Select at least one class");
+
+    setState(() => isLoading = true);
+
+    // Check Duplicate: Same Subject Name in Same Dept & Semester
+    final existing = await FirebaseFirestore.instance
+        .collection("subjects")
+        .where("name_lower", isEqualTo: name.toLowerCase())
+        .where("departmentId", isEqualTo: selectedDeptId)
+        .where("semester", isEqualTo: selectedSemester)
+        .get();
+
+    if (existing.docs.isNotEmpty) {
+      setState(() => isLoading = false);
+      return _showSnack("Subject already exists in this Semester!");
+    }
 
     await FirebaseFirestore.instance.collection("subjects").add({
-      "name": _subjectController.text.trim(),
-      "departmentId": selectedDepartmentId,
-      "classes": selectedSubjectClasses,
-      "active": true,
+      "name": name,
+      "name_lower": name.toLowerCase(),
+      "departmentId": selectedDeptId,
+      "type": selectedCourseType,
+      "semester": selectedSemester, // e.g. "Semester 1"
+      "classes": selectedSubjectClasses, // Linked Classes
+      "created_at": FieldValue.serverTimestamp(),
     });
 
     _subjectController.clear();
     selectedSubjectClasses.clear();
-    setState(() {});
+    setState(() => isLoading = false);
+    _showSnack("Subject Added!");
   }
 }
