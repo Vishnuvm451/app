@@ -10,26 +10,20 @@ class AdminClassSubjectPage extends StatefulWidget {
 
 class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   // ---------------- CONTROLLERS ----------------
-  // Department
+  // Just Names now (IDs will be auto-generated)
   final _deptNameController = TextEditingController();
-  final _deptIdController = TextEditingController(); // e.g. "CSE", "MECH"
-
-  // Class
   final _classNameController = TextEditingController();
-  final _classIdController = TextEditingController(); // e.g. "CSE-2025"
 
-  // Subject
+  // Subject needs Code (unique) and Name
   final _subjectNameController = TextEditingController();
-  final _subjectCodeController = TextEditingController(); // e.g. "CS101"
+  final _subjectCodeController = TextEditingController();
 
   // ---------------- SELECTIONS ----------------
   String? selectedDeptId;
   String? selectedCourseType; // "UG" or "PG"
-  String? selectedSemester; // "Semester 1", "Semester 2"...
+  String? selectedSemester;
 
-  // Stores list of Class IDs now, not names
   List<String> selectedClassIds = [];
-
   bool isLoading = false;
   static const Color primaryBlue = Color(0xFF2196F3);
 
@@ -38,10 +32,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
 
   List<String> get currentSemesterList {
     if (selectedCourseType == "UG") {
-      return List.generate(
-        8,
-        (index) => "Semester ${index + 1}",
-      ); // Updated to standard 8
+      return List.generate(6, (index) => "Semester ${index + 1}");
     } else if (selectedCourseType == "PG") {
       return List.generate(4, (index) => "Semester ${index + 1}");
     }
@@ -68,15 +59,10 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 1. ADD DEPARTMENT
+                  // 1. ADD DEPARTMENT (Simplified)
                   _buildCard(
                     title: "1. Add Department",
                     children: [
-                      _textField(
-                        _deptIdController,
-                        "Department ID (Unique code e.g. CSE)",
-                      ),
-                      const SizedBox(height: 12),
                       _textField(
                         _deptNameController,
                         "Department Name (e.g. Computer Science)",
@@ -86,7 +72,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
                     ],
                   ),
 
-                  // 2. ADD CLASS (YEAR)
+                  // 2. ADD CLASS (Simplified)
                   _buildCard(
                     title: "2. Add Class / Section",
                     children: [
@@ -95,13 +81,8 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
                       _ugPgDropdown(isForClass: true),
                       const SizedBox(height: 12),
                       _textField(
-                        _classIdController,
-                        "Class ID (Unique e.g. CS-A-2025)",
-                      ),
-                      const SizedBox(height: 12),
-                      _textField(
                         _classNameController,
-                        "Class Name (e.g. CS - Section A)",
+                        "Class Name (e.g. Section A)",
                       ),
                       const SizedBox(height: 12),
                       _saveButton("Save Class", _addClass),
@@ -123,7 +104,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
                           Expanded(
                             child: _textField(
                               _subjectCodeController,
-                              "Sub Code (CS101)",
+                              "Code (CS101)",
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -138,7 +119,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        "Select Classes attending this Subject:",
+                        "Select Classes for this Subject:",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.grey,
@@ -156,7 +137,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   }
 
   // ==================================================
-  // WIDGET HELPERS (NO CHANGES TO STYLE)
+  // WIDGET HELPERS
   // ==================================================
 
   Widget _buildCard({required String title, required List<Widget> children}) {
@@ -193,10 +174,6 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         filled: true,
         fillColor: Colors.grey.shade50,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 14,
-        ),
       ),
     );
   }
@@ -237,7 +214,6 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
             border: OutlineInputBorder(),
           ),
           items: snapshot.data!.docs.map((doc) {
-            // Value is the ID (e.g., "CSE"), Child is the Name
             return DropdownMenuItem(value: doc.id, child: Text(doc["name"]));
           }).toList(),
           onChanged: (val) {
@@ -278,13 +254,12 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
         child: Padding(
           padding: EdgeInsets.all(12.0),
           child: Text(
-            "Select UG/PG to view Semesters",
+            "Select UG/PG first",
             style: TextStyle(color: Colors.grey),
           ),
         ),
       );
     }
-
     return DropdownButtonFormField<String>(
       value: selectedSemester,
       decoration: const InputDecoration(
@@ -321,7 +296,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
           return const Padding(
             padding: EdgeInsets.all(8.0),
             child: Text(
-              "No classes found. Add a Class above first.",
+              "No classes found.",
               style: TextStyle(color: Colors.red),
             ),
           );
@@ -334,23 +309,16 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
           ),
           child: Column(
             children: snapshot.data!.docs.map((doc) {
-              final className = doc["name"];
-              final classId = doc.id; // Using the ID
-
               return CheckboxListTile(
                 dense: true,
-                title: Text(className), // Show Name
-                subtitle: Text(
-                  classId,
-                  style: TextStyle(fontSize: 10, color: Colors.grey),
-                ), // Show ID small
-                value: selectedClassIds.contains(classId),
+                title: Text(doc["name"]),
+                value: selectedClassIds.contains(doc.id),
                 activeColor: primaryBlue,
                 onChanged: (val) {
                   setState(() {
                     val == true
-                        ? selectedClassIds.add(classId)
-                        : selectedClassIds.remove(classId);
+                        ? selectedClassIds.add(doc.id)
+                        : selectedClassIds.remove(doc.id);
                   });
                 },
               );
@@ -362,72 +330,63 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   }
 
   // ==================================================
-  // FIRESTORE LOGIC (Using Manual IDs)
+  // LOGIC (Auto-Generate IDs)
   // ==================================================
 
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _addDepartment() async {
-    final id = _deptIdController.text
-        .trim()
-        .toUpperCase(); // Force Upper e.g. "CSE"
-    final name = _deptNameController.text.trim();
+  // Helper to turn "Computer Science" -> "COMPUTER_SCIENCE"
+  String _generateId(String input) {
+    return input.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '_');
+  }
 
-    if (id.isEmpty || name.isEmpty) return _showSnack("Enter ID and Name");
+  Future<void> _addDepartment() async {
+    final name = _deptNameController.text.trim();
+    if (name.isEmpty) return _showSnack("Enter Name");
 
     setState(() => isLoading = true);
+    final id = _generateId(name); // Auto-ID
 
-    // Use .doc(id).set(...) to create custom ID
     final docRef = FirebaseFirestore.instance.collection("departments").doc(id);
-    final docSnap = await docRef.get();
-
-    if (docSnap.exists) {
+    if ((await docRef.get()).exists) {
       setState(() => isLoading = false);
-      return _showSnack("Department ID '$id' already exists!");
+      return _showSnack("Department '$name' already exists!");
     }
 
     await docRef.set({
       "name": name,
       "created_at": FieldValue.serverTimestamp(),
     });
-
-    _deptIdController.clear();
     _deptNameController.clear();
     setState(() => isLoading = false);
     _showSnack("Department Added!");
   }
 
   Future<void> _addClass() async {
-    if (selectedDeptId == null || selectedCourseType == null) {
-      return _showSnack("Select Department and UG/PG");
-    }
-    final id = _classIdController.text.trim().toUpperCase();
+    if (selectedDeptId == null || selectedCourseType == null)
+      return _showSnack("Select options first");
     final name = _classNameController.text.trim();
-
-    if (id.isEmpty || name.isEmpty) {
-      return _showSnack("Enter Class ID and Name");
-    }
+    if (name.isEmpty) return _showSnack("Enter Class Name");
 
     setState(() => isLoading = true);
+    // Auto-ID: "DEPT_ID-CLASSNAME" to ensure uniqueness
+    final id = "${selectedDeptId}_${_generateId(name)}";
 
     final docRef = FirebaseFirestore.instance.collection("classes").doc(id);
-    final docSnap = await docRef.get();
-
-    if (docSnap.exists) {
+    if ((await docRef.get()).exists) {
       setState(() => isLoading = false);
-      return _showSnack("Class ID '$id' already exists!");
+      return _showSnack("Class already exists!");
     }
 
     await docRef.set({
       "name": name,
-      "departmentId": selectedDeptId, // Links to Dept ID
+      "departmentId": selectedDeptId,
       "type": selectedCourseType,
       "created_at": FieldValue.serverTimestamp(),
     });
 
-    _classIdController.clear();
     _classNameController.clear();
     setState(() => isLoading = false);
     _showSnack("Class Added!");
@@ -437,22 +396,20 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
     if (selectedDeptId == null ||
         selectedCourseType == null ||
         selectedSemester == null) {
-      return _showSnack("Select Dept, UG/PG and Semester");
+      return _showSnack("Select all dropdowns");
     }
     final code = _subjectCodeController.text.trim().toUpperCase();
     final name = _subjectNameController.text.trim();
 
     if (code.isEmpty || name.isEmpty) return _showSnack("Enter Code and Name");
-    if (selectedClassIds.isEmpty) {
+    if (selectedClassIds.isEmpty)
       return _showSnack("Select at least one class");
-    }
 
     setState(() => isLoading = true);
-
+    // Subject Code is the ID (e.g. "CS101")
     final docRef = FirebaseFirestore.instance.collection("subjects").doc(code);
-    final docSnap = await docRef.get();
 
-    if (docSnap.exists) {
+    if ((await docRef.get()).exists) {
       setState(() => isLoading = false);
       return _showSnack("Subject Code '$code' already exists!");
     }
@@ -462,7 +419,7 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
       "departmentId": selectedDeptId,
       "type": selectedCourseType,
       "semester": selectedSemester,
-      "classIds": selectedClassIds, // Storing IDs now
+      "classIds": selectedClassIds,
       "created_at": FieldValue.serverTimestamp(),
     });
 
