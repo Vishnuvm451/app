@@ -1,9 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
 import 'package:darzo/students/attendance_summary.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:darzo/students/student_classmates.dart';
-import 'package:darzo/students/view_internals.dart';
-import 'package:darzo/students/mark_attendance_page.dart';
+import 'package:darzo/students/student_classmates.dart'; // Ensure correct import
+import 'package:darzo/students/view_internals.dart'; // Ensure correct import
+import 'package:darzo/students/mark_attendance_page.dart'; // Ensure correct import
 
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
@@ -15,9 +17,33 @@ class StudentDashboardPage extends StatefulWidget {
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   final ScrollController _scrollController = ScrollController();
 
-  // --------------------------------------------------
+  // 1️⃣ VARIABLE TO STORE NAME
+  String studentName = "Student";
+
+  // 2️⃣ FETCH NAME ON INIT
+  @override
+  void initState() {
+    super.initState();
+    _fetchStudentName();
+  }
+
+  Future<void> _fetchStudentName() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      final doc = await FirebaseFirestore.instance
+          .collection('students')
+          .doc(uid)
+          .get();
+      if (doc.exists && mounted) {
+        setState(() {
+          // Get name or fallback to "Student"
+          studentName = doc.data()?['name'] ?? "Student";
+        });
+      }
+    }
+  }
+
   // REMINDERS DATA
-  // --------------------------------------------------
   final List<Map<String, String>> reminders = [
     {"title": "Record Submission", "subtitle": "This Friday"},
     {"title": "Prepare for internal test", "subtitle": "Data Structures"},
@@ -31,19 +57,24 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white, size: 30),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const LoginPage()),
+            );
+          },
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white, size: 36),
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginPage()),
-              );
-            },
-          ),
-        ],
+        // actions: [ // Optional: Explicit Logout button if needed
+        //   IconButton(
+        //     icon: const Icon(Icons.logout, color: Colors.white, size: 36),
+        //     onPressed: () {
+        //       Navigator.pushReplacement(
+        //         context,
+        //         MaterialPageRoute(builder: (_) => const LoginPage()),
+        //       );
+        //     },
+        //   ),
+        // ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -89,10 +120,23 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Padding(
+            padding: const EdgeInsets.all(5.0),
+            child: Text(
+              "Heyy $studentName 👋", // 🔥 UPDATED: Dynamic Name
+              style: const TextStyle(
+                color: Color.fromARGB(214, 0, 0, 0),
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 15),
           _attendanceSection(),
           const Divider(),
           const SizedBox(height: 15),
-          // ✅ MARK ATTENDANCE BUTTON (SAFE)
+          // MARK ATTENDANCE BUTTON
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -253,9 +297,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   }
 
   // REMINDERS / TO-DO LIST
-  // Checkbox = auto delete
-  // Swipe = delete
-  // Editable text
   Widget _buildReminderCard() {
     return Container(
       width: double.infinity,
@@ -267,7 +308,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ================= HEADER =================
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -281,17 +321,13 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               ),
             ],
           ),
-
           const SizedBox(height: 12),
-
-          // ================= REMINDER LIST =================
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: reminders.length,
             itemBuilder: (context, index) {
               final reminder = reminders[index];
-
               return Dismissible(
                 key: UniqueKey(),
                 direction: DismissDirection.endToStart,
@@ -309,7 +345,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 child: Column(
                   children: [
                     ListTile(
-                      // CHECKBOX → AUTO DELETE
                       leading: Checkbox(
                         value: false,
                         onChanged: (_) {
@@ -318,8 +353,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                           });
                         },
                       ),
-
-                      // EDITABLE TITLE
                       title: Padding(
                         padding: const EdgeInsets.only(bottom: 12.0),
                         child: TextFormField(
@@ -327,11 +360,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                           cursorColor: Colors.black,
                           decoration: const InputDecoration(
                             border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                            errorBorder: InputBorder.none,
-                            focusedErrorBorder: InputBorder.none,
                             isDense: true,
                             contentPadding: EdgeInsets.zero,
                           ),
@@ -340,7 +368,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                           },
                         ),
                       ),
-                      // EDITABLE SUBTITLE
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: TextFormField(
@@ -348,11 +375,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                           cursorColor: Colors.black,
                           decoration: const InputDecoration(
                             border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                            errorBorder: InputBorder.none,
-                            focusedErrorBorder: InputBorder.none,
                             isDense: true,
                             contentPadding: EdgeInsets.zero,
                           ),
@@ -373,12 +395,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ADD NEW REMINDER
   void _addReminder() {
     setState(() {
       reminders.add({"title": "New Task", "subtitle": "Subject/Deadline"});
     });
-    // Scroll to bottom AFTER UI updates
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
