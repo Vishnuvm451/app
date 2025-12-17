@@ -3,12 +3,12 @@ import 'package:darzo/admin/admin_login.dart';
 import 'package:darzo/dashboard/admin_panel.dart';
 import 'package:darzo/dashboard/student_dashboard.dart';
 import 'package:darzo/dashboard/teacher_dashboard.dart';
-import 'package:darzo/students/student_reg.dart';
-import 'package:darzo/teacher/teacher_reg.dart';
+import 'package:darzo/register/student_reg.dart';
+import 'package:darzo/register/teacher_reg.dart';
 import 'package:darzo/teacher/teacher_setup_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // 🔥 REQUIRED FOR INPUT FORMATTERS
+import 'package:flutter/services.dart';
 
 /// ===============================
 ///  ROOT APP (Wrapper)
@@ -33,8 +33,10 @@ class SmartAttendanceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // ✅ AppBar for Admin Access
       appBar: AppBar(
         elevation: 0,
+        backgroundColor: primaryBlue,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 14.0),
@@ -122,12 +124,17 @@ class _LoginCardState extends State<LoginCard> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _showSnack(String msg, {bool isError = true}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? Colors.red : Colors.green,
+      ),
+    );
   }
 
   /// ===============================
-  ///  LOGIN LOGIC
+  ///  🔥 BACKEND LOGIN LOGIC
   /// ===============================
   Future<void> _handleLogin() async {
     if (_emailController.text.trim().isEmpty ||
@@ -139,7 +146,7 @@ class _LoginCardState extends State<LoginCard> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Auth Login
+      // 1. Authenticate with Firebase Auth
       final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
@@ -147,7 +154,7 @@ class _LoginCardState extends State<LoginCard> {
 
       final uid = cred.user!.uid;
 
-      // 2. Fetch User Role Data
+      // 2. Get User Role from Firestore 'users' collection
       final userDoc = await FirebaseFirestore.instance
           .collection("users")
           .doc(uid)
@@ -159,38 +166,56 @@ class _LoginCardState extends State<LoginCard> {
         return;
       }
 
-      final role = userDoc["role"];
+      final role = userDoc.get("role");
 
-      // 3. Routing
+      // 3. Routing based on Role
       if (!mounted) return;
 
       if (role == "student") {
+        // --- STUDENT FLOW ---
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
         );
       } else if (role == "teacher") {
-        // Teacher Setup Logic
+        // --- TEACHER FLOW ---
         final teacherDoc = await FirebaseFirestore.instance
             .collection('teachers')
             .doc(uid)
             .get();
-        final bool setupDone =
-            (userDoc.data()!.containsKey('profile_completed') &&
-                userDoc['profile_completed'] == true) ||
-            (teacherDoc.exists &&
-                teacherDoc.data()!.containsKey('setupCompleted') &&
-                teacherDoc['setupCompleted'] == true);
 
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => setupDone
-                ? const TeacherDashboardPage()
-                : const TeacherSetupPage(),
-          ),
-        );
+        if (teacherDoc.exists) {
+          final data = teacherDoc.data()!;
+
+          // A. Security Check: Is Approved by Admin?
+          bool isApproved = data.containsKey('isApproved')
+              ? data['isApproved']
+              : false;
+
+          if (!isApproved) {
+            await FirebaseAuth.instance.signOut();
+            _showSnack("Account pending approval by Admin.");
+            return;
+          }
+
+          // B. Setup Check: Has completed profile setup?
+          bool isSetupDone = data.containsKey('setupCompleted')
+              ? data['setupCompleted']
+              : false;
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => isSetupDone
+                  ? const TeacherDashboardPage()
+                  : const TeacherSetupPage(),
+            ),
+          );
+        } else {
+          _showSnack("Teacher profile data missing.");
+        }
       } else if (role == "admin") {
+        // --- ADMIN FLOW ---
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
@@ -200,7 +225,10 @@ class _LoginCardState extends State<LoginCard> {
         await FirebaseAuth.instance.signOut();
       }
     } on FirebaseAuthException catch (e) {
-      _showSnack(e.message ?? "Login failed");
+      String message = "Login failed";
+      if (e.code == 'user-not-found') message = "No user found for that email.";
+      if (e.code == 'wrong-password') message = "Wrong password provided.";
+      _showSnack(message);
     } catch (e) {
       _showSnack("Error: $e");
     } finally {
@@ -233,7 +261,6 @@ class _LoginCardState extends State<LoginCard> {
             onTeacherTap: () => setState(() => isStudentSelected = false),
           ),
           const SizedBox(height: 24),
-
           LoginForm(
             isStudentSelected: isStudentSelected,
             isLoading: _isLoading,
@@ -241,7 +268,10 @@ class _LoginCardState extends State<LoginCard> {
             passwordController: _passwordController,
             onLoginPressed: _handleLogin,
             onForgotPassword: () {
-              _showSnack("Please contact Admin to reset password.");
+              _showSnack(
+                "Please contact Admin to reset password.",
+                isError: false,
+              );
             },
           ),
         ],
@@ -251,7 +281,7 @@ class _LoginCardState extends State<LoginCard> {
 }
 
 /// ===============================
-///  LOGIN FORM (Converted to Stateful for Password Toggle)
+///  LOGIN FORM
 /// ===============================
 class LoginForm extends StatefulWidget {
   final bool isStudentSelected;
@@ -276,7 +306,6 @@ class LoginForm extends StatefulWidget {
 }
 
 class _LoginFormState extends State<LoginForm> {
-  // 🔥 State to track password visibility
   bool _isPasswordVisible = false;
 
   @override
@@ -289,7 +318,6 @@ class _LoginFormState extends State<LoginForm> {
         TextField(
           controller: widget.idController,
           keyboardType: TextInputType.emailAddress,
-          // 🔥 Prevent Spaces
           inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
           decoration: InputDecoration(
             labelText: widget.isStudentSelected
@@ -307,16 +335,14 @@ class _LoginFormState extends State<LoginForm> {
         ),
         const SizedBox(height: 16),
 
-        // PASSWORD FIELD (With Toggle)
+        // PASSWORD FIELD
         TextField(
           controller: widget.passwordController,
-          obscureText: !_isPasswordVisible, // 🔥 Toggle logic
-          // 🔥 Prevent Spaces
+          obscureText: !_isPasswordVisible,
           inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
           decoration: InputDecoration(
             labelText: 'Password',
             prefixIcon: const Icon(Icons.lock_outline),
-            // 🔥 EYE ICON BUTTON
             suffixIcon: IconButton(
               icon: Icon(
                 _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
@@ -337,6 +363,7 @@ class _LoginFormState extends State<LoginForm> {
         ),
         const SizedBox(height: 24),
 
+        // LOGIN BUTTON
         SizedBox(
           width: double.infinity,
           height: 50,
@@ -363,6 +390,7 @@ class _LoginFormState extends State<LoginForm> {
         ),
         const Divider(),
 
+        // REGISTER BUTTONS
         _buildRegisterButton(
           context,
           'REGISTER AS STUDENT',
@@ -402,7 +430,7 @@ class _LoginFormState extends State<LoginForm> {
 }
 
 /// ===============================
-///  LOGIN TOGGLE
+///  LOGIN TOGGLE (Tabs)
 /// ===============================
 class LoginToggle extends StatelessWidget {
   final bool isStudentSelected;
