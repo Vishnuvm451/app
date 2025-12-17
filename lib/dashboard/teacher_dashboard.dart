@@ -1,6 +1,6 @@
 import 'package:darzo/login.dart';
-import 'package:darzo/students/students.dart';
 import 'package:darzo/teacher/internal_mark.dart';
+import 'package:darzo/teacher/teacher_students.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/teacher/attendance.dart';
@@ -16,7 +16,6 @@ class TeacherDashboardPage extends StatefulWidget {
 class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   final ScrollController _scrollController = ScrollController();
   // REMINDER DATA
-  // NOTE: String-only map to avoid type errors
   final List<Map<String, String>> reminders = [
     {"title": "Conduct Internal Exam ", "subtitle": "Next Monday"},
     {"title": "Record Correction", "subtitle": "This Friday"},
@@ -103,7 +102,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // QUICK ACTIONS
-
   Widget _buildQuickActions() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -143,7 +141,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
               // internals page navigation
               _actionCard(
                 context: context,
-                icon: Icons.people,
+                icon: Icons.assignment,
                 title: "Internals",
                 onTap: () {
                   Navigator.push(
@@ -154,11 +152,11 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   );
                 },
               ),
-              // _actionCard(Icons.check_circle, "Attendance"),
+              // Attendance
               _actionCard(
                 context: context,
-                icon: Icons.people,
-                title: "Internals",
+                icon: Icons.check_circle_outline,
+                title: "Attendance",
                 onTap: () {
                   Navigator.push(
                     context,
@@ -168,7 +166,20 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   );
                 },
               ),
-              // _actionCard(Icons.schedule, "Timetable"),
+              //  timetable
+              _actionCard(
+                context: context,
+                icon: Icons.calendar_month,
+                title: "TimeTable",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AttendanceDailyPage(),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ],
@@ -184,7 +195,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     required VoidCallback onTap,
   }) {
     return InkWell(
-      onTap: onTap, // 👈 navigation happens here
+      onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
@@ -209,9 +220,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // REMINDERS / TO-DO LIST
-  // Checkbox = auto delete
-  // Swipe = delete
-  // Editable text
   Widget _buildReminderSection() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -273,15 +281,23 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                         },
                       ),
 
-                      // EDITABLE TITLE
-                      title: TextFormField(
-                        initialValue: reminder["title"],
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
+                      // EDITABLE TITLE (WITH PADDING ADDED HERE)
+                      title: Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: 8.0,
+                        ), // 🟢 Added Space
+                        child: TextFormField(
+                          initialValue: reminder["title"],
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            isDense: true,
+                            hintText: "Title",
+                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          onChanged: (value) {
+                            reminder["title"] = value;
+                          },
                         ),
-                        onChanged: (value) {
-                          reminder["title"] = value;
-                        },
                       ),
 
                       // EDITABLE SUBTITLE
@@ -289,13 +305,16 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                         initialValue: reminder["subtitle"],
                         decoration: const InputDecoration(
                           border: InputBorder.none,
+                          isDense: true,
+                          hintText: "Description or Date",
                         ),
+                        style: const TextStyle(color: Colors.grey),
                         onChanged: (value) {
                           reminder["subtitle"] = value;
                         },
                       ),
                     ),
-                    const Divider(),
+                    const Divider(color: Colors.black),
                   ],
                 ),
               );
@@ -311,7 +330,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     setState(() {
       reminders.add({"title": "New Task", "subtitle": "Subject/Deadline"});
     });
-    // Scroll to bottom AFTER UI updates
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
