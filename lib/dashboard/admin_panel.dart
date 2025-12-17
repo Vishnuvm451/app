@@ -15,14 +15,17 @@ class AdminDashboardPage extends StatelessWidget {
         title: const Text("Admin Panel"),
         backgroundColor: Color(0xFF2196F3),
         actions: [
-          IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginPage()),
-              );
-            },
-            icon: Icon(Icons.logout, size: 40),
+          Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                );
+              },
+              icon: Icon(Icons.logout, size: 40),
+            ),
           ),
         ],
       ),
