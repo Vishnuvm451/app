@@ -1,65 +1,77 @@
-import 'package:darzo/new/auth_provider.dart';
-import 'package:darzo/new/auth_service.dart';
-import 'package:darzo/new/firestore_service.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class TeacherApprovalPage extends StatelessWidget {
   const TeacherApprovalPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-
-    // Safety: only admin can access
-    if (!auth.isAdmin) {
-      return const Scaffold(body: Center(child: Text("Unauthorized")));
-    }
-
     return Scaffold(
       appBar: AppBar(title: const Text("Teacher Approvals")),
-      body: StreamBuilder(
-        stream: FirestoreService.instance.teacherRequestsStream(),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('teacher_requests')
+            .where('status', isEqualTo: 'pending')
+            .orderBy('created_at')
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text("No pending requests"));
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text("No pending teacher requests"));
           }
 
-          final requests = snapshot.data!;
-
-          return ListView.builder(
-            itemCount: requests.length,
-            itemBuilder: (context, index) {
-              final req = requests[index];
+          return ListView(
+            padding: const EdgeInsets.all(12),
+            children: snapshot.data!.docs.map((doc) {
+              final data = doc.data() as Map<String, dynamic>;
 
               return Card(
-                margin: const EdgeInsets.all(12),
+                elevation: 3,
                 child: ListTile(
-                  title: Text(req['name']),
-                  subtitle: Text(
-                    "${req['email']}\nDepartment: ${req['departmentName'] ?? req['departmentId']}",
+                  title: Text(
+                    data['name'] ?? 'No Name',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  isThreeLine: true,
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(data['email']),
+                      const SizedBox(height: 4),
+                      Text(
+                        "Department: ${data['departmentId']}",
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    ],
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.check, color: Colors.green),
-                        onPressed: () => _approve(context, req),
+                        icon: const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                        ),
+                        onPressed: () => _approveTeacher(
+                          context: context,
+                          requestId: doc.id,
+                          requestData: data,
+                        ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: () => _reject(context, req['requestId']),
+                        icon: const Icon(Icons.cancel, color: Colors.red),
+                        onPressed: () =>
+                            _rejectTeacher(context: context, requestId: doc.id),
                       ),
                     ],
                   ),
                 ),
               );
-            },
+            }).toList(),
           );
         },
       ),
@@ -69,59 +81,99 @@ class TeacherApprovalPage extends StatelessWidget {
   // --------------------------------------------------
   // APPROVE TEACHER
   // --------------------------------------------------
-  Future<void> _approve(BuildContext context, Map<String, dynamic> req) async {
+  Future<void> _approveTeacher({
+    required BuildContext context,
+    required String requestId,
+    required Map<String, dynamic> requestData,
+  }) async {
+    FirebaseApp? tempApp;
+
     try {
-      // 1. Create Auth user
-      final user = await AuthService.instance.createTeacherAuth(
-        email: req['email'],
-        password: req['password'],
+      // 🔐 TEMP APP (ADMIN SHOULD NOT LOGOUT)
+      tempApp = await Firebase.initializeApp(
+        name: 'TempTeacherCreate',
+        options: Firebase.app().options,
       );
 
-      if (user == null) throw "Auth creation failed";
+      // 1️⃣ CREATE AUTH USER
+      final cred = await FirebaseAuth.instanceFor(app: tempApp)
+          .createUserWithEmailAndPassword(
+            email: requestData['email'],
+            password: 'teacher@123', // temp password
+          );
 
-      final uid = user.uid;
+      final uid = cred.user!.uid;
 
-      // 2. Create Firestore records
-      await FirestoreService.instance.approveTeacher(
-        requestId: req['requestId'],
-        uid: uid,
-        name: req['name'],
-        email: req['email'],
-        departmentId: req['departmentId'],
-      );
+      // 2️⃣ CREATE USERS DOC
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'uid': uid,
+        'name': requestData['name'],
+        'email': requestData['email'],
+        'role': 'teacher',
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      // 3️⃣ CREATE TEACHER DOC
+      await FirebaseFirestore.instance.collection('teachers').doc(uid).set({
+        'uid': uid,
+        'name': requestData['name'],
+        'email': requestData['email'],
+        'departmentId': requestData['departmentId'],
+        'setupCompleted': false,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      // 4️⃣ UPDATE REQUEST STATUS
+      await FirebaseFirestore.instance
+          .collection('teacher_requests')
+          .doc(requestId)
+          .update({
+            'status': 'approved',
+            'authUid': uid,
+            'approved_at': FieldValue.serverTimestamp(),
+          });
 
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Teacher approved")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Teacher approved. Login credentials created."),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Approval failed: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
+    } finally {
+      await tempApp?.delete();
     }
   }
 
   // --------------------------------------------------
   // REJECT TEACHER
   // --------------------------------------------------
-  Future<void> _reject(BuildContext context, String requestId) async {
-    try {
-      await FirestoreService.instance.rejectTeacher(requestId);
+  Future<void> _rejectTeacher({
+    required BuildContext context,
+    required String requestId,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('teacher_requests')
+        .doc(requestId)
+        .update({
+          'status': 'rejected',
+          'rejected_at': FieldValue.serverTimestamp(),
+        });
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Teacher rejected")));
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Error: $e")));
-      }
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Teacher request rejected")));
     }
   }
 }

@@ -1,11 +1,8 @@
-import 'package:darzo/new/firestore_service.dart';
+import 'package:darzo/mark_attendance_face.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
-import 'attendance_summary.dart';
-import 'mark_attendance_page.dart';
-import 'view_internals.dart';
-import 'student_classmates.dart';
+import 'package:darzo/login.dart';
+import 'package:darzo/new/firestore_service.dart';
 
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
@@ -21,28 +18,51 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   String departmentId = '';
   String classId = '';
 
+  /// attendanceStatus values:
+  /// loading | no-session | not-marked | present | half-day | absent
+  String attendanceStatus = 'loading';
+
   @override
   void initState() {
     super.initState();
-    _loadStudent();
+    _loadStudentData();
   }
 
   // --------------------------------------------------
-  // LOAD STUDENT DATA
+  // LOAD STUDENT PROFILE + TODAY ATTENDANCE STATUS
   // --------------------------------------------------
-  Future<void> _loadStudent() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+  Future<void> _loadStudentData() async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
 
     final student = await FirestoreService.instance.getStudent(uid);
+
     if (student == null) return;
 
+    studentName = student['name'];
+    departmentId = student['departmentId'];
+    classId = student['classId'];
+
+    final status = await FirestoreService.instance.getTodayAttendanceStatus(
+      studentId: uid,
+      classId: classId,
+    );
+
     setState(() {
-      studentName = student['name'];
-      departmentId = student['departmentId'];
-      classId = student['classId'];
+      attendanceStatus = status ?? 'no-session';
       isLoading = false;
     });
+  }
+
+  // --------------------------------------------------
+  // LOGOUT
+  // --------------------------------------------------
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+    );
   }
 
   // --------------------------------------------------
@@ -50,25 +70,33 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
+      backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
+        backgroundColor: const Color(0xFF2196F3),
+        elevation: 0,
         title: const Text("Student Dashboard"),
-        automaticallyImplyLeading: false,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _header(),
-          const SizedBox(height: 20),
-          _attendanceCard(),
-          const SizedBox(height: 20),
-          _quickActions(),
+        actions: [
+          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
       ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.white))
+          : SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _header(),
+                    const SizedBox(height: 24),
+                    _attendanceCard(),
+                    const SizedBox(height: 20),
+                    _quickActions(),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -76,53 +104,114 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // HEADER
   // --------------------------------------------------
   Widget _header() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade600,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Hello, $studentName 👋",
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.school, size: 64, color: Colors.white),
+        const SizedBox(height: 12),
+        Text(
+          "Welcome, $studentName 👋",
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
-          const SizedBox(height: 6),
-          Text(
-            "Department: $departmentId",
-            style: const TextStyle(color: Colors.white),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          "Class ID: $classId",
+          style: const TextStyle(color: Colors.white70),
+        ),
+      ],
     );
   }
 
   // --------------------------------------------------
-  // ATTENDANCE SUMMARY (PLACEHOLDER FOR NOW)
+  // ATTENDANCE CARD (STATUS + BUTTON)
   // --------------------------------------------------
   Widget _attendanceCard() {
+    Color color;
+    String text;
+    bool canMark = false;
+
+    switch (attendanceStatus) {
+      case 'present':
+        color = Colors.green;
+        text = "Present Today ✅";
+        break;
+      case 'half-day':
+        color = Colors.orange;
+        text = "Half Day ⏳";
+        break;
+      case 'absent':
+        color = Colors.red;
+        text = "Absent ❌";
+        break;
+      case 'not-marked':
+        color = Colors.blue;
+        text = "Attendance Not Marked";
+        canMark = true;
+        break;
+      case 'no-session':
+        color = Colors.grey;
+        text = "No Attendance Session Today";
+        break;
+      default:
+        color = Colors.grey;
+        text = "Checking Attendance...";
+    }
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.green.shade50,
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
-        children: const [
+        children: [
           Text(
-            "Attendance Summary",
-            style: TextStyle(fontWeight: FontWeight.bold),
+            text,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
-          SizedBox(height: 10),
-          Text(
-            "Available after attendance module",
-            style: TextStyle(color: Colors.grey),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.face),
+              label: const Text(
+                "Mark Attendance",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              onPressed: canMark
+                  ? () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MarkAttendancePage(),
+                        ),
+                      );
+                      // refresh status after return
+                      setState(() {
+                        isLoading = true;
+                      });
+                      _loadStudentData();
+                    }
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: canMark
+                    ? const Color(0xFF2196F3)
+                    : Colors.grey,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -133,91 +222,77 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // QUICK ACTIONS
   // --------------------------------------------------
   Widget _quickActions() {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      children: [
-        _actionCard(
-          icon: Icons.check_circle_outline,
-          label: "Mark Attendance",
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => MarkAttendancePage(
-                  classId: classId,
-                  departmentId: departmentId,
-                ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Quick Actions",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            children: [
+              _actionCard(
+                icon: Icons.bar_chart,
+                title: "Attendance Summary",
+                onTap: () {},
               ),
-            );
-          },
-        ),
-        _actionCard(
-          icon: Icons.pie_chart,
-          label: "Attendance",
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const StudentAttendanceSummaryPage(),
+              _actionCard(
+                icon: Icons.assignment,
+                title: "Internal Marks",
+                onTap: () {},
               ),
-            );
-          },
-        ),
-        _actionCard(
-          icon: Icons.assignment,
-          label: "Internals",
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const StudentInternalMarksPage(),
+              _actionCard(
+                icon: Icons.people,
+                title: "Classmates",
+                onTap: () {},
               ),
-            );
-          },
-        ),
-        _actionCard(
-          icon: Icons.people,
-          label: "Classmates",
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => StudentViewClassmatesPage(classId: classId),
+              _actionCard(
+                icon: Icons.settings,
+                title: "Settings",
+                onTap: () {},
               ),
-            );
-          },
-        ),
-      ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _actionCard({
     required IconData icon,
-    required String label,
+    required String title,
     required VoidCallback onTap,
   }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.blue.shade200),
         ),
-        padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 36, color: Colors.blue),
+            Icon(icon, size: 32, color: Colors.blue),
             const SizedBox(height: 10),
             Text(
-              label,
+              title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ],
         ),

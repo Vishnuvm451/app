@@ -6,184 +6,22 @@ class FirestoreService {
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // =====================================================
-  // USERS (ROLE DATA)
-  // =====================================================
+  /* ======================================================
+   * USERS (COMMON)
+   * ====================================================== */
+
   Future<Map<String, dynamic>?> getUserData(String uid) async {
     final doc = await _db.collection('users').doc(uid).get();
-    if (!doc.exists) return null;
-
-    final data = doc.data()!;
-    return {'uid': uid, 'email': data['email'], 'role': data['role']};
+    return doc.exists ? doc.data() : null;
   }
 
-  // =====================================================
-  // STUDENTS
-  // =====================================================
-  Future<void> createStudentProfile({
-    required String uid,
-    required String name,
-    required String email,
-    required String admissionNo,
-    required String departmentId,
-    required String classId,
-    required String courseType,
-  }) async {
-    final batch = _db.batch();
+  /* ======================================================
+   * DEPARTMENTS
+   * ====================================================== */
 
-    batch.set(_db.collection('users').doc(uid), {
-      'uid': uid,
-      'email': email,
-      'role': 'student',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    batch.set(_db.collection('students').doc(uid), {
-      'uid': uid,
-      'name': name,
-      'email': email,
-      'admissionNo': admissionNo,
-      'departmentId': departmentId,
-      'classId': classId,
-      'courseType': courseType,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    await batch.commit();
-  }
-
-  Future<Map<String, dynamic>?> getStudent(String uid) async {
-    final doc = await _db.collection('students').doc(uid).get();
-    if (!doc.exists) return null;
-
-    final data = doc.data()!;
-    return {
-      'uid': uid,
-      'name': data['name'],
-      'email': data['email'],
-      'admissionNo': data['admissionNo'],
-      'departmentId': data['departmentId'],
-      'classId': data['classId'],
-      'courseType': data['courseType'],
-    };
-  }
-
-  // =====================================================
-  // TEACHERS
-  // =====================================================
-  Future<Map<String, dynamic>?> getTeacher(String uid) async {
-    final doc = await _db.collection('teachers').doc(uid).get();
-    if (!doc.exists) return null;
-
-    final data = doc.data()!;
-    return {
-      'uid': uid,
-      'name': data['name'],
-      'email': data['email'],
-      'departmentId': data['departmentId'],
-      'isApproved': data['isApproved'] ?? false,
-      'setupCompleted': data['setupCompleted'] ?? false,
-      'classIds': List<String>.from(data['classIds'] ?? []),
-      'subjectIds': List<String>.from(data['subjectIds'] ?? []),
-    };
-  }
-
-  Future<void> completeTeacherSetup({
-    required String uid,
-    required List<String> classIds,
-    required List<String> subjectIds,
-  }) async {
-    await _db.collection('teachers').doc(uid).update({
-      'classIds': classIds,
-      'subjectIds': subjectIds,
-      'setupCompleted': true,
-      'setupAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  // =====================================================
-  // TEACHER REQUESTS (APPROVAL FLOW)
-  // =====================================================
-  Future<void> createTeacherRequest({
-    required String name,
-    required String email,
-    required String password,
-    required String departmentId,
-  }) async {
-    await _db.collection('teacher_requests').add({
-      'name': name,
-      'email': email,
-      'password': password,
-      'departmentId': departmentId,
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Stream<List<Map<String, dynamic>>> teacherRequestsStream() {
-    return _db
-        .collection('teacher_requests')
-        .where('status', isEqualTo: 'pending')
-        .snapshots()
-        .map((snap) {
-          return snap.docs.map((doc) {
-            final data = doc.data();
-            return {'requestId': doc.id, ...data};
-          }).toList();
-        });
-  }
-
-  Future<void> approveTeacher({
-    required String requestId,
-    required String uid,
-    required String name,
-    required String email,
-    required String departmentId,
-  }) async {
-    final batch = _db.batch();
-
-    batch.set(_db.collection('users').doc(uid), {
-      'uid': uid,
-      'email': email,
-      'role': 'teacher',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    batch.set(_db.collection('teachers').doc(uid), {
-      'uid': uid,
-      'name': name,
-      'email': email,
-      'departmentId': departmentId,
-      'isApproved': true,
-      'setupCompleted': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    batch.update(_db.collection('teacher_requests').doc(requestId), {
-      'status': 'approved',
-      'approvedAt': FieldValue.serverTimestamp(),
-      'authUid': uid,
-    });
-
-    await batch.commit();
-  }
-
-  Future<void> rejectTeacher(String requestId) async {
-    await _db.collection('teacher_requests').doc(requestId).update({
-      'status': 'rejected',
-      'rejectedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  // =====================================================
-  // DEPARTMENTS
-  // =====================================================
   Future<List<Map<String, dynamic>>> getDepartments() async {
     final snap = await _db.collection('departments').orderBy('name').get();
-    return snap.docs.map((d) {
-      final data = d.data();
-      return {'id': d.id, 'name': data['name']};
-    }).toList();
+    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
   }
 
   Future<void> createDepartment({
@@ -192,13 +30,14 @@ class FirestoreService {
   }) async {
     await _db.collection('departments').doc(id).set({
       'name': name,
-      'createdAt': FieldValue.serverTimestamp(),
+      'created_at': FieldValue.serverTimestamp(),
     });
   }
 
-  // =====================================================
-  // CLASSES
-  // =====================================================
+  /* ======================================================
+   * CLASSES
+   * ====================================================== */
+
   Future<List<Map<String, dynamic>>> getClassesByDepartment(
     String departmentId,
   ) async {
@@ -208,68 +47,223 @@ class FirestoreService {
         .orderBy('year')
         .get();
 
-    return snap.docs.map((d) {
-      final data = d.data();
-      return {
-        'id': d.id,
-        'name': data['name'],
-        'courseType': data['courseType'],
-        'year': data['year'],
-      };
-    }).toList();
+    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
   }
 
   Future<void> createClass({
     required String id,
-    required String name,
     required String departmentId,
-    required String courseType,
+    required String name,
     required int year,
+    required String courseType, // UG / PG
   }) async {
     await _db.collection('classes').doc(id).set({
-      'name': name,
       'departmentId': departmentId,
-      'courseType': courseType,
+      'name': name,
       'year': year,
-      'createdAt': FieldValue.serverTimestamp(),
+      'courseType': courseType,
+      'created_at': FieldValue.serverTimestamp(),
     });
   }
 
-  // =====================================================
-  // SUBJECTS
-  // =====================================================
-  Future<List<Map<String, dynamic>>> getSubjects({
+  /* ======================================================
+   * SUBJECTS
+   * ====================================================== */
+
+  Future<List<Map<String, dynamic>>> getSubjectsByClassAndSemester({
     required String departmentId,
-    required String courseType,
     required int semester,
   }) async {
     final snap = await _db
         .collection('subjects')
         .where('departmentId', isEqualTo: departmentId)
-        .where('courseType', isEqualTo: courseType)
         .where('semester', isEqualTo: semester)
         .orderBy('name')
         .get();
 
-    return snap.docs.map((d) {
-      final data = d.data();
-      return {'id': d.id, 'name': data['name'], 'semester': data['semester']};
-    }).toList();
+    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
   }
 
   Future<void> createSubject({
     required String id,
-    required String name,
     required String departmentId,
-    required String courseType,
+    required String name,
     required int semester,
   }) async {
     await _db.collection('subjects').doc(id).set({
-      'name': name,
       'departmentId': departmentId,
-      'courseType': courseType,
+      'name': name,
       'semester': semester,
-      'createdAt': FieldValue.serverTimestamp(),
+      'created_at': FieldValue.serverTimestamp(),
     });
+  }
+
+  /* ======================================================
+   * STUDENTS
+   * ====================================================== */
+
+  Future<Map<String, dynamic>?> getStudent(String uid) async {
+    final doc = await _db.collection('students').doc(uid).get();
+    return doc.exists ? doc.data() : null;
+  }
+
+  Future<void> createStudentProfile({
+    required String uid,
+    required String name,
+    required String email,
+    required String admissionNo,
+    required String departmentId,
+    required String classId,
+    required String courseType,
+  }) async {
+    await _db.collection('students').doc(uid).set({
+      'uid': uid,
+      'name': name,
+      'email': email,
+      'admissionNo': admissionNo,
+      'departmentId': departmentId,
+      'classId': classId,
+      'courseType': courseType,
+      'faceEnabled': false,
+      'created_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /* ======================================================
+   * TEACHERS
+   * ====================================================== */
+
+  Future<Map<String, dynamic>?> getTeacher(String uid) async {
+    final doc = await _db.collection('teachers').doc(uid).get();
+    return doc.exists ? doc.data() : null;
+  }
+
+  Future<void> createTeacherRequest({
+    required String name,
+    required String email,
+    required String departmentId,
+  }) async {
+    await _db.collection('teacher_requests').add({
+      'name': name,
+      'email': email,
+      'departmentId': departmentId,
+      'status': 'pending',
+      'created_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> completeTeacherSetup({
+    required String uid,
+    required String classId,
+    required int semester,
+    required List<String> subjectIds,
+  }) async {
+    await _db.collection('teachers').doc(uid).update({
+      'teachingClassId': classId,
+      'teachingSemester': semester,
+      'subjectIds': subjectIds,
+      'setupCompleted': true,
+    });
+  }
+
+  /* ======================================================
+   * ATTENDANCE (OPTION 1 – DEPARTMENT CENTRIC)
+   * ====================================================== */
+
+  /// CREATE ATTENDANCE SESSION (Teacher)
+  Future<String> createAttendanceSession({
+    required String departmentId,
+    required String classId,
+    required String subjectId,
+    required String teacherId,
+    required int semester,
+  }) async {
+    final doc = await _db.collection('attendance_sessions').add({
+      'departmentId': departmentId,
+      'classId': classId,
+      'subjectId': subjectId,
+      'teacherId': teacherId,
+      'semester': semester,
+      'date': DateTime.now().toIso8601String().split('T')[0],
+      'isActive': true,
+      'created_at': FieldValue.serverTimestamp(),
+    });
+
+    return doc.id;
+  }
+
+  /// CLOSE SESSION
+  Future<void> closeAttendanceSession(String sessionId) async {
+    await _db.collection('attendance_sessions').doc(sessionId).update({
+      'isActive': false,
+      'closed_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// SAVE ATTENDANCE RECORD (Manual / Face)
+  Future<void> createAttendanceRecord({
+    required String sessionId,
+    required String studentId,
+    required String status, // present | absent | half-day
+    required String markedBy, // manual | face
+  }) async {
+    await _db.collection('attendance_records').add({
+      'sessionId': sessionId,
+      'studentId': studentId,
+      'status': status,
+      'markedBy': markedBy,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<String?> getTodayAttendanceStatus({
+    required String studentId,
+    required String classId,
+  }) async {
+    final today = DateTime.now().toIso8601String().split('T')[0];
+
+    // 1️⃣ Find today’s active session
+    final sessionSnap = await _db
+        .collection('attendance_sessions')
+        .where('classId', isEqualTo: classId)
+        .where('date', isEqualTo: today)
+        .where('isActive', isEqualTo: true)
+        .limit(1)
+        .get();
+
+    if (sessionSnap.docs.isEmpty) {
+      return 'no-session';
+    }
+
+    final sessionId = sessionSnap.docs.first.id;
+
+    // 2️⃣ Check attendance record
+    final recordSnap = await _db
+        .collection('attendance_records')
+        .where('sessionId', isEqualTo: sessionId)
+        .where('studentId', isEqualTo: studentId)
+        .limit(1)
+        .get();
+
+    if (recordSnap.docs.isEmpty) {
+      return 'not-marked';
+    }
+
+    return recordSnap.docs.first['status']; // present / absent / half-day
+  }
+
+  /// CHECK DUPLICATE ATTENDANCE (Student Safety)
+  Future<bool> hasStudentMarkedAttendance({
+    required String sessionId,
+    required String studentId,
+  }) async {
+    final snap = await _db
+        .collection('attendance_records')
+        .where('sessionId', isEqualTo: sessionId)
+        .where('studentId', isEqualTo: studentId)
+        .limit(1)
+        .get();
+
+    return snap.docs.isNotEmpty;
   }
 }
