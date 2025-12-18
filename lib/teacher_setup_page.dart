@@ -1,7 +1,6 @@
-import 'package:darzo/new/auth_provider.dart';
 import 'package:darzo/new/firestore_service.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class TeacherSetupPage extends StatefulWidget {
   const TeacherSetupPage({super.key});
@@ -11,216 +10,237 @@ class TeacherSetupPage extends StatefulWidget {
 }
 
 class _TeacherSetupPageState extends State<TeacherSetupPage> {
-  String? selectedClassId;
-  String? courseType;
-  int? year;
-  int? selectedSemester;
-
-  final List<String> selectedSubjectIds = [];
   bool isLoading = false;
 
-  // --------------------------------------------------
-  // SEMESTER LOCK LOGIC
-  // --------------------------------------------------
-  List<int> _allowedSemesters() {
-    if (courseType == null || year == null) return [];
+  String? departmentId;
+  String? courseType; // UG / PG
+  int? year;
 
-    if (courseType == 'UG') {
-      if (year == 1) return [1, 2];
-      if (year == 2) return [3, 4];
-      if (year == 3) return [5, 6];
-    }
+  List<int> lockedSemesters = [];
+  List<String> selectedSubjectIds = [];
 
-    if (courseType == 'PG') {
-      if (year == 1) return [1, 2];
-      if (year == 2) return [3, 4];
-    }
+  List<Map<String, dynamic>> departments = [];
+  List<Map<String, dynamic>> subjects = [];
 
-    return [];
+  @override
+  void initState() {
+    super.initState();
+    _loadDepartments();
   }
 
-  // --------------------------------------------------
-  // SAVE SETUP
-  // --------------------------------------------------
-  Future<void> _completeSetup() async {
-    if (selectedClassId == null ||
-        selectedSemester == null ||
+  // =====================================================
+  // LOAD DEPARTMENTS
+  // =====================================================
+  Future<void> _loadDepartments() async {
+    departments = await FirestoreService.instance.getDepartments();
+    setState(() {});
+  }
+
+  // =====================================================
+  // SEMESTER LOCKING LOGIC (CORE)
+  // =====================================================
+  void _lockSemesters() {
+    if (courseType == null || year == null) return;
+
+    if (courseType == 'UG') {
+      lockedSemesters = {
+        1: [1, 2],
+        2: [3, 4],
+        3: [5, 6],
+      }[year]!;
+    } else {
+      lockedSemesters = {
+        1: [1, 2],
+        2: [3, 4],
+      }[year]!;
+    }
+
+    _loadSubjects();
+  }
+
+  // =====================================================
+  // LOAD SUBJECTS (BASED ON LOCKED SEMESTERS)
+  // =====================================================
+  Future<void> _loadSubjects() async {
+    if (departmentId == null || courseType == null) return;
+
+    subjects.clear();
+    selectedSubjectIds.clear();
+
+    for (final sem in lockedSemesters) {
+      final semSubjects = await FirestoreService.instance.getSubjects(
+        departmentId: departmentId!,
+        courseType: courseType!,
+        semester: sem,
+      );
+      subjects.addAll(semSubjects);
+    }
+
+    setState(() {});
+  }
+
+  // =====================================================
+  // SAVE SETUP (ONE TIME)
+  // =====================================================
+  Future<void> _saveSetup() async {
+    if (departmentId == null ||
+        courseType == null ||
+        year == null ||
         selectedSubjectIds.isEmpty) {
-      _showSnack("Complete all selections");
+      _show("Please complete all fields");
       return;
     }
 
     setState(() => isLoading = true);
 
-    try {
-      final auth = context.read<AuthProvider>();
+    final uid = FirebaseAuth.instance.currentUser!.uid;
 
-      await FirestoreService.instance.completeTeacherSetup(
-        uid: auth.user!.uid,
-        classIds: [selectedClassId!],
-        subjectIds: selectedSubjectIds,
-      );
+    await FirestoreService.instance.completeTeacherSetup(
+      uid: uid,
+      classIds: const [], // future use
+      subjectIds: selectedSubjectIds,
+    );
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
-      );
-    } catch (e) {
-      _showSnack(e.toString());
-    } finally {
-      if (mounted) setState(() => isLoading = false);
-    }
+    Navigator.pop(context);
   }
 
-  void _showSnack(String msg) {
+  void _show(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // --------------------------------------------------
+  // =====================================================
   // UI
-  // --------------------------------------------------
+  // =====================================================
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-    final deptId = auth.departmentId!;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Teacher Setup"),
-        automaticallyImplyLeading: false,
-      ),
+      appBar: AppBar(title: const Text("Teacher Setup")),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _title("Department"),
-          Text(deptId, style: const TextStyle(fontWeight: FontWeight.bold)),
-
-          const SizedBox(height: 20),
-
-          // ---------------- CLASS ----------------
-          _title("Select Class"),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: FirestoreService.instance.getClassesByDepartment(deptId),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const CircularProgressIndicator();
-              }
-
-              final classes = snapshot.data!;
-
-              return DropdownButtonFormField<String>(
-                value: selectedClassId,
-                items: classes.map<DropdownMenuItem<String>>((c) {
-                  return DropdownMenuItem<String>(
-                    value: c['id'],
-                    child: Text(c['name']),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  final cls = classes.firstWhere((c) => c['id'] == val);
-
-                  setState(() {
-                    selectedClassId = val;
-                    courseType = cls['courseType'];
-                    year = cls['year'];
-                    selectedSemester = null;
-                    selectedSubjectIds.clear();
-                  });
-                },
-              );
+          // ---------------- DEPARTMENT ----------------
+          _dropdown<String>(
+            label: "Department",
+            value: departmentId,
+            items: departments
+                .map(
+                  (d) => DropdownMenuItem<String>(
+                    value: d['id'] as String,
+                    child: Text(d['name'] as String),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) {
+              setState(() {
+                departmentId = v as String?;
+                subjects.clear();
+                selectedSubjectIds.clear();
+                lockedSemesters.clear();
+                year = null;
+              });
             },
           ),
 
-          const SizedBox(height: 20),
+          // ---------------- COURSE TYPE ----------------
+          _dropdown<String>(
+            label: "Course Type",
+            value: courseType,
+            items: const [
+              DropdownMenuItem<String>(value: 'UG', child: Text('UG')),
+              DropdownMenuItem<String>(value: 'PG', child: Text('PG')),
+            ],
+            onChanged: (v) {
+              setState(() {
+                courseType = v as String?;
+                year = null;
+                lockedSemesters.clear();
+                subjects.clear();
+              });
+            },
+          ),
 
-          // ---------------- SEMESTER ----------------
-          if (selectedClassId != null)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _title("Select Semester"),
-                DropdownButtonFormField<int>(
-                  value: selectedSemester,
-                  items: _allowedSemesters()
-                      .map<DropdownMenuItem<int>>(
-                        (s) => DropdownMenuItem<int>(
-                          value: s,
-                          child: Text("Semester $s"),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    setState(() {
-                      selectedSemester = val;
-                      selectedSubjectIds.clear();
-                    });
-                  },
-                ),
-              ],
+          // ---------------- YEAR ----------------
+          _dropdown<int>(
+            label: "Year",
+            value: year,
+            items: [
+              const DropdownMenuItem<int>(value: 1, child: Text('1')),
+              const DropdownMenuItem<int>(value: 2, child: Text('2')),
+              if (courseType == 'UG')
+                const DropdownMenuItem<int>(value: 3, child: Text('3')),
+            ],
+            onChanged: (v) {
+              setState(() {
+                year = v as int?;
+                _lockSemesters();
+              });
+            },
+          ),
+
+          // ---------------- LOCKED SEMESTERS ----------------
+          if (lockedSemesters.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                "Locked Semesters: ${lockedSemesters.join(', ')}",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
 
           // ---------------- SUBJECTS ----------------
-          if (selectedSemester != null)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _title("Select Subjects"),
-                FutureBuilder<List<Map<String, dynamic>>>(
-                  future: FirestoreService.instance.getSubjects(
-                    departmentId: deptId,
-                    courseType: courseType!,
-                    semester: selectedSemester!,
-                  ),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return const CircularProgressIndicator();
-                    }
+          const Text(
+            "Select Subjects",
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
 
-                    final subjects = snapshot.data!;
-
-                    return Column(
-                      children: subjects.map((s) {
-                        return CheckboxListTile(
-                          value: selectedSubjectIds.contains(s['id']),
-                          title: Text(s['name']),
-                          onChanged: (val) {
-                            setState(() {
-                              val!
-                                  ? selectedSubjectIds.add(s['id'])
-                                  : selectedSubjectIds.remove(s['id']);
-                            });
-                          },
-                        );
-                      }).toList(),
-                    );
-                  },
-                ),
-              ],
+          ...subjects.map(
+            (s) => CheckboxListTile(
+              value: selectedSubjectIds.contains(s['id']),
+              title: Text(s['name']),
+              onChanged: (checked) {
+                setState(() {
+                  checked == true
+                      ? selectedSubjectIds.add(s['id'])
+                      : selectedSubjectIds.remove(s['id']);
+                });
+              },
             ),
+          ),
 
-          const SizedBox(height: 30),
+          const SizedBox(height: 24),
 
+          // ---------------- SAVE ----------------
           ElevatedButton(
-            onPressed: isLoading ? null : _completeSetup,
+            onPressed: isLoading ? null : _saveSetup,
             child: isLoading
                 ? const CircularProgressIndicator(color: Colors.white)
-                : const Text("COMPLETE SETUP"),
+                : const Text("SAVE SETUP"),
           ),
         ],
       ),
     );
   }
 
-  Widget _title(String text) {
+  // =====================================================
+  // GENERIC DROPDOWN HELPER
+  // =====================================================
+  Widget _dropdown<T>({
+    required String label,
+    required T? value,
+    required List<DropdownMenuItem<T>> items,
+    required void Function(T?) onChanged,
+  }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<T>(
+        value: value,
+        decoration: InputDecoration(labelText: label),
+        items: items,
+        onChanged: onChanged,
       ),
     );
   }
