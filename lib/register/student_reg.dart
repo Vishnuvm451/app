@@ -85,6 +85,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
             });
 
         // B. Students Collection (Profile Data)
+        //
         transaction.set(
           FirebaseFirestore.instance.collection('students').doc(uid),
           {
@@ -94,14 +95,14 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
             "register_number": admissionController.text.trim(),
             "role": "student",
 
-            // Saving Linked Data
+            // Saving Linked Data (Dual Saving: ID + Name)
             "departmentId": selectedDeptId, // e.g. "CSE"
             "departmentName": selectedDeptName, // e.g. "Computer Science"
 
             "course_type": selectedCourseType, // "UG" or "PG"
 
-            "classId": selectedClassId, // e.g. "CSE-A-2025"
-            "className": selectedClassName, // e.g. "B.Tech CS - Sec A"
+            "classId": selectedClassId, // e.g. "CSE_SECTION_A"
+            "className": selectedClassName, // e.g. "Section A"
 
             "face_enabled": false, // Default
           },
@@ -235,17 +236,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
                           final docs = snapshot.data!.docs;
 
-                          // SAFETY: Check if selected ID still exists in the list
-                          // If Admin deleted "CSE" while Student was selecting it
-                          if (selectedDeptId != null &&
-                              !docs.any((doc) => doc.id == selectedDeptId)) {
-                            // We use a local variable check logic or reset here carefully
-                            // But inside build, we usually just pass null to value if not found
-                            // to avoid setstate loops.
-                            // Better Approach: Validate value property of Dropdown.
-                          }
-
-                          // Determine effective value for Dropdown
+                          // SAFETY CHECK: Ensure selected ID still exists
                           String? validValue = selectedDeptId;
                           if (validValue != null &&
                               !docs.any((d) => d.id == validValue)) {
@@ -272,6 +263,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                             onChanged: (val) {
                               setState(() {
                                 selectedDeptId = val;
+                                // Save Name for later
                                 selectedDeptName = docs.firstWhere(
                                   (d) => d.id == val,
                                 )['name'];
@@ -299,15 +291,13 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                             .toList(),
                         onChanged: (val) => setState(() {
                           selectedCourseType = val;
-                          // Reset Class
                           selectedClassId = null;
                           selectedClassName = null;
                         }),
                       ),
                       const SizedBox(height: 15),
 
-                      // 3. CLASS DROPDOWN
-                      // Only show if Dept and Type are selected
+                      // 3. CLASS DROPDOWN (Filters by Dept & Type)
                       if (selectedDeptId != null && selectedCourseType != null)
                         StreamBuilder<QuerySnapshot>(
                           stream: FirebaseFirestore.instance
@@ -334,7 +324,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                               );
                             }
 
-                            // SAFETY: Validate ID existence
+                            // SAFETY CHECK
                             String? validClassValue = selectedClassId;
                             if (validClassValue != null &&
                                 !docs.any((d) => d.id == validClassValue)) {
@@ -352,8 +342,8 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                               ),
                               items: docs.map((doc) {
                                 return DropdownMenuItem(
-                                  value:
-                                      doc.id, // MANUAL STRING ID (e.g. "CSE-A")
+                                  value: doc
+                                      .id, // MANUAL STRING ID (e.g. "CSE_SECTION_A")
                                   child: Text(doc['name']),
                                 );
                               }).toList(),
