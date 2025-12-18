@@ -1,5 +1,8 @@
 import 'dart:async';
-import 'package:darzo/new/login.dart';
+import 'package:darzo/login.dart';
+import 'package:darzo/student_dashboard.dart';
+import 'package:darzo/teacher_dashboard.dart';
+import 'package:darzo/teacher_setup_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
