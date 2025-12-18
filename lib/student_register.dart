@@ -1,7 +1,9 @@
-import 'package:darzo/login.dart';
-import 'package:darzo/new/auth_service.dart';
-import 'package:darzo/new/firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'login.dart';
 
 class StudentRegisterPage extends StatefulWidget {
   const StudentRegisterPage({super.key});
@@ -11,28 +13,45 @@ class StudentRegisterPage extends StatefulWidget {
 }
 
 class _StudentRegisterPageState extends State<StudentRegisterPage> {
-  final _nameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
-  final _admissionCtrl = TextEditingController();
+  // ---------------- CONTROLLERS ----------------
+  final TextEditingController fullNameController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController admissionController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
 
-  String? departmentId;
-  String? classId;
-  String? courseType;
+  // ---------------- STATE ----------------
+  String? selectedDeptId;
+  String? selectedDeptName;
+
+  String? selectedClassId;
+  String? selectedClassName;
+
+  String? selectedCourseType;
+  final List<String> courseTypes = ['UG', 'PG'];
 
   bool isLoading = false;
+  bool _isPasswordVisible = false; // 👁 PASSWORD TOGGLE
 
-  // --------------------------------------------------
-  // REGISTER STUDENT (FINAL LOGIC)
-  // --------------------------------------------------
-  Future<void> _registerStudent() async {
-    if (_nameCtrl.text.isEmpty ||
-        _emailCtrl.text.isEmpty ||
-        _passwordCtrl.text.isEmpty ||
-        _admissionCtrl.text.isEmpty ||
-        departmentId == null ||
-        classId == null ||
-        courseType == null) {
+  @override
+  void dispose() {
+    fullNameController.dispose();
+    emailController.dispose();
+    admissionController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  // ======================================================
+  // REGISTER STUDENT
+  // ======================================================
+  Future<void> registerStudent() async {
+    if (fullNameController.text.trim().isEmpty ||
+        emailController.text.trim().isEmpty ||
+        admissionController.text.trim().isEmpty ||
+        passwordController.text.trim().isEmpty ||
+        selectedDeptId == null ||
+        selectedClassId == null ||
+        selectedCourseType == null) {
       _showSnack("Please fill all fields");
       return;
     }
@@ -41,34 +60,53 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
     try {
       // 1️⃣ CREATE AUTH USER
-      final user = await AuthService.instance.registerStudent(
-        email: _emailCtrl.text.trim(),
-        password: _passwordCtrl.text.trim(),
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text.trim(),
       );
 
-      if (user == null) throw "Authentication failed";
+      final uid = cred.user!.uid;
 
-      // 2️⃣ CREATE STUDENT PROFILE (FIRESTORE)
-      await FirestoreService.instance.createStudentProfile(
-        uid: user.uid,
-        name: _nameCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
-        admissionNo: _admissionCtrl.text.trim(),
-        departmentId: departmentId!,
-        classId: classId!,
-        courseType: courseType!,
-      );
+      // 2️⃣ SAVE USER + STUDENT PROFILE
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        // USERS
+        tx.set(FirebaseFirestore.instance.collection('users').doc(uid), {
+          'uid': uid,
+          'name': fullNameController.text.trim(),
+          'email': emailController.text.trim(),
+          'role': 'student',
+          'created_at': FieldValue.serverTimestamp(),
+        });
+
+        // STUDENTS
+        tx.set(FirebaseFirestore.instance.collection('students').doc(uid), {
+          'uid': uid,
+          'name': fullNameController.text.trim(),
+          'email': emailController.text.trim(),
+          'register_number': admissionController.text.trim(),
+          'departmentId': selectedDeptId,
+          'departmentName': selectedDeptName,
+          'classId': selectedClassId,
+          'className': selectedClassName,
+          'courseType': selectedCourseType,
+          'face_enabled': false,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+      });
+
+      await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
-
       _showSnack("Student registered successfully", success: true);
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
+    } on FirebaseAuthException catch (e) {
+      _showSnack(e.message ?? "Registration failed");
     } catch (e) {
-      _showSnack(e.toString());
+      _showSnack("Error: $e");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -83,115 +121,281 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // --------------------------------------------------
+  // ======================================================
   // UI
-  // --------------------------------------------------
+  // ======================================================
   @override
   Widget build(BuildContext context) {
+    const Color primaryBlue = Color(0xFF2196F3);
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Student Registration")),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _field(_nameCtrl, "Full Name"),
-          _field(_emailCtrl, "Email"),
-          _field(_admissionCtrl, "Admission Number"),
-          _field(_passwordCtrl, "Password", isPassword: true),
+      backgroundColor: primaryBlue,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                const Text(
+                  "DARZO",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 30),
 
-          const SizedBox(height: 12),
-
-          // ---------------- DEPARTMENT ----------------
-          FutureBuilder(
-            future: FirestoreService.instance.getDepartments(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const CircularProgressIndicator();
-
-              return DropdownButtonFormField<String>(
-                value: departmentId,
-                hint: const Text("Select Department"),
-                items: snapshot.data!
-                    .map<DropdownMenuItem<String>>(
-                      (d) => DropdownMenuItem(
-                        value: d['id'],
-                        child: Text(d['name']),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (val) {
-                  setState(() {
-                    departmentId = val;
-                    classId = null;
-                  });
-                },
-              );
-            },
-          ),
-
-          const SizedBox(height: 12),
-
-          // ---------------- CLASS ----------------
-          if (departmentId != null)
-            FutureBuilder(
-              future: FirestoreService.instance.getClassesByDepartment(
-                departmentId!,
-              ),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const CircularProgressIndicator();
-                }
-
-                return DropdownButtonFormField<String>(
-                  value: classId,
-                  hint: const Text("Select Class"),
-                  items: snapshot.data!
-                      .map<DropdownMenuItem<String>>(
-                        (c) => DropdownMenuItem(
-                          value: c['id'],
-                          child: Text(c['name']),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text(
+                        "STUDENT REGISTRATION",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
                         ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    final cls = snapshot.data!.firstWhere(
-                      (c) => c['id'] == val,
-                    );
+                      ),
+                      const SizedBox(height: 20),
 
-                    setState(() {
-                      classId = val;
-                      courseType = cls['courseType'];
-                    });
-                  },
-                );
-              },
+                      _field(
+                        fullNameController,
+                        "Full Name",
+                        Icons.person_outline,
+                      ),
+                      _field(
+                        admissionController,
+                        "Admission Number",
+                        Icons.badge_outlined,
+                      ),
+                      _field(
+                        emailController,
+                        "Email",
+                        Icons.email_outlined,
+                        formatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
+                      ),
+
+                      // 🔐 PASSWORD WITH 👁 BUTTON
+                      TextField(
+                        controller: passwordController,
+                        obscureText: !_isPasswordVisible,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
+                        decoration: InputDecoration(
+                          labelText: "Password",
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _isPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isPasswordVisible = !_isPasswordVisible;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 15),
+
+                      // ---------------- DEPARTMENT ----------------
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('departments')
+                            .orderBy('name')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const LinearProgressIndicator();
+                          }
+
+                          final docs = snapshot.data!.docs;
+
+                          return DropdownButtonFormField<String>(
+                            value: selectedDeptId,
+                            decoration: const InputDecoration(
+                              labelText: "Department",
+                              prefixIcon: Icon(Icons.account_balance_outlined),
+                            ),
+                            items: docs
+                                .map(
+                                  (d) => DropdownMenuItem<String>(
+                                    value: d.id,
+                                    child: Text(d['name']),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              setState(() {
+                                selectedDeptId = val;
+                                selectedDeptName = docs.firstWhere(
+                                  (d) => d.id == val,
+                                )['name'];
+                                selectedClassId = null;
+                                selectedCourseType = null;
+                              });
+                            },
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 15),
+
+                      // ---------------- COURSE TYPE ----------------
+                      DropdownButtonFormField<String>(
+                        value: selectedCourseType,
+                        decoration: const InputDecoration(
+                          labelText: "Course Type",
+                          prefixIcon: Icon(Icons.school_outlined),
+                        ),
+                        items: courseTypes
+                            .map(
+                              (t) => DropdownMenuItem<String>(
+                                value: t,
+                                child: Text(t),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (val) {
+                          setState(() {
+                            selectedCourseType = val;
+                            selectedClassId = null;
+                          });
+                        },
+                      ),
+
+                      const SizedBox(height: 15),
+
+                      // ---------------- CLASS ----------------
+                      if (selectedDeptId != null && selectedCourseType != null)
+                        StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('classes')
+                              .where('departmentId', isEqualTo: selectedDeptId)
+                              .where('type', isEqualTo: selectedCourseType)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) {
+                              return const LinearProgressIndicator();
+                            }
+
+                            final docs = snapshot.data!.docs;
+
+                            return DropdownButtonFormField<String>(
+                              value: selectedClassId,
+                              decoration: const InputDecoration(
+                                labelText: "Class",
+                                prefixIcon: Icon(Icons.class_outlined),
+                              ),
+                              items: docs
+                                  .map(
+                                    (d) => DropdownMenuItem<String>(
+                                      value: d.id,
+                                      child: Text(d['name']),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (val) {
+                                setState(() {
+                                  selectedClassId = val;
+                                  selectedClassName = docs.firstWhere(
+                                    (d) => d.id == val,
+                                  )['name'];
+                                });
+                              },
+                            );
+                          },
+                        ),
+
+                      const SizedBox(height: 25),
+
+                      // ---------------- REGISTER BUTTON ----------------
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: isLoading ? null : registerStudent,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryBlue,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(30),
+                            ),
+                          ),
+                          child: isLoading
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                              : const Text(
+                                  "REGISTER",
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const LoginPage(),
+                            ),
+                          );
+                        },
+                        child: const Text(
+                          "Already have an account? Login",
+                          style: TextStyle(
+                            color: primaryBlue,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-
-          const SizedBox(height: 24),
-
-          // ---------------- REGISTER BUTTON ----------------
-          ElevatedButton(
-            onPressed: isLoading ? null : _registerStudent,
-            child: isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text("REGISTER"),
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _field(
     TextEditingController ctrl,
-    String label, {
-    bool isPassword = false,
+    String label,
+    IconData icon, {
+    List<TextInputFormatter>? formatters,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 15),
       child: TextField(
         controller: ctrl,
-        obscureText: isPassword,
+        inputFormatters: formatters,
         decoration: InputDecoration(
           labelText: label,
-          border: const OutlineInputBorder(),
+          prefixIcon: Icon(icon),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
