@@ -1,6 +1,8 @@
-import 'package:darzo/login.dart';
-import 'package:darzo/new/firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'login.dart';
 
 class TeacherRegisterPage extends StatefulWidget {
   const TeacherRegisterPage({super.key});
@@ -11,28 +13,33 @@ class TeacherRegisterPage extends StatefulWidget {
 
 class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   // ---------------- CONTROLLERS ----------------
-  final _nameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
 
   // ---------------- STATE ----------------
-  String? departmentId;
+  String? selectedDeptId;
+  String? selectedDeptName;
+
   bool isLoading = false;
+  bool _isPasswordVisible = false; // 👁 PASSWORD TOGGLE
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
-    _emailCtrl.dispose();
-    _passwordCtrl.dispose();
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
     super.dispose();
   }
 
-  // ---------------- REGISTER REQUEST ----------------
-  Future<void> _submitRequest() async {
-    if (_nameCtrl.text.trim().isEmpty ||
-        _emailCtrl.text.trim().isEmpty ||
-        _passwordCtrl.text.trim().isEmpty ||
-        departmentId == null) {
+  // ======================================================
+  // TEACHER REGISTER (REQUEST → ADMIN APPROVAL)
+  // ======================================================
+  Future<void> registerTeacher() async {
+    if (nameController.text.trim().isEmpty ||
+        emailController.text.trim().isEmpty ||
+        passwordController.text.trim().isEmpty ||
+        selectedDeptId == null) {
       _showSnack("Please fill all fields");
       return;
     }
@@ -40,12 +47,16 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     setState(() => isLoading = true);
 
     try {
-      await FirestoreService.instance.createTeacherRequest(
-        name: _nameCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
-        password: _passwordCtrl.text.trim(), // used after approval
-        departmentId: departmentId!,
-      );
+      // 🔥 CREATE TEACHER REQUEST (NO AUTH YET)
+      await FirebaseFirestore.instance.collection('teacher_requests').add({
+        'name': nameController.text.trim(),
+        'email': emailController.text.trim(),
+        'password': passwordController.text.trim(), // used by admin
+        'departmentId': selectedDeptId,
+        'departmentName': selectedDeptName,
+        'status': 'pending',
+        'created_at': FieldValue.serverTimestamp(),
+      });
 
       if (!mounted) return;
 
@@ -54,14 +65,12 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         success: true,
       );
 
-      await Future.delayed(const Duration(seconds: 2));
-
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
     } catch (e) {
-      _showSnack(e.toString());
+      _showSnack("Error: $e");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -76,120 +85,182 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
-  // ---------------- UI ----------------
+  // ======================================================
+  // UI
+  // ======================================================
   @override
   Widget build(BuildContext context) {
-    const primaryBlue = Color(0xFF2196F3);
+    const Color primaryBlue = Color(0xFF2196F3);
 
     return Scaffold(
       backgroundColor: primaryBlue,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              const SizedBox(height: 20),
-              const Text(
-                'DARZO',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 44,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                const Text(
+                  "DARZO",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 30),
+                const SizedBox(height: 30),
 
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(26),
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      "TEACHER REGISTRATION",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text(
+                        "TEACHER REGISTRATION",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
+                      const SizedBox(height: 20),
 
-                    _field(_nameCtrl, "Full Name", Icons.person),
-                    _field(_emailCtrl, "Email", Icons.email),
-                    _field(
-                      _passwordCtrl,
-                      "Password",
-                      Icons.lock,
-                      obscure: true,
-                    ),
+                      _field(nameController, "Full Name", Icons.person_outline),
 
-                    const SizedBox(height: 14),
+                      _field(
+                        emailController,
+                        "Email",
+                        Icons.email_outlined,
+                        formatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
+                      ),
 
-                    // ---------------- DEPARTMENT ----------------
-                    FutureBuilder<List<Map<String, dynamic>>>(
-                      future: FirestoreService.instance.getDepartments(),
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData) {
-                          return const LinearProgressIndicator();
-                        }
-
-                        final depts = snapshot.data!;
-
-                        return DropdownButtonFormField<String>(
-                          value: departmentId,
-                          decoration: const InputDecoration(
-                            labelText: "Department",
-                            prefixIcon: Icon(Icons.account_balance),
+                      // 🔐 PASSWORD WITH 👁 BUTTON
+                      TextField(
+                        controller: passwordController,
+                        obscureText: !_isPasswordVisible,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
+                        decoration: InputDecoration(
+                          labelText: "Password",
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _isPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isPasswordVisible = !_isPasswordVisible;
+                              });
+                            },
                           ),
-                          items: depts.map<DropdownMenuItem<String>>((d) {
-                            return DropdownMenuItem<String>(
-                              value: d['id'] as String,
-                              child: Text(d['name'] as String),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            setState(() => departmentId = val);
-                          },
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        onPressed: isLoading ? null : _submitRequest,
-                        child: isLoading
-                            ? const CircularProgressIndicator(
-                                color: Colors.white,
-                              )
-                            : const Text(
-                                "SUBMIT REQUEST",
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 15),
 
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => const LoginPage()),
-                        );
-                      },
-                      child: const Text("Already approved? Login"),
-                    ),
-                  ],
+                      // ---------------- DEPARTMENT ----------------
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('departments')
+                            .orderBy('name')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const LinearProgressIndicator();
+                          }
+
+                          final docs = snapshot.data!.docs;
+
+                          return DropdownButtonFormField<String>(
+                            value: selectedDeptId,
+                            decoration: const InputDecoration(
+                              labelText: "Department",
+                              prefixIcon: Icon(Icons.account_balance_outlined),
+                            ),
+                            items: docs
+                                .map(
+                                  (d) => DropdownMenuItem<String>(
+                                    value: d.id,
+                                    child: Text(d['name']),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              setState(() {
+                                selectedDeptId = val;
+                                selectedDeptName = docs.firstWhere(
+                                  (d) => d.id == val,
+                                )['name'];
+                              });
+                            },
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 25),
+
+                      // ---------------- REGISTER BUTTON ----------------
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: isLoading ? null : registerTeacher,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryBlue,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(30),
+                            ),
+                          ),
+                          child: isLoading
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                              : const Text(
+                                  "SUBMIT REQUEST",
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const LoginPage(),
+                            ),
+                          );
+                        },
+                        child: const Text(
+                          "Already have an account? Login",
+                          style: TextStyle(
+                            color: primaryBlue,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -200,14 +271,18 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     TextEditingController ctrl,
     String label,
     IconData icon, {
-    bool obscure = false,
+    List<TextInputFormatter>? formatters,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 15),
       child: TextField(
         controller: ctrl,
-        obscureText: obscure,
-        decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+        inputFormatters: formatters,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        ),
       ),
     );
   }
