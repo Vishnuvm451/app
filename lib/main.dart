@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'new/firebase_options.dart';
 
-import 'package:darzo/auth_provider.dart';
+import 'package:darzo/new/auth_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
