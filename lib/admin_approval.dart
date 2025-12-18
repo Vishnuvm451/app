@@ -4,8 +4,8 @@ import 'package:darzo/new/firestore_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class AdminTeacherApprovalPage extends StatelessWidget {
-  const AdminTeacherApprovalPage({super.key});
+class TeacherApprovalPage extends StatelessWidget {
+  const TeacherApprovalPage({super.key});
 
   @override
   Widget build(BuildContext context) {
