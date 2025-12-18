@@ -38,6 +38,7 @@ dependencies:
   pie_chart: ^5.4.0
   cupertino_icons: ^1.0.8
   geolocator: ^10.1.0
+  provider: ^6.0.5
 
 
 dev_dependencies:
