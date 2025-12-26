@@ -1,299 +1,315 @@
-import 'package:darzo/admin_login.dart';
-
-import 'package:darzo/new/auth_provider.dart';
-import 'package:darzo/new/student_register.dart';
-import 'package:darzo/teacher_register.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'admin_login.dart';
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const SmartAttendanceScreen();
-  }
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-// =======================================================
-// MAIN SCREEN
-// =======================================================
-class SmartAttendanceScreen extends StatelessWidget {
-  const SmartAttendanceScreen({super.key});
+class _LoginPageState extends State<LoginPage> {
+  bool isStudent = true;
+  bool showPassword = false;
+  bool isLoading = false;
 
-  static const Color primaryBlue = Color(0xFF2196F3);
+  final Color primaryBlue = const Color(0xFF2196F3);
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: primaryBlue,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.admin_panel_settings, size: 34),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminLoginPage()),
-              );
-            },
-          ),
-        ],
-      ),
-      backgroundColor: primaryBlue,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: const [
-                HeaderSection(),
-                SizedBox(height: 24),
-                LoginCard(),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+  final TextEditingController emailCtrl = TextEditingController();
+  final TextEditingController passwordCtrl = TextEditingController();
 
-// =======================================================
-// HEADER
-// =======================================================
-class HeaderSection extends StatelessWidget {
-  const HeaderSection({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const Text(
-          'DARZO',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 52,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
-          ),
-        ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withOpacity(0.2),
-          ),
-          child: const Icon(Icons.access_time, size: 56, color: Colors.white),
-        ),
-      ],
-    );
-  }
-}
-
-// =======================================================
-// LOGIN CARD
-// =======================================================
-class LoginCard extends StatefulWidget {
-  const LoginCard({super.key});
-
-  @override
-  State<LoginCard> createState() => _LoginCardState();
-}
-
-class _LoginCardState extends State<LoginCard> {
-  bool isStudentSelected = true;
-
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-
-  @override
-  void dispose() {
-    emailController.dispose();
-    passwordController.dispose();
-    super.dispose();
-  }
-
-  // ===================================================
-  // LOGIN HANDLER (PROVIDER BASED)
-  // ===================================================
-  Future<void> _login(BuildContext context) async {
-    final auth = context.read<AuthProvider>();
-
-    if (emailController.text.trim().isEmpty ||
-        passwordController.text.trim().isEmpty) {
-      _showSnack(context, "Please enter email & password");
+  // ======================================================
+  // LOGIN FUNCTION (ROLE BASED)
+  // ======================================================
+  Future<void> _login() async {
+    if (emailCtrl.text.trim().isEmpty ||
+        passwordCtrl.text.trim().isEmpty) {
+      _showSnack("Enter email & password");
       return;
     }
 
     try {
-      await auth.login(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
+      setState(() => isLoading = true);
+
+      final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: emailCtrl.text.trim(),
+        password: passwordCtrl.text.trim(),
       );
 
-      if (!auth.isLoggedIn) {
-        _showSnack(context, "Login failed");
+      final uid = cred.user!.uid;
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+
+      if (!userDoc.exists) {
+        _showSnack("User role not found");
+        return;
       }
-      // ✅ SUCCESS → routing handled by main.dart
+
+      final role = userDoc['role'];
+
+      if (isStudent && role != 'student') {
+        _showSnack("Not a student account");
+        return;
+      }
+
+      if (!isStudent && role != 'teacher') {
+        _showSnack("Not a teacher account");
+        return;
+      }
+
+      // 🔁 NAVIGATION (replace with your dashboards)
+      if (role == 'student') {
+        _showSnack("Student Login Success", success: true);
+        // Navigator.pushReplacement(...StudentDashboard());
+      } else if (role == 'teacher') {
+        _showSnack("Teacher Login Success", success: true);
+        // Navigator.pushReplacement(...TeacherDashboard());
+      }
+
     } catch (e) {
-      _showSnack(context, e.toString());
+      _showSnack(e.toString());
+    } finally {
+      setState(() => isLoading = false);
     }
   }
 
-  void _showSnack(BuildContext context, String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
+  // ======================================================
+  // UI
+  // ======================================================
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
-      ),
-      child: Column(
-        children: [
-          LoginToggle(
-            isStudentSelected: isStudentSelected,
-            onStudentTap: () => setState(() => isStudentSelected = true),
-            onTeacherTap: () => setState(() => isStudentSelected = false),
-          ),
-          const SizedBox(height: 20),
-
-          // EMAIL
-          TextField(
-            controller: emailController,
-            decoration: InputDecoration(
-              labelText: isStudentSelected ? "Student Email" : "Teacher Email",
-              prefixIcon: Icon(isStudentSelected ? Icons.school : Icons.person),
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // PASSWORD
-          TextField(
-            controller: passwordController,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: "Password",
-              prefixIcon: Icon(Icons.lock),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // LOGIN BUTTON
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: auth.isLoading ? null : () => _login(context),
-              child: auth.isLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text(
-                      "LOGIN",
-                      style: TextStyle(fontWeight: FontWeight.bold),
+    return Scaffold(
+      backgroundColor: primaryBlue,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            // 🔐 ADMIN ICON
+            Positioned(
+              top: 10,
+              right: 16,
+              child: IconButton(
+                icon: const Icon(
+                  Icons.admin_panel_settings,
+                  color: Colors.white,
+                  size: 28,
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AdminLoginPage(),
                     ),
+                  );
+                },
+              ),
             ),
-          ),
 
-          const SizedBox(height: 10),
+            // MAIN CONTENT
+            SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 40),
 
-          TextButton(
-            onPressed: () {
-              _showSnack(context, "Password reset via admin / email");
-            },
-            child: const Text("Forgot Password?"),
-          ),
+                  const CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.white24,
+                    child: Icon(Icons.access_time,
+                        size: 40, color: Colors.white),
+                  ),
 
-          const Divider(),
+                  const SizedBox(height: 20),
 
-          _registerButton(
-            context,
-            "REGISTER AS STUDENT",
-            const StudentRegisterPage(),
-          ),
-          const SizedBox(height: 10),
-          _registerButton(
-            context,
-            "REGISTER AS TEACHER",
-            const TeacherRegisterPage(),
-          ),
-        ],
+                  const Text(
+                    "DARZO",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 42,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Column(
+                      children: [
+                        // TOGGLE
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          child: Row(
+                            children: [
+                              _toggle("STUDENT LOGIN", true),
+                              _toggle("TEACHER LOGIN", false),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        _input(
+                          "Email",
+                          Icons.email,
+                          emailCtrl,
+                        ),
+
+                        _password(),
+
+                        const SizedBox(height: 20),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: isLoading ? null : _login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryBlue,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                            ),
+                            child: isLoading
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white)
+                                : const Text(
+                                    "LOGIN",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+                        const Text("Forgot Password?"),
+
+                        const SizedBox(height: 20),
+                        const Divider(),
+                        const SizedBox(height: 12),
+
+                        _button("REGISTER AS STUDENT"),
+                        const SizedBox(height: 10),
+                        _button("REGISTER AS TEACHER"),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _registerButton(BuildContext context, String text, Widget page) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: () {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => page));
-        },
-        child: Text(text),
-      ),
-    );
-  }
-}
-
-// =======================================================
-// LOGIN TOGGLE
-// =======================================================
-class LoginToggle extends StatelessWidget {
-  final bool isStudentSelected;
-  final VoidCallback onStudentTap;
-  final VoidCallback onTeacherTap;
-
-  const LoginToggle({
-    super.key,
-    required this.isStudentSelected,
-    required this.onStudentTap,
-    required this.onTeacherTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Row(
-        children: [
-          _toggle("STUDENT", isStudentSelected, onStudentTap),
-          _toggle("TEACHER", !isStudentSelected, onTeacherTap),
-        ],
-      ),
-    );
-  }
-
-  Widget _toggle(String text, bool selected, VoidCallback onTap) {
+  // ======================================================
+  // WIDGETS
+  // ======================================================
+  Widget _toggle(String text, bool student) {
     return Expanded(
       child: GestureDetector(
-        onTap: onTap,
+        onTap: () => setState(() => isStudent = student),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          height: 45,
           decoration: BoxDecoration(
-            color: selected ? SmartAttendanceScreen.primaryBlue : null,
+            color: isStudent == student ? primaryBlue : Colors.transparent,
             borderRadius: BorderRadius.circular(30),
           ),
-          alignment: Alignment.center,
-          child: Text(
-            text,
-            style: TextStyle(
-              color: selected ? Colors.white : Colors.grey.shade700,
-              fontWeight: FontWeight.bold,
+          child: Center(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: isStudent == student ? Colors.white : Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _input(String hint, IconData icon, TextEditingController ctrl) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: TextField(
+        controller: ctrl,
+        inputFormatters: [
+          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+        ],
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: Icon(icon),
+          border:
+              OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+    );
+  }
+
+  Widget _password() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: TextField(
+        controller: passwordCtrl,
+        obscureText: !showPassword,
+        inputFormatters: [
+          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+        ],
+        decoration: InputDecoration(
+          hintText: "Password",
+          prefixIcon: const Icon(Icons.lock),
+          suffixIcon: IconButton(
+            icon: Icon(showPassword
+                ? Icons.visibility
+                : Icons.visibility_off),
+            onPressed: () =>
+                setState(() => showPassword = !showPassword),
+          ),
+          border:
+              OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+    );
+  }
+
+  Widget _button(String text) {
+    return SizedBox(
+      width: double.infinity,
+      height: 45,
+      child: ElevatedButton(
+        onPressed: () {},
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryBlue,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        ),
+        child: Text(text,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  void _showSnack(String msg, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: success ? Colors.green : Colors.red,
       ),
     );
   }
