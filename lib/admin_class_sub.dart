@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AdminClassSubjectPage extends StatefulWidget {
   const AdminClassSubjectPage({super.key});
@@ -9,234 +9,227 @@ class AdminClassSubjectPage extends StatefulWidget {
 }
 
 class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
-  String? departmentId;
-  String? classId;
+  // ---------------- CONTROLLERS ----------------
+  final _deptIdCtrl = TextEditingController();
+  final _deptNameCtrl = TextEditingController();
+  final _classNameCtrl = TextEditingController();
 
+  // ---------------- STATE ----------------
+  String? selectedDepartmentId;
   String? courseType;
   int? year;
-  int? semester;
 
-  final classCtrl = TextEditingController();
-  final subjectCtrl = TextEditingController();
+  final List<String> courseTypes = ['UG', 'PG'];
 
-  List<int> allowedSemesters() {
-    if (courseType == null || year == null) return [];
+  // ---------------- FIRESTORE ----------------
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-    if (courseType == 'UG') {
-      if (year == 1) return [1, 2];
-      if (year == 2) return [3, 4];
-      if (year == 3) return [5, 6];
+  // ======================================================
+  // ADD DEPARTMENT (ROOT LEVEL)
+  // ======================================================
+  Future<void> _addDepartment() async {
+    if (_deptIdCtrl.text.isEmpty || _deptNameCtrl.text.isEmpty) {
+      _showSnack("Enter department ID & name");
+      return;
     }
 
-    if (courseType == 'PG') {
-      if (year == 1) return [1, 2];
-      if (year == 2) return [3, 4];
-    }
+    final deptId = _deptIdCtrl.text.trim().toUpperCase();
 
-    return [];
+    await _db.collection('departments').doc(deptId).set({
+      'id': deptId,
+      'name': _deptNameCtrl.text.trim(),
+      'created_at': FieldValue.serverTimestamp(),
+    });
+
+    _deptIdCtrl.clear();
+    _deptNameCtrl.clear();
+
+    _showSnack("Department added", success: true);
   }
 
-  Future<void> addClass() async {
-    if (departmentId == null ||
-        classCtrl.text.isEmpty ||
+  // ======================================================
+  // ADD CLASS (UNDER DEPARTMENT)
+  // ======================================================
+  Future<void> _addClass() async {
+    if (selectedDepartmentId == null ||
+        _classNameCtrl.text.isEmpty ||
         courseType == null ||
-        year == null)
+        year == null) {
+      _showSnack("Fill all class fields");
       return;
+    }
 
-    await FirebaseFirestore.instance.collection('classes').add({
-      'name': classCtrl.text.trim(),
-      'departmentId': departmentId,
+    final classId = "${selectedDepartmentId}_${courseType}_YEAR$year";
+
+    await _db.collection('classes').doc(classId).set({
+      'id': classId,
+      'name': _classNameCtrl.text.trim(),
+      'departmentId': selectedDepartmentId,
       'courseType': courseType,
       'year': year,
       'created_at': FieldValue.serverTimestamp(),
     });
 
-    classCtrl.clear();
+    _classNameCtrl.clear();
+    courseType = null;
+    year = null;
+
+    setState(() {});
+    _showSnack("Class added", success: true);
   }
 
-  Future<void> addSubject() async {
-    if (classId == null || semester == null || subjectCtrl.text.isEmpty) return;
-
-    await FirebaseFirestore.instance.collection('subjects').add({
-      'name': subjectCtrl.text.trim(),
-      'classId': classId,
-      'departmentId': departmentId,
-      'semester': semester,
-      'created_at': FieldValue.serverTimestamp(),
-    });
-
-    subjectCtrl.clear();
-  }
-
+  // ======================================================
+  // UI
+  // ======================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Classes & Subjects")),
+      appBar: AppBar(title: const Text("Classes & Departments")),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          /// ---------------- DEPARTMENT ----------------
-          StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('departments')
-                .orderBy('name')
-                .snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) return const CircularProgressIndicator();
-
-              return DropdownButtonFormField<String>(
-                value: departmentId,
-                hint: const Text("Select Department"),
-                items: snap.data!.docs
-                    .map(
-                      (d) =>
-                          DropdownMenuItem(value: d.id, child: Text(d['name'])),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  setState(() {
-                    departmentId = v;
-                    classId = null;
-                  });
-                },
-              );
-            },
-          ),
-
-          const SizedBox(height: 24),
-
-          /// ---------------- ADD CLASS ----------------
-          const Text(
-            "Add Class",
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          TextField(
-            controller: classCtrl,
-            decoration: const InputDecoration(labelText: "Class Name"),
-          ),
-
-          DropdownButtonFormField<String>(
-            value: courseType,
-            hint: const Text("Course Type"),
-            items: const [
-              DropdownMenuItem(value: 'UG', child: Text("UG")),
-              DropdownMenuItem(value: 'PG', child: Text("PG")),
-            ],
-            onChanged: (v) => setState(() {
-              courseType = v;
-              year = null;
-            }),
-          ),
-
-          DropdownButtonFormField<int>(
-            value: year,
-            hint: const Text("Year"),
-            items: (courseType == 'UG' ? [1, 2, 3] : [1, 2])
-                .map((y) => DropdownMenuItem(value: y, child: Text("Year $y")))
-                .toList(),
-            onChanged: (v) => setState(() => year = v),
-          ),
-
-          ElevatedButton(onPressed: addClass, child: const Text("Add Class")),
+          _sectionTitle("Add Department"),
+          _textField(_deptIdCtrl, "Department ID (CSE)"),
+          _textField(_deptNameCtrl, "Department Name"),
+          _primaryButton("Add Department", _addDepartment),
 
           const Divider(height: 40),
 
-          /// ---------------- EXISTING CLASSES ----------------
-          if (departmentId != null)
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('classes')
-                  .where('departmentId', isEqualTo: departmentId)
-                  .snapshots(),
-              builder: (context, snap) {
-                if (!snap.hasData) return const CircularProgressIndicator();
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: snap.data!.docs.map((doc) {
-                    return ListTile(
-                      title: Text(doc['name']),
-                      subtitle: Text(
-                        "${doc['courseType']} • Year ${doc['year']}",
-                      ),
-                      onTap: () {
-                        setState(() {
-                          classId = doc.id;
-                          courseType = doc['courseType'];
-                          year = doc['year'];
-                        });
-                      },
-                    );
-                  }).toList(),
-                );
-              },
-            ),
+          _sectionTitle("Add Class"),
+          _departmentDropdown(),
+          _textField(_classNameCtrl, "Class Name (A / B / 1st Year)"),
+          _courseDropdown(),
+          _yearDropdown(),
+          _primaryButton("Add Class", _addClass),
 
           const Divider(height: 40),
 
-          /// ---------------- ADD SUBJECT ----------------
-          if (classId != null) ...[
-            const Text(
-              "Add Subject",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            TextField(
-              controller: subjectCtrl,
-              decoration: const InputDecoration(labelText: "Subject Name"),
-            ),
-
-            DropdownButtonFormField<int>(
-              value: semester,
-              hint: const Text("Semester"),
-              items: allowedSemesters()
-                  .map((s) => DropdownMenuItem(value: s, child: Text("Sem $s")))
-                  .toList(),
-              onChanged: (v) => setState(() => semester = v),
-            ),
-
-            ElevatedButton(
-              onPressed: addSubject,
-              child: const Text("Add Subject"),
-            ),
-          ],
-
-          const SizedBox(height: 20),
-
-          /// ---------------- EXISTING SUBJECTS ----------------
-          if (classId != null)
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('subjects')
-                  .where('classId', isEqualTo: classId)
-                  .orderBy('semester')
-                  .snapshots(),
-              builder: (context, snap) {
-                if (!snap.hasData) return const CircularProgressIndicator();
-
-                final grouped = <int, List<QueryDocumentSnapshot>>{};
-                for (var d in snap.data!.docs) {
-                  grouped.putIfAbsent(d['semester'], () => []).add(d);
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: grouped.entries.map((e) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Semester ${e.key}",
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        ...e.value.map((s) => ListTile(title: Text(s['name']))),
-                        const Divider(),
-                      ],
-                    );
-                  }).toList(),
-                );
-              },
-            ),
+          _sectionTitle("Existing Classes"),
+          _existingClassesList(),
         ],
+      ),
+    );
+  }
+
+  // ======================================================
+  // WIDGETS
+  // ======================================================
+  Widget _departmentDropdown() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _db.collection('departments').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox();
+
+        final docs = snapshot.data!.docs;
+
+        if (docs.isEmpty) {
+          return const Text(
+            "No departments found. Add a department first.",
+            style: TextStyle(color: Colors.red),
+          );
+        }
+
+        return DropdownButtonFormField<String>(
+          value: selectedDepartmentId,
+          hint: const Text("Select Department"),
+          items: docs
+              .map((d) => DropdownMenuItem(value: d.id, child: Text(d['name'])))
+              .toList(),
+          onChanged: (val) {
+            setState(() => selectedDepartmentId = val);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _courseDropdown() {
+    return DropdownButtonFormField<String>(
+      value: courseType,
+      hint: const Text("Course Type"),
+      items: courseTypes
+          .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+          .toList(),
+      onChanged: (val) => setState(() => courseType = val),
+    );
+  }
+
+  Widget _yearDropdown() {
+    final years = courseType == 'PG' ? [1, 2] : [1, 2, 3, 4];
+
+    return DropdownButtonFormField<int>(
+      value: year,
+      hint: const Text("Year"),
+      items: years
+          .map((y) => DropdownMenuItem(value: y, child: Text("Year $y")))
+          .toList(),
+      onChanged: (val) => setState(() => year = val),
+    );
+  }
+
+  Widget _existingClassesList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _db.collection('classes').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox();
+
+        if (snapshot.data!.docs.isEmpty) {
+          return const Text("No classes added yet");
+        }
+
+        return Column(
+          children: snapshot.data!.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return ListTile(
+              title: Text(data['name']),
+              subtitle: Text(
+                "${data['departmentId']} | ${data['courseType']} | Year ${data['year']}",
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  // ======================================================
+  // HELPERS
+  // ======================================================
+  Widget _textField(TextEditingController ctrl, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: ctrl,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+
+  Widget _primaryButton(String text, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ElevatedButton(onPressed: onTap, child: Text(text)),
+    );
+  }
+
+  Widget _sectionTitle(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        text,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  void _showSnack(String msg, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: success ? Colors.green : Colors.red,
       ),
     );
   }
