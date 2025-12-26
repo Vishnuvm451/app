@@ -1,11 +1,10 @@
 import 'package:darzo/attendance_daily.dart';
+import 'package:darzo/internal.dart';
 import 'package:darzo/new/firestore_service.dart';
+import 'package:darzo/teacher_student.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'teacher_setup_page.dart';
-
-// import 'internal/internal_marks_page.dart';
-// import 'teacher_students.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
   const TeacherDashboardPage({super.key});
@@ -141,22 +140,22 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           icon: Icons.assignment,
           label: "Internals",
           onTap: () {
-            // Navigator.push(
-            //   context,
-            //   MaterialPageRoute(builder: (_) => const InternalMarksPage()),
-            // );
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const InternalMarksPage()),
+            );
           },
         ),
         _actionCard(
           icon: Icons.people,
           label: "Students",
           onTap: () {
-            // Navigator.push(
-            //   context,
-            //   MaterialPageRoute(
-            //     builder: (_) => const TeacherStudentsListPage(),
-            //   ),
-            // );
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const TeacherStudentsListPage(),
+              ),
+            );
           },
         ),
         _actionCard(
