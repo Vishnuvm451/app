@@ -1,151 +1,248 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
 
-class AdminClassSubjectPage extends StatefulWidget {
-  const AdminClassSubjectPage({super.key});
+class AdminAcademicSetupPage extends StatefulWidget {
+  const AdminAcademicSetupPage({super.key});
 
   @override
-  State<AdminClassSubjectPage> createState() => _AdminClassSubjectPageState();
+  State<AdminAcademicSetupPage> createState() => _AdminAcademicSetupPageState();
 }
 
-class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
-  // ================= CONTROLLERS =================
-  final _deptIdCtrl = TextEditingController();
-  final _deptNameCtrl = TextEditingController();
-  final _classNameCtrl = TextEditingController();
-  final _subjectNameCtrl = TextEditingController();
+class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
+  // ---------------- THEME ----------------
+  final Color primaryBlue = const Color(0xFF2196F3);
 
-  // ================= STATE =================
-  String? selectedDepartmentId;
-  String? selectedClassId;
-  String? courseType;
-  int? year;
-  int? semester; // ✅ CORRECT VARIABLE
+  // ---------------- CONTROLLERS ----------------
+  final TextEditingController _deptNameCtrl = TextEditingController();
+  final TextEditingController _subjectCtrl = TextEditingController();
 
-  final List<String> courseTypes = ['UG', 'PG'];
+  // ---------------- STATE VARIABLES ----------------
+  bool isLoading = false;
+
+  // For Class Creation
+  String? selectedDeptIdForClass;
+  String? courseTypeForClass; // UG / PG
+  int? yearForClass; // 1-4
+
+  // For Subject Creation
+  String? selectedDeptIdForSubject;
+  String? selectedClassIdForSubject;
+
+  // 🔥 NEW: Store the Year of the selected class to filter semesters
+  int? selectedClassYear;
+  String? selectedClassCourseType;
+
+  int? semesterForSubject;
+
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   // ======================================================
-  // ADD DEPARTMENT
+  // 1. ADD DEPARTMENT
   // ======================================================
   Future<void> addDepartment() async {
-    if (_deptIdCtrl.text.isEmpty || _deptNameCtrl.text.isEmpty) {
-      _showSnack("Enter department ID and name");
-      return;
-    }
+    final name = _deptNameCtrl.text.trim();
+    if (name.isEmpty) return _showSnack("Enter department name", error: true);
 
-    final id = _deptIdCtrl.text.trim().toUpperCase();
+    setState(() => isLoading = true);
 
-    await _db.collection('departments').doc(id).set({
-      'id': id,
-      'name': _deptNameCtrl.text.trim(),
-      'created_at': FieldValue.serverTimestamp(),
-    });
+    final id = name.toUpperCase().replaceAll(RegExp(r'\s+'), '_');
 
-    _deptIdCtrl.clear();
-    _deptNameCtrl.clear();
-    _showSnack("Department added", success: true);
-  }
+    try {
+      final doc = await _db.collection('departments').doc(id).get();
+      if (doc.exists) throw "Department already exists";
 
-  // ======================================================
-  // ADD CLASS + AUTO SEMESTERS
-  // ======================================================
-  Future<void> addClass() async {
-    if (selectedDepartmentId == null ||
-        _classNameCtrl.text.isEmpty ||
-        courseType == null ||
-        year == null) {
-      _showSnack("Fill all class fields");
-      return;
-    }
-
-    final classId = "${selectedDepartmentId}_${courseType}_YEAR$year";
-
-    await _db.collection('classes').doc(classId).set({
-      'id': classId,
-      'name': _classNameCtrl.text.trim(),
-      'departmentId': selectedDepartmentId,
-      'courseType': courseType,
-      'year': year,
-      'created_at': FieldValue.serverTimestamp(),
-    });
-
-    await _autoCreateSemesters(classId, courseType!);
-
-    _classNameCtrl.clear();
-    _showSnack("Class added", success: true);
-  }
-
-  // ======================================================
-  // AUTO CREATE SEMESTERS
-  // ======================================================
-  Future<void> _autoCreateSemesters(String classId, String courseType) async {
-    final totalSemesters = courseType == 'PG' ? 4 : 8;
-
-    for (int i = 1; i <= totalSemesters; i++) {
-      await _db.collection('semesters').doc("${classId}_SEM$i").set({
-        'id': "${classId}_SEM$i",
-        'classId': classId,
-        'semester': i,
+      await _db.collection('departments').doc(id).set({
+        'id': id,
+        'name': name,
         'created_at': FieldValue.serverTimestamp(),
       });
+
+      _deptNameCtrl.clear();
+      _showSnack("Department '$name' added!");
+    } catch (e) {
+      _showSnack(e.toString(), error: true);
+    } finally {
+      setState(() => isLoading = false);
     }
   }
 
   // ======================================================
-  // ADD SUBJECT
+  // 2. ADD CLASS
   // ======================================================
-  Future<void> addSubject() async {
-    if (selectedClassId == null ||
-        semester == null ||
-        _subjectNameCtrl.text.isEmpty)
-      return;
+  Future<void> addClass() async {
+    if (selectedDeptIdForClass == null ||
+        courseTypeForClass == null ||
+        yearForClass == null) {
+      return _showSnack("Please select all dropdowns", error: true);
+    }
 
-    final id =
-        "${selectedClassId}_SEM${semester}_${_subjectNameCtrl.text.trim()}";
+    setState(() => isLoading = true);
 
-    await _db.collection('subjects').doc(id).set({
-      'id': id,
-      'name': _subjectNameCtrl.text.trim(),
-      'classId': selectedClassId,
-      'semester': semester,
-      'created_at': FieldValue.serverTimestamp(),
-    });
+    try {
+      final classId =
+          "${selectedDeptIdForClass}_${courseTypeForClass}_YEAR$yearForClass";
+      final displayName = "$courseTypeForClass Year $yearForClass";
 
-    _subjectNameCtrl.clear();
+      await _db.collection('classes').doc(classId).set({
+        'id': classId,
+        'name': displayName,
+        'departmentId': selectedDeptIdForClass,
+        'courseType': courseTypeForClass,
+        'year': yearForClass,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      _showSnack("Class '$displayName' added!");
+    } catch (e) {
+      _showSnack("Error: $e", error: true);
+    } finally {
+      setState(() => isLoading = false);
+    }
   }
 
   // ======================================================
-  // UI
+  // 3. ADD SUBJECT
+  // ======================================================
+  Future<void> addSubject() async {
+    if (selectedClassIdForSubject == null ||
+        semesterForSubject == null ||
+        _subjectCtrl.text.trim().isEmpty) {
+      return _showSnack("Please fill all subject fields", error: true);
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      final subjectName = _subjectCtrl.text.trim();
+      final cleanSubName = subjectName.toUpperCase().replaceAll(
+        RegExp(r'\s+'),
+        '_',
+      );
+      final subjectId =
+          "${selectedClassIdForSubject}_SEM${semesterForSubject}_$cleanSubName";
+
+      await _db.collection('subjects').doc(subjectId).set({
+        'id': subjectId,
+        'name': subjectName,
+        'classId': selectedClassIdForSubject,
+        'departmentId': selectedDeptIdForSubject,
+        'semester': "Semester $semesterForSubject",
+        'type': selectedClassCourseType,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      _subjectCtrl.clear();
+      _showSnack("Subject '$subjectName' added!");
+    } catch (e) {
+      _showSnack("Error: $e", error: true);
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  // ======================================================
+  // UI BUILD
   // ======================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Admin Academic Setup")),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      backgroundColor: Colors.grey.shade100,
+      appBar: AppBar(
+        title: const Text("Academic Setup"),
+        backgroundColor: primaryBlue,
+        elevation: 0,
+      ),
+      body: Stack(
         children: [
-          _section("Add Department"),
-          _field(_deptIdCtrl, "Department ID (CSE)"),
-          _field(_deptNameCtrl, "Department Name"),
-          _button("Add Department", addDepartment),
+          ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // 1. DEPARTMENT
+              _buildSectionCard(
+                title: "1. Add Department",
+                icon: Icons.account_balance,
+                children: [
+                  _buildTextField(
+                    controller: _deptNameCtrl,
+                    label: "Department Name (e.g. Computer Science)",
+                    icon: Icons.edit,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildButton("SAVE DEPARTMENT", addDepartment),
+                ],
+              ),
 
-          const Divider(height: 40),
+              // 2. CLASS
+              _buildSectionCard(
+                title: "2. Add Class",
+                icon: Icons.class_,
+                children: [
+                  _buildDeptDropdown(
+                    value: selectedDeptIdForClass,
+                    onChanged: (val) =>
+                        setState(() => selectedDeptIdForClass = val),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDropdown(
+                          value: courseTypeForClass,
+                          hint: "Type",
+                          items: ["UG", "PG"],
+                          onChanged: (val) => setState(() {
+                            courseTypeForClass = val;
+                            yearForClass = null;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: _buildYearDropdown()),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _buildButton("SAVE CLASS", addClass),
+                ],
+              ),
 
-          _section("Add Class"),
-          _departmentDropdown(),
-          _field(_classNameCtrl, "Class Name"),
-          _courseDropdown(),
-          _yearDropdown(),
-          _button("Add Class", addClass),
-
-          const Divider(height: 40),
-
-          _section("Add Subject"),
-          _classDropdown(),
-          _semesterDropdown(),
-          _field(_subjectNameCtrl, "Subject Name"),
-          _button("Add Subject", addSubject),
+              // 3. SUBJECT
+              _buildSectionCard(
+                title: "3. Add Subject",
+                icon: Icons.menu_book,
+                children: [
+                  _buildDeptDropdown(
+                    value: selectedDeptIdForSubject,
+                    onChanged: (val) => setState(() {
+                      selectedDeptIdForSubject = val;
+                      selectedClassIdForSubject = null;
+                      selectedClassCourseType = null;
+                      selectedClassYear = null; // Reset Year
+                      semesterForSubject = null;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildClassDropdownForSubject(),
+                  const SizedBox(height: 12),
+                  _buildSemesterDropdown(), // 🔥 UPDATED LOGIC HERE
+                  const SizedBox(height: 12),
+                  _buildTextField(
+                    controller: _subjectCtrl,
+                    label: "Subject Name",
+                    icon: Icons.book,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildButton("SAVE SUBJECT", addSubject),
+                ],
+              ),
+              const SizedBox(height: 40),
+            ],
+          ),
+          if (isLoading)
+            Container(
+              color: Colors.black45,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
         ],
       ),
     );
@@ -154,59 +251,204 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
   // ======================================================
   // WIDGET HELPERS
   // ======================================================
-  Widget _field(TextEditingController c, String label) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        controller: c,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-        ).copyWith(labelText: label),
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.only(bottom: 20),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: primaryBlue, size: 28),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 30),
+            ...children,
+          ],
+        ),
       ),
     );
   }
 
-  Widget _button(String text, VoidCallback fn) {
-    return ElevatedButton(onPressed: fn, child: Text(text));
-  }
-
-  Widget _section(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    List<TextInputFormatter>? formatter,
+  }) {
+    return TextField(
+      controller: controller,
+      inputFormatters: formatter,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: primaryBlue),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        filled: true,
+        fillColor: Colors.grey.shade50,
       ),
     );
   }
 
-  void _showSnack(String msg, {bool success = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: success ? Colors.green : Colors.red,
+  Widget _buildButton(String text, VoidCallback onPressed) {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryBlue,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+          elevation: 2,
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
       ),
     );
   }
 
-  // ======================================================
-  // DROPDOWNS
-  // ======================================================
-  Widget _departmentDropdown() {
+  // ---------- DROPDOWNS ----------
+  Widget _buildDropdown({
+    required String? value,
+    required String hint,
+    required List<String> items,
+    required Function(String?) onChanged,
+  }) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      decoration: InputDecoration(
+        labelText: hint,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+      ),
+      items: items
+          .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+          .toList(),
+      onChanged: onChanged,
+    );
+  }
+
+  Widget _buildDeptDropdown({
+    required String? value,
+    required Function(String?) onChanged,
+  }) {
     return StreamBuilder<QuerySnapshot>(
-      stream: _db.collection('departments').snapshots(),
-      builder: (_, s) {
-        if (!s.hasData) return const SizedBox();
+      stream: _db.collection('departments').orderBy('name').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const LinearProgressIndicator();
         return DropdownButtonFormField<String>(
-          hint: const Text("Select Department"),
-          value: selectedDepartmentId,
-          items: s.data!.docs
-              .map((d) => DropdownMenuItem(value: d.id, child: Text(d['name'])))
-              .toList(),
-          onChanged: (v) {
+          value: value,
+          decoration: InputDecoration(
+            labelText: "Select Department",
+            prefixIcon: const Icon(Icons.account_balance),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+          items: snapshot.data!.docs.map((doc) {
+            return DropdownMenuItem(value: doc.id, child: Text(doc['name']));
+          }).toList(),
+          onChanged: onChanged,
+        );
+      },
+    );
+  }
+
+  Widget _buildYearDropdown() {
+    final List<int> years = (courseTypeForClass == 'PG')
+        ? [1, 2]
+        : [1, 2, 3, 4];
+    return DropdownButtonFormField<int>(
+      value: yearForClass,
+      decoration: InputDecoration(
+        labelText: "Year",
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      items: years
+          .map((y) => DropdownMenuItem(value: y, child: Text("Year $y")))
+          .toList(),
+      onChanged: (val) => setState(() => yearForClass = val),
+    );
+  }
+
+  Widget _buildClassDropdownForSubject() {
+    if (selectedDeptIdForSubject == null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Center(
+          child: Text(
+            "Select Department first",
+            style: TextStyle(color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: _db
+          .collection('classes')
+          .where('departmentId', isEqualTo: selectedDeptIdForSubject)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const LinearProgressIndicator();
+
+        final docs = snapshot.data!.docs;
+        if (docs.isEmpty)
+          return const Text("No classes found in this department");
+
+        return DropdownButtonFormField<String>(
+          value: selectedClassIdForSubject,
+          decoration: InputDecoration(
+            labelText: "Select Class",
+            prefixIcon: const Icon(Icons.class_),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+          items: docs.map((doc) {
+            return DropdownMenuItem(
+              value: doc.id,
+              child: Text(doc['name']),
+              onTap: () {
+                // 🔥 Capture YEAR and COURSE TYPE to filter semesters
+                setState(() {
+                  selectedClassCourseType = doc['courseType'];
+                  selectedClassYear = doc['year']; // Gets year (e.g., 3)
+                });
+              },
+            );
+          }).toList(),
+          onChanged: (val) {
             setState(() {
-              selectedDepartmentId = v;
-              selectedClassId = null;
+              selectedClassIdForSubject = val;
+              semesterForSubject = null;
             });
           },
         );
@@ -214,63 +456,38 @@ class _AdminClassSubjectPageState extends State<AdminClassSubjectPage> {
     );
   }
 
-  Widget _classDropdown() {
-    if (selectedDepartmentId == null) return const SizedBox();
+  // 🔥 UPDATED SEMESTER LOGIC
+  Widget _buildSemesterDropdown() {
+    if (selectedClassIdForSubject == null || selectedClassYear == null) {
+      return const SizedBox();
+    }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: _db
-          .collection('classes')
-          .where('departmentId', isEqualTo: selectedDepartmentId)
-          .snapshots(),
-      builder: (_, s) {
-        if (!s.hasData) return const SizedBox();
-        return DropdownButtonFormField<String>(
-          hint: const Text("Select Class"),
-          value: selectedClassId,
-          items: s.data!.docs
-              .map((c) => DropdownMenuItem(value: c.id, child: Text(c['name'])))
-              .toList(),
-          onChanged: (v) => setState(() => selectedClassId = v),
-        );
-      },
-    );
-  }
-
-  Widget _courseDropdown() {
-    return DropdownButtonFormField<String>(
-      hint: const Text("Course Type"),
-      value: courseType,
-      items: courseTypes
-          .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-          .toList(),
-      onChanged: (v) => setState(() => courseType = v),
-    );
-  }
-
-  Widget _yearDropdown() {
-    final years = courseType == 'PG' ? [1, 2] : [1, 2, 3, 4];
-    return DropdownButtonFormField<int>(
-      hint: const Text("Year"),
-      value: year,
-      items: years
-          .map((y) => DropdownMenuItem(value: y, child: Text("Year $y")))
-          .toList(),
-      onChanged: (v) => setState(() => year = v),
-    );
-  }
-
-  Widget _semesterDropdown() {
-    final semesters = courseType == 'PG'
-        ? [1, 2, 3, 4]
-        : [1, 2, 3, 4, 5, 6, 7, 8];
+    // Calculation: Year 1 -> Sem 1,2 | Year 2 -> Sem 3,4 | Year 3 -> Sem 5,6
+    final int startSem = (selectedClassYear! * 2) - 1;
+    final int endSem = selectedClassYear! * 2;
+    final List<int> semesters = [startSem, endSem];
 
     return DropdownButtonFormField<int>(
-      hint: const Text("Semester"),
-      value: semester,
+      value: semesterForSubject,
+      decoration: InputDecoration(
+        labelText: "Semester",
+        prefixIcon: const Icon(Icons.calendar_view_day),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      ),
       items: semesters
           .map((s) => DropdownMenuItem(value: s, child: Text("Semester $s")))
           .toList(),
-      onChanged: (v) => setState(() => semester = v),
+      onChanged: (val) => setState(() => semesterForSubject = val),
+    );
+  }
+
+  void _showSnack(String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: error ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 }
