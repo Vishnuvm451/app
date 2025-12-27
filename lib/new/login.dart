@@ -1,8 +1,8 @@
+import 'package:darzo/admin_login.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'admin_login.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -25,8 +25,7 @@ class _LoginPageState extends State<LoginPage> {
   // LOGIN FUNCTION (ROLE BASED)
   // ======================================================
   Future<void> _login() async {
-    if (emailCtrl.text.trim().isEmpty ||
-        passwordCtrl.text.trim().isEmpty) {
+    if (emailCtrl.text.trim().isEmpty || passwordCtrl.text.trim().isEmpty) {
       _showSnack("Enter email & password");
       return;
     }
@@ -71,7 +70,6 @@ class _LoginPageState extends State<LoginPage> {
         _showSnack("Teacher Login Success", success: true);
         // Navigator.pushReplacement(...TeacherDashboard());
       }
-
     } catch (e) {
       _showSnack(e.toString());
     } finally {
@@ -102,9 +100,7 @@ class _LoginPageState extends State<LoginPage> {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => const AdminLoginPage(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const AdminLoginPage()),
                   );
                 },
               ),
@@ -119,8 +115,11 @@ class _LoginPageState extends State<LoginPage> {
                   const CircleAvatar(
                     radius: 40,
                     backgroundColor: Colors.white24,
-                    child: Icon(Icons.access_time,
-                        size: 40, color: Colors.white),
+                    child: Icon(
+                      Icons.access_time,
+                      size: 40,
+                      color: Colors.white,
+                    ),
                   ),
 
                   const SizedBox(height: 20),
@@ -163,11 +162,7 @@ class _LoginPageState extends State<LoginPage> {
 
                         const SizedBox(height: 20),
 
-                        _input(
-                          "Email",
-                          Icons.email,
-                          emailCtrl,
-                        ),
+                        _input("Email", Icons.email, emailCtrl),
 
                         _password(),
 
@@ -186,11 +181,13 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             child: isLoading
                                 ? const CircularProgressIndicator(
-                                    color: Colors.white)
+                                    color: Colors.white,
+                                  )
                                 : const Text(
                                     "LOGIN",
                                     style: TextStyle(
-                                        fontWeight: FontWeight.bold),
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                           ),
                         ),
@@ -249,14 +246,11 @@ class _LoginPageState extends State<LoginPage> {
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
         controller: ctrl,
-        inputFormatters: [
-          FilteringTextInputFormatter.deny(RegExp(r'\s')),
-        ],
+        inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
         decoration: InputDecoration(
           hintText: hint,
           prefixIcon: Icon(icon),
-          border:
-              OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
@@ -268,21 +262,15 @@ class _LoginPageState extends State<LoginPage> {
       child: TextField(
         controller: passwordCtrl,
         obscureText: !showPassword,
-        inputFormatters: [
-          FilteringTextInputFormatter.deny(RegExp(r'\s')),
-        ],
+        inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
         decoration: InputDecoration(
           hintText: "Password",
           prefixIcon: const Icon(Icons.lock),
           suffixIcon: IconButton(
-            icon: Icon(showPassword
-                ? Icons.visibility
-                : Icons.visibility_off),
-            onPressed: () =>
-                setState(() => showPassword = !showPassword),
+            icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
+            onPressed: () => setState(() => showPassword = !showPassword),
           ),
-          border:
-              OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
@@ -296,11 +284,11 @@ class _LoginPageState extends State<LoginPage> {
         onPressed: () {},
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryBlue,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
         ),
-        child: Text(text,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
   }
