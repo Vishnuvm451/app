@@ -1,4 +1,3 @@
-// 1. IMPORT YOUR EXISTING ADMIN LOGIN PAGE
 import 'package:darzo/admin_login.dart'; // Ensure this matches the file name of your Admin Login Page
 import 'package:darzo/student_dashboard.dart';
 import 'package:darzo/new/student_register.dart';
