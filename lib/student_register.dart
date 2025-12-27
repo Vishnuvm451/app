@@ -1,8 +1,9 @@
+import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
-import 'login.dart';
+
 // import 'face_capture.dart'; // <--- UNCOMMENT THIS IN FUTURE
 
 class StudentRegisterPage extends StatefulWidget {
@@ -13,19 +14,16 @@ class StudentRegisterPage extends StatefulWidget {
 }
 
 class _StudentRegisterPageState extends State<StudentRegisterPage> {
-  // ---------------- CONTROLLERS ----------------
   final _nameCtrl = TextEditingController();
   final _admissionCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
-  // ---------------- STATE ----------------
   String? selectedDepartmentId;
   String? selectedClassId;
   bool isLoading = false;
   bool showPassword = false;
 
-  // ---------------- FIREBASE ----------------
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -38,9 +36,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     super.dispose();
   }
 
-  // ======================================================
-  // REGISTER STUDENT
-  // ======================================================
   Future<void> registerStudent() async {
     if (_nameCtrl.text.trim().isEmpty ||
         _admissionCtrl.text.trim().isEmpty ||
@@ -60,7 +55,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     setState(() => isLoading = true);
 
     try {
-      // 1️⃣ Firebase Auth
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
@@ -68,7 +62,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final uid = cred.user!.uid;
 
-      // 2️⃣ Fetch class details
       final classSnap = await _db
           .collection('classes')
           .doc(selectedClassId)
@@ -82,7 +75,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final classData = classSnap.data()!;
 
-      // 3️⃣ Store student profile
       await _db.collection('students').doc(uid).set({
         'uid': uid,
         'name': _nameCtrl.text.trim(),
@@ -112,26 +104,12 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
           );
         });
       }
-    } on FirebaseAuthException catch (e) {
-      String message = "Registration failed";
-      if (e.code == 'email-already-in-use') {
-        message = "Email already registered";
-      } else if (e.code == 'weak-password') {
-        message = "Password is too weak";
-      } else if (e.code == 'invalid-email') {
-        message = "Invalid email format";
-      }
-      if (mounted) _showSnack(message);
-      setState(() => isLoading = false);
     } catch (e) {
-      if (mounted) _showSnack("Error: ${e.toString()}");
+      if (mounted) _showSnack("Registration failed");
       setState(() => isLoading = false);
     }
   }
 
-  // ======================================================
-  // UI
-  // ======================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -159,6 +137,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
           _departmentDropdown(),
           _classDropdown(),
           const SizedBox(height: 20),
+
           SizedBox(
             height: 50,
             child: ElevatedButton(
@@ -177,14 +156,35 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                     ),
             ),
           ),
+
+          // 🔽 NEW ADDITION STARTS HERE 🔽
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text("Already have an account? "),
+              TextButton(
+                onPressed: isLoading
+                    ? null
+                    : () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(builder: (_) => LoginPage()),
+                        );
+                      },
+                child: const Text(
+                  "Login",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          // 🔼 NEW ADDITION ENDS HERE 🔼
         ],
       ),
     );
   }
 
-  // ======================================================
-  // DROPDOWNS
-  // ======================================================
   Widget _departmentDropdown() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -247,9 +247,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // ======================================================
-  // HELPERS
-  // ======================================================
   Widget _field(TextEditingController controller, String label) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -264,7 +261,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // 🔢 Admission Number → NUMBERS ONLY
   Widget _admissionField() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
