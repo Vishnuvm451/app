@@ -1,7 +1,8 @@
 import 'package:darzo/mark_attendance_face.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import 'package:darzo/login.dart';
+import 'package:darzo/new/auth_provider.dart';
 import 'package:darzo/new/firestore_service.dart';
 
 class StudentDashboardPage extends StatefulWidget {
@@ -14,51 +15,74 @@ class StudentDashboardPage extends StatefulWidget {
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   bool isLoading = true;
 
-  String studentName = '';
-  String departmentId = '';
   String classId = '';
 
-  /// attendanceStatus values:
   /// loading | no-session | not-marked | present | half-day | absent
   String attendanceStatus = 'loading';
 
   @override
   void initState() {
     super.initState();
-    _loadStudentData();
+    _loadAttendance();
   }
 
   // --------------------------------------------------
-  // LOAD STUDENT PROFILE + TODAY ATTENDANCE STATUS
+  // LOAD ATTENDANCE ONLY (PROFILE COMES FROM PROVIDER)
   // --------------------------------------------------
-  Future<void> _loadStudentData() async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+  Future<void> _loadAttendance() async {
+    try {
+      final auth = context.read<AppAuthProvider>();
+      final user = auth.user;
 
-    final student = await FirestoreService.instance.getStudent(uid);
+      if (user == null) {
+        _logout();
+        return;
+      }
 
-    if (student == null) return;
+      final student = await FirestoreService.instance.getStudent(user.uid);
 
-    studentName = student['name'];
-    departmentId = student['departmentId'];
-    classId = student['classId'];
+      if (student == null) {
+        setState(() {
+          isLoading = false;
+          attendanceStatus = 'no-session';
+        });
+        return;
+      }
 
-    final status = await FirestoreService.instance.getTodayAttendanceStatus(
-      studentId: uid,
-      classId: classId,
-    );
+      classId = student['classId'] ?? '';
 
-    setState(() {
-      attendanceStatus = status ?? 'no-session';
-      isLoading = false;
-    });
+      if (classId.isEmpty) {
+        setState(() {
+          isLoading = false;
+          attendanceStatus = 'no-session';
+        });
+        return;
+      }
+
+      final status = await FirestoreService.instance.getTodayAttendanceStatus(
+        studentId: user.uid,
+        classId: classId,
+      );
+
+      setState(() {
+        attendanceStatus = status ?? 'not-marked';
+        isLoading = false;
+      });
+    } catch (_) {
+      setState(() {
+        isLoading = false;
+        attendanceStatus = 'not-marked';
+      });
+    }
   }
 
   // --------------------------------------------------
-  // LOGOUT
+  // LOGOUT (PROVIDER SAFE)
   // --------------------------------------------------
   Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
+    await context.read<AppAuthProvider>().logout();
     if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -70,14 +94,20 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AppAuthProvider>();
+
     return Scaffold(
       backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
         backgroundColor: const Color(0xFF2196F3),
         elevation: 0,
-        title: const Text("Student Dashboard"),
+        title: const Text("Student Dashboard", style: TextStyle(fontSize: 26)),
+        centerTitle: true,
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+          IconButton(
+            icon: const Icon(Icons.logout, size: 34),
+            onPressed: _logout,
+          ),
         ],
       ),
       body: isLoading
@@ -86,9 +116,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _header(),
+                    _header(auth),
                     const SizedBox(height: 24),
                     _attendanceCard(),
                     const SizedBox(height: 20),
@@ -103,31 +132,31 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // --------------------------------------------------
   // HEADER
   // --------------------------------------------------
-  Widget _header() {
+  Widget _header(AppAuthProvider auth) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.school, size: 64, color: Colors.white),
+        const Icon(Icons.school, size: 70, color: Colors.white),
         const SizedBox(height: 12),
         Text(
-          "Welcome, $studentName 👋",
+          "Welcome, ${auth.name ?? 'Student'} 👋",
+          textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
-          "Class ID: $classId",
-          style: const TextStyle(color: Colors.white70),
+          classId.isEmpty ? '' : "Class ID: $classId",
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
         ),
       ],
     );
   }
 
   // --------------------------------------------------
-  // ATTENDANCE CARD (STATUS + BUTTON)
+  // ATTENDANCE CARD
   // --------------------------------------------------
   Widget _attendanceCard() {
     Color color;
@@ -195,11 +224,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                           builder: (_) => const MarkAttendancePage(),
                         ),
                       );
-                      // refresh status after return
+
                       setState(() {
                         isLoading = true;
+                        attendanceStatus = 'loading';
                       });
-                      _loadStudentData();
+                      _loadAttendance();
                     }
                   : null,
               style: ElevatedButton.styleFrom(
@@ -243,26 +273,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
             children: [
-              _actionCard(
-                icon: Icons.bar_chart,
-                title: "Attendance Summary",
-                onTap: () {},
-              ),
-              _actionCard(
-                icon: Icons.assignment,
-                title: "Internal Marks",
-                onTap: () {},
-              ),
-              _actionCard(
-                icon: Icons.people,
-                title: "Classmates",
-                onTap: () {},
-              ),
-              _actionCard(
-                icon: Icons.settings,
-                title: "Settings",
-                onTap: () {},
-              ),
+              _actionCard(Icons.bar_chart, "Attendance Summary"),
+              _actionCard(Icons.assignment, "Internal Marks"),
+              _actionCard(Icons.people, "Classmates"),
+              _actionCard(Icons.settings, "Settings"),
             ],
           ),
         ],
@@ -270,14 +284,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  Widget _actionCard({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
+  Widget _actionCard(IconData icon, String title) {
     return InkWell(
-      onTap: onTap,
       borderRadius: BorderRadius.circular(16),
+      onTap: () {},
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
