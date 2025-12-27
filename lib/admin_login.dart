@@ -1,6 +1,7 @@
 import 'package:darzo/admin_dashboard.dart';
 import 'package:darzo/new/auth_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Required for InputFormatters
 import 'package:provider/provider.dart';
 
 class AdminLoginPage extends StatefulWidget {
@@ -13,6 +14,11 @@ class AdminLoginPage extends StatefulWidget {
 class _AdminLoginPageState extends State<AdminLoginPage> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  bool _isPasswordVisible = false;
+
+  // Define the same blue used in your Login Page
+  final Color primaryBlue = const Color(0xFF2196F3);
 
   void _showSnack(String msg, {bool error = true}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -71,10 +77,11 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
     final auth = context.watch<AuthProvider>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF2196F3),
+      backgroundColor: primaryBlue, // Match Main Page Background
       appBar: AppBar(
         title: const Text("Admin Login"),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: primaryBlue,
+        elevation: 0,
       ),
       body: SafeArea(
         child: Center(
@@ -84,7 +91,9 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(
+                  30,
+                ), // Match Main Page Radius
                 boxShadow: const [
                   BoxShadow(color: Colors.black12, blurRadius: 10),
                 ],
@@ -92,10 +101,10 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.admin_panel_settings,
                     size: 64,
-                    color: Color(0xFF2196F3),
+                    color: primaryBlue,
                   ),
                   const SizedBox(height: 16),
                   const Text(
@@ -107,9 +116,18 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                   // EMAIL
                   TextField(
                     controller: _emailController,
-                    decoration: const InputDecoration(
+                    // 🔥 BLOCK SPACES
+                    inputFormatters: [
+                      FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                    ],
+                    decoration: InputDecoration(
                       labelText: "Admin Email",
-                      prefixIcon: Icon(Icons.email),
+                      prefixIcon: const Icon(Icons.email),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                          14,
+                        ), // Match Main Page Field Radius
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -117,27 +135,62 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                   // PASSWORD
                   TextField(
                     controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(
+                    obscureText: !_isPasswordVisible,
+                    // 🔥 BLOCK SPACES
+                    inputFormatters: [
+                      FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                    ],
+                    decoration: InputDecoration(
                       labelText: "Password",
-                      prefixIcon: Icon(Icons.lock),
+                      prefixIcon: const Icon(Icons.lock),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isPasswordVisible
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _isPasswordVisible = !_isPasswordVisible;
+                          });
+                        },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
 
-                  // LOGIN BUTTON
+                  // LOGIN BUTTON (MATCHED STYLE)
                   SizedBox(
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
                       onPressed: auth.isLoading ? null : _loginAdmin,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryBlue,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                            30,
+                          ), // Match Main Page Button Radius
+                        ),
+                      ),
                       child: auth.isLoading
-                          ? const CircularProgressIndicator(color: Colors.white)
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                              ),
+                            )
                           : const Text(
                               "LOGIN",
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
+                                color: Colors.white, // Explicit White Text
                               ),
                             ),
                     ),
