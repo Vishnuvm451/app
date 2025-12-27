@@ -18,7 +18,7 @@ Future<void> main() async {
 
   runApp(
     MultiProvider(
-      providers: [ChangeNotifierProvider(create: (_) => AuthProvider())],
+      providers: [ChangeNotifierProvider(create: (_) => AppAuthProvider())],
       child: const MyApp(),
     ),
   );
@@ -74,13 +74,13 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
 
-    final authProvider = context.read<AuthProvider>();
+    final authProvider = context.read<AppAuthProvider>();
     await authProvider.init();
 
     _route(authProvider);
   }
 
-  void _route(AuthProvider auth) {
+  void _route(AppAuthProvider auth) {
     if (!auth.isLoggedIn) {
       _go(const LoginPage());
       return;
