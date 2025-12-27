@@ -1,13 +1,11 @@
-import 'package:darzo/admin_login.dart'; // Ensure this matches the file name of your Admin Login Page
-import 'package:darzo/student_dashboard.dart';
+import 'package:darzo/admin_login.dart';
+import 'package:darzo/new/auth_provider.dart';
 import 'package:darzo/new/student_register.dart';
-import 'package:darzo/teacher_dashboard.dart';
 import 'package:darzo/teacher_register.dart';
-import 'package:darzo/teacher_setup_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -26,8 +24,59 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController emailCtrl = TextEditingController();
   final TextEditingController passwordCtrl = TextEditingController();
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  // ======================================================
+  // LOGIN (AUTH PROVIDER)
+  // ======================================================
+  Future<void> _login() async {
+    if (emailCtrl.text.trim().isEmpty || passwordCtrl.text.isEmpty) {
+      _showSnack("Enter email and password");
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      await context.read<AppAuthProvider>().login(
+        email: emailCtrl.text.trim(),
+        password: passwordCtrl.text.trim(),
+      );
+      // ❌ No navigation here
+      // ✅ SplashScreen decides routing
+    } catch (e) {
+      _showSnack(e.toString().replaceAll('Exception:', '').trim());
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // ======================================================
+  // FORGOT PASSWORD
+  // ======================================================
+  Future<void> _forgotPassword() async {
+    final email = emailCtrl.text.trim();
+
+    if (email.isEmpty) {
+      _showSnack("Enter your email to reset password");
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      _showSnack("Password reset email sent");
+    } on FirebaseAuthException catch (e) {
+      String msg = "Failed to send reset email";
+
+      if (e.code == 'user-not-found') {
+        msg = "No user found with this email";
+      } else if (e.code == 'invalid-email') {
+        msg = "Invalid email address";
+      }
+
+      _showSnack(msg);
+    } catch (_) {
+      _showSnack("Something went wrong. Try again.");
+    }
+  }
 
   @override
   void dispose() {
@@ -37,75 +86,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ======================================================
-  // LOGIN LOGIC (Student & Teacher Only)
-  // ======================================================
-  Future<void> _login() async {
-    if (emailCtrl.text.isEmpty || passwordCtrl.text.isEmpty) {
-      _showSnack("Enter email & password");
-      return;
-    }
-
-    setState(() => isLoading = true);
-
-    try {
-      final cred = await _auth.signInWithEmailAndPassword(
-        email: emailCtrl.text.trim(),
-        password: passwordCtrl.text.trim(),
-      );
-
-      final uid = cred.user!.uid;
-
-      if (isStudent) {
-        // STUDENT CHECK
-        final snap = await _db.collection('students').doc(uid).get();
-        if (!snap.exists || snap.data()?['role'] != 'student') {
-          throw "Not a student account";
-        }
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
-          );
-        }
-      } else {
-        // TEACHER CHECK
-        final snap = await _db.collection('teachers').doc(uid).get();
-        if (!snap.exists) throw "Teacher profile not found";
-
-        final data = snap.data()!;
-        bool isSetupDone = data['setupCompleted'] ?? false;
-
-        if (mounted) {
-          if (isSetupDone) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
-            );
-          } else {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
-            );
-          }
-        }
-      }
-    } on FirebaseAuthException catch (e) {
-      String msg = "Login failed";
-      if (e.code == 'user-not-found')
-        msg = "User not found";
-      else if (e.code == 'wrong-password')
-        msg = "Wrong password";
-      _showSnack(msg);
-    } catch (e) {
-      _showSnack("Error: ${e.toString()}");
-      await _auth.signOut();
-    } finally {
-      if (mounted) setState(() => isLoading = false);
-    }
-  }
-
-  // ======================================================
-  // UI BUILD
+  // UI
   // ======================================================
   @override
   Widget build(BuildContext context) {
@@ -115,29 +96,26 @@ class _LoginPageState extends State<LoginPage> {
         child: SingleChildScrollView(
           child: Stack(
             children: [
-              // 🔥 UPDATED: ADMIN ICON -> Navigate to Your Admin Page
+              // ADMIN LOGIN ICON
               Positioned(
                 top: 8,
                 right: 12,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 10.0),
-                  child: IconButton(
-                    icon: const Icon(
-                      Icons.admin_panel_settings,
-                      color: Colors.white,
-                      size: 50,
-                    ),
-                    tooltip: "Admin Login",
-                    onPressed: () {
-                      // Navigate to your existing AdminLoginPage
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminLoginPage(),
-                        ),
-                      );
-                    },
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.admin_panel_settings,
+                    color: Colors.white,
+                    size: 30,
                   ),
+                  onPressed: isLoading
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AdminLoginPage(),
+                            ),
+                          );
+                        },
                 ),
               ),
 
@@ -165,7 +143,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 30),
 
-                  // LOGIN FORM
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 20),
                     padding: const EdgeInsets.all(20),
@@ -175,7 +152,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     child: Column(
                       children: [
-                        // Toggle Buttons
+                        // LOGIN TOGGLE
                         Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
@@ -193,13 +170,30 @@ class _LoginPageState extends State<LoginPage> {
 
                         _inputField(
                           hint: isStudent ? "Student Email" : "Teacher Email",
-                          icon: Icons.school,
+                          icon: Icons.email,
                           controller: emailCtrl,
                         ),
+
                         _passwordField(),
+                        const SizedBox(height: 12),
+
+                        // FORGOT PASSWORD
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: GestureDetector(
+                            onTap: isLoading ? null : _forgotPassword,
+                            child: Text(
+                              "Forgot Password?",
+                              style: TextStyle(
+                                color: primaryBlue,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+
                         const SizedBox(height: 20),
 
-                        // Login Button
                         SizedBox(
                           width: double.infinity,
                           height: 50,
@@ -212,12 +206,8 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                             child: isLoading
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                    ),
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white,
                                   )
                                 : const Text(
                                     "LOGIN",
@@ -230,16 +220,10 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
 
-                        const SizedBox(height: 12),
-                        Text(
-                          "Forgot Password?",
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
                         const SizedBox(height: 20),
                         const Divider(),
                         const SizedBox(height: 12),
 
-                        // Register Buttons
                         _registerButton(
                           "REGISTER AS STUDENT",
                           () => Navigator.push(
@@ -271,11 +255,13 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // ---------------- HELPERS ----------------
+  // ======================================================
+  // HELPERS
+  // ======================================================
   Widget _toggleButton(String text, bool student) {
     return Expanded(
       child: GestureDetector(
-        onTap: isLoading ? null : () => setState(() => isStudent = student),
+        onTap: () => setState(() => isStudent = student),
         child: Container(
           height: 45,
           decoration: BoxDecoration(
@@ -305,7 +291,6 @@ class _LoginPageState extends State<LoginPage> {
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
         controller: controller,
-        enabled: !isLoading,
         inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
         decoration: InputDecoration(
           hintText: hint,
@@ -321,7 +306,6 @@ class _LoginPageState extends State<LoginPage> {
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
         controller: passwordCtrl,
-        enabled: !isLoading,
         obscureText: !showPassword,
         inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
         decoration: InputDecoration(
@@ -329,9 +313,7 @@ class _LoginPageState extends State<LoginPage> {
           prefixIcon: const Icon(Icons.lock),
           suffixIcon: IconButton(
             icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
-            onPressed: isLoading
-                ? null
-                : () => setState(() => showPassword = !showPassword),
+            onPressed: () => setState(() => showPassword = !showPassword),
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
@@ -344,7 +326,7 @@ class _LoginPageState extends State<LoginPage> {
       width: double.infinity,
       height: 45,
       child: ElevatedButton(
-        onPressed: isLoading ? null : onTap,
+        onPressed: onTap,
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryBlue,
           shape: RoundedRectangleBorder(
