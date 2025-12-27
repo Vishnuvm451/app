@@ -22,7 +22,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   String? selectedDeptName;
 
   bool isLoading = false;
-  bool _isPasswordVisible = false; // 👁 PASSWORD TOGGLE
+  bool _isPasswordVisible = false;
 
   @override
   void dispose() {
@@ -33,25 +33,76 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // TEACHER REGISTER (REQUEST → ADMIN APPROVAL)
+  // CHECK DUPLICATES (EMAIL)
+  // ======================================================
+  Future<bool> _emailAlreadyExists(String email) async {
+    final db = FirebaseFirestore.instance;
+
+    // 1. Check Requests
+    final requestSnap = await db
+        .collection('teacher_requests')
+        .where('email', isEqualTo: email)
+        .limit(1)
+        .get();
+    if (requestSnap.docs.isNotEmpty) return true;
+
+    // 2. Check Existing Teachers
+    final teacherSnap = await db
+        .collection('teachers') // Fixed collection name: 'teachers' (plural)
+        .where('email', isEqualTo: email)
+        .limit(1)
+        .get();
+    if (teacherSnap.docs.isNotEmpty) return true;
+
+    // 3. Check Users Collection
+    final userSnap = await db
+        .collection('users')
+        .where('email', isEqualTo: email)
+        .limit(1)
+        .get();
+    if (userSnap.docs.isNotEmpty) return true;
+
+    return false;
+  }
+
+  // ======================================================
+  // TEACHER REGISTER (REQUEST -> ADMIN APPROVAL)
   // ======================================================
   Future<void> registerTeacher() async {
     if (nameController.text.trim().isEmpty ||
         emailController.text.trim().isEmpty ||
-        passwordController.text.trim().isEmpty ||
+        passwordController.text.isEmpty ||
         selectedDeptId == null) {
       _showSnack("Please fill all fields");
       return;
     }
 
+    // Basic Password Strength Check
+    if (passwordController.text.length < 6) {
+      _showSnack("Password must be at least 6 characters");
+      return;
+    }
+
+    final email = emailController.text.trim().toLowerCase();
+
     setState(() => isLoading = true);
 
     try {
-      // 🔥 CREATE TEACHER REQUEST (NO AUTH YET)
+      // 🔐 DUPLICATE CHECK
+      final exists = await _emailAlreadyExists(email);
+
+      if (exists) {
+        _showSnack("This email is already registered or pending approval");
+        setState(() => isLoading = false);
+        return;
+      }
+
+      // ✅ CREATE REQUEST
       await FirebaseFirestore.instance.collection('teacher_requests').add({
         'name': nameController.text.trim(),
-        'email': emailController.text.trim(),
-        'password': passwordController.text.trim(), // used by admin
+        'email': email,
+        'password': passwordController
+            .text, // Warning: Storing plain text password for approval flow
         'departmentId': selectedDeptId,
         'departmentName': selectedDeptName,
         'status': 'pending',
@@ -65,6 +116,10 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         success: true,
       );
 
+      // Delay slightly for UX before navigating
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -81,6 +136,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       SnackBar(
         content: Text(msg),
         backgroundColor: success ? Colors.green : Colors.red,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -130,22 +186,18 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
                       _field(nameController, "Full Name", Icons.person_outline),
 
+                      // Email: Block Spaces
                       _field(
                         emailController,
                         "Email",
                         Icons.email_outlined,
-                        formatters: [
-                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
-                        ],
+                        blockSpaces: true,
                       ),
 
-                      // 🔐 PASSWORD WITH 👁 BUTTON
+                      // 🔐 PASSWORD WITH 👁 (Allow Spaces)
                       TextField(
                         controller: passwordController,
                         obscureText: !_isPasswordVisible,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
-                        ],
                         decoration: InputDecoration(
                           labelText: "Password",
                           prefixIcon: const Icon(Icons.lock_outline),
@@ -154,7 +206,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                               _isPasswordVisible
                                   ? Icons.visibility
                                   : Icons.visibility_off,
-                              color: Colors.grey,
                             ),
                             onPressed: () {
                               setState(() {
@@ -170,39 +221,96 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
                       const SizedBox(height: 15),
 
-                      // ---------------- DEPARTMENT ----------------
+                      // ---------------- DEPARTMENT DROPDOWN (FIXED) ----------------
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('departments')
                             .orderBy('name')
                             .snapshots(),
                         builder: (context, snapshot) {
-                          if (!snapshot.hasData) {
-                            return const LinearProgressIndicator();
+                          // 1. Error Handling
+                          if (snapshot.hasError) {
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: Colors.red.shade200),
+                              ),
+                              child: Text(
+                                "Error: Check Firestore Rules! \n${snapshot.error}",
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            );
                           }
 
-                          final docs = snapshot.data!.docs;
+                          // 2. Loading State
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 15),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
 
+                          // 3. Empty State
+                          final docs = snapshot.data?.docs ?? [];
+                          if (docs.isEmpty) {
+                            return Container(
+                              padding: const EdgeInsets.all(15),
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Text(
+                                "No departments available.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            );
+                          }
+
+                          // 4. Dropdown
                           return DropdownButtonFormField<String>(
                             value: selectedDeptId,
+                            isExpanded: true, // Prevents overflow
                             decoration: const InputDecoration(
                               labelText: "Department",
                               prefixIcon: Icon(Icons.account_balance_outlined),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.all(
+                                  Radius.circular(14),
+                                ),
+                              ),
                             ),
-                            items: docs
-                                .map(
-                                  (d) => DropdownMenuItem<String>(
-                                    value: d.id,
-                                    child: Text(d['name']),
-                                  ),
-                                )
-                                .toList(),
+                            items: docs.map((doc) {
+                              final data = doc.data() as Map<String, dynamic>;
+                              final name = data['name'] ?? "Unnamed";
+                              return DropdownMenuItem<String>(
+                                value: doc.id,
+                                child: Text(
+                                  name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
                             onChanged: (val) {
                               setState(() {
                                 selectedDeptId = val;
-                                selectedDeptName = docs.firstWhere(
-                                  (d) => d.id == val,
-                                )['name'];
+                                try {
+                                  final doc = docs.firstWhere(
+                                    (d) => d.id == val,
+                                  );
+                                  selectedDeptName =
+                                      (doc.data()
+                                          as Map<String, dynamic>)['name'];
+                                } catch (_) {
+                                  selectedDeptName = "Unknown";
+                                }
                               });
                             },
                           );
@@ -211,7 +319,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
                       const SizedBox(height: 25),
 
-                      // ---------------- REGISTER BUTTON ----------------
+                      // ---------------- SUBMIT ----------------
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -224,14 +332,19 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                             ),
                           ),
                           child: isLoading
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white,
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                  ),
                                 )
                               : const Text(
                                   "SUBMIT REQUEST",
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
+                                    color: Colors.white,
                                   ),
                                 ),
                         ),
@@ -250,7 +363,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                                     Navigator.pushReplacement(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (_) => LoginPage(),
+                                        builder: (_) => const LoginPage(),
                                       ),
                                     );
                                   },
@@ -272,17 +385,21 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
+  // Helper Widget for TextFields
   Widget _field(
     TextEditingController ctrl,
     String label,
     IconData icon, {
-    List<TextInputFormatter>? formatters,
+    bool blockSpaces = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: TextField(
         controller: ctrl,
-        inputFormatters: formatters,
+        // Only block spaces if explicitly requested (like for Email)
+        inputFormatters: blockSpaces
+            ? [FilteringTextInputFormatter.deny(RegExp(r'\s'))]
+            : [],
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon),

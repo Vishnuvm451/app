@@ -15,6 +15,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
   List<String> selectedSubjects = [];
 
   String? departmentId;
+  bool isSaving = false;
 
   @override
   void initState() {
@@ -22,28 +23,62 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     _loadTeacherDept();
   }
 
+  // --------------------------------------------------
+  // LOAD TEACHER DEPARTMENT
+  // --------------------------------------------------
   Future<void> _loadTeacherDept() async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
     final doc = await FirebaseFirestore.instance
-        .collection('teachers')
-        .doc(uid)
+        .collection('teacher') // ✅ FIXED
+        .doc(user.uid)
         .get();
-    setState(() => departmentId = doc['departmentId']);
+
+    if (!doc.exists) return;
+
+    if (mounted) {
+      setState(() {
+        departmentId = doc['departmentId'];
+      });
+    }
   }
 
-  Future<void> saveSetup() async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+  // --------------------------------------------------
+  // SAVE SETUP
+  // --------------------------------------------------
+  Future<void> _saveSetup() async {
+    if (classId == null || semester == null || selectedSubjects.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select class, semester and subjects"),
+        ),
+      );
+      return;
+    }
 
-    await FirebaseFirestore.instance.collection('teachers').doc(uid).update({
-      'teachingClassId': classId,
-      'teachingSemester': semester,
-      'subjectIds': selectedSubjects,
-      'setupCompleted': true,
-    });
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
+    setState(() => isSaving = true);
+
+    await FirebaseFirestore.instance
+        .collection('teacher') // ✅ FIXED
+        .doc(user.uid)
+        .update({
+          'teachingClassId': classId,
+          'teachingSemester': semester,
+          'subjectIds': selectedSubjects,
+          'setupCompleted': true,
+        });
+
+    if (!mounted) return;
     Navigator.pop(context);
   }
 
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
     if (departmentId == null) {
@@ -51,18 +86,20 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Teacher Setup")),
+      appBar: AppBar(title: const Text("Teacher Setup"), centerTitle: true),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          /// CLASS
+          // ---------------- CLASS ----------------
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('classes')
                 .where('departmentId', isEqualTo: departmentId)
                 .snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData) return const CircularProgressIndicator();
+              if (!snap.hasData) {
+                return const CircularProgressIndicator();
+              }
 
               return DropdownButtonFormField<String>(
                 value: classId,
@@ -84,12 +121,14 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
           const SizedBox(height: 16),
 
-          /// SEMESTER
+          // ---------------- SEMESTER ----------------
           DropdownButtonFormField<int>(
             value: semester,
-            hint: const Text("Semester"),
+            hint: const Text("Select Semester"),
             items: [1, 2, 3, 4, 5, 6]
-                .map((s) => DropdownMenuItem(value: s, child: Text("Sem $s")))
+                .map(
+                  (s) => DropdownMenuItem(value: s, child: Text("Semester $s")),
+                )
                 .toList(),
             onChanged: (v) => setState(() {
               semester = v;
@@ -99,7 +138,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
           const SizedBox(height: 20),
 
-          /// SUBJECTS
+          // ---------------- SUBJECTS ----------------
           if (classId != null && semester != null)
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -108,7 +147,15 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
                   .where('semester', isEqualTo: semester)
                   .snapshots(),
               builder: (context, snap) {
-                if (!snap.hasData) return const CircularProgressIndicator();
+                if (!snap.hasData) {
+                  return const CircularProgressIndicator();
+                }
+
+                if (snap.data!.docs.isEmpty) {
+                  return const Text(
+                    "No subjects found for this class & semester",
+                  );
+                }
 
                 return Column(
                   children: snap.data!.docs.map((d) {
@@ -117,7 +164,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
                       value: selectedSubjects.contains(d.id),
                       onChanged: (v) {
                         setState(() {
-                          v!
+                          v == true
                               ? selectedSubjects.add(d.id)
                               : selectedSubjects.remove(d.id);
                         });
@@ -130,7 +177,13 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
           const SizedBox(height: 24),
 
-          ElevatedButton(onPressed: saveSetup, child: const Text("Save Setup")),
+          // ---------------- SAVE BUTTON ----------------
+          ElevatedButton(
+            onPressed: isSaving ? null : _saveSetup,
+            child: isSaving
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text("Save Setup"),
+          ),
         ],
       ),
     );

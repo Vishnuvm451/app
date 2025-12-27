@@ -30,7 +30,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
   }
 
   Future<void> _loginAdmin() async {
-    final auth = context.read<AuthProvider>();
+    final auth = context.read<AppAuthProvider>();
 
     if (_emailController.text.trim().isEmpty ||
         _passwordController.text.trim().isEmpty) {
@@ -74,7 +74,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
+    final auth = context.watch<AppAuthProvider>();
 
     return Scaffold(
       backgroundColor: primaryBlue, // Match Main Page Background
