@@ -1,4 +1,5 @@
 import 'package:darzo/login.dart';
+// import 'package:darzo/face_capture.dart'; // <--- UNCOMMENT FOR FACE CAPTURE
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -66,7 +67,19 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     try {
       setState(() => isLoading = true);
 
-      // 🔒 Prevent duplicate admission number
+      // 1. Check if Class Exists (Data Integrity)
+      final classSnap = await _db
+          .collection('classes')
+          .doc(selectedClassId)
+          .get();
+      if (!classSnap.exists) {
+        _showSnack("Selected class no longer exists");
+        setState(() => isLoading = false);
+        return;
+      }
+      final classData = classSnap.data()!;
+
+      // 2. Prevent duplicate admission number
       final existing = await _db
           .collection('students')
           .where('admissionNo', isEqualTo: _admissionCtrl.text.trim())
@@ -78,7 +91,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         return;
       }
 
-      // 1️⃣ Firebase Auth
+      // 3. Firebase Auth
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
@@ -86,7 +99,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final uid = cred.user!.uid;
 
-      // 2️⃣ USERS (ROLE MASTER)
+      // 4. USERS (ROLE MASTER)
       await _db.collection('users').doc(uid).set({
         'uid': uid,
         'email': _emailCtrl.text.trim(),
@@ -94,14 +107,17 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'created_at': FieldValue.serverTimestamp(),
       });
 
-      // 3️⃣ STUDENTS (PROFILE — classId FIXED)
+      // 5. STUDENTS (PROFILE)
       await _db.collection('students').doc(uid).set({
         'uid': uid,
-        'name': _nameCtrl.text.trim(), // spaces allowed
+        'name': _nameCtrl.text.trim(),
         'email': _emailCtrl.text.trim(),
         'admissionNo': _admissionCtrl.text.trim(),
         'departmentId': selectedDepartmentId,
-        'classId': selectedClassId, // 🔥 REQUIRED FOR DASHBOARD
+        'classId': selectedClassId,
+        'courseType': classData['courseType'] ?? 'UG',
+        'year': classData['year'] ?? 1,
+        'face_enabled': false, // Default
         'created_at': FieldValue.serverTimestamp(),
       });
 
@@ -110,10 +126,23 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted) return;
 
+      // ---------------- NAVIGATION ----------------
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
+
+      /* // 🔥 FUTURE: FACE CAPTURE NAVIGATION
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => FaceCapturePage(
+            studentUid: uid, 
+            studentName: _nameCtrl.text.trim()
+          ),
+        ),
+      ); 
+      */
     } on FirebaseAuthException catch (e) {
       String msg = "Registration failed";
       if (e.code == 'email-already-in-use') msg = "Email already registered";
@@ -197,6 +226,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
+                                    color: Colors.white,
                                   ),
                                 ),
                         ),
@@ -277,6 +307,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       child: TextField(
         controller: _admissionCtrl,
         keyboardType: TextInputType.number,
+        // ✅ DIGITS ONLY
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
           labelText: "Admission Number",
@@ -308,23 +339,33 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // DROPDOWNS
+  // DROPDOWNS (IMPROVED)
   // ======================================================
 
   Widget _departmentDropdown() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: StreamBuilder<QuerySnapshot>(
-        stream: _db.collection('departments').snapshots(),
+        stream: _db.collection('departments').orderBy('name').snapshots(),
         builder: (_, snapshot) {
+          // ⚠️ Error Handling (Important)
+          if (snapshot.hasError) {
+            return const Text(
+              "Error loading departments. Check Permissions.",
+              style: TextStyle(color: Colors.red),
+            );
+          }
           if (!snapshot.hasData) {
             return const LinearProgressIndicator();
           }
 
+          final docs = snapshot.data!.docs;
+          if (docs.isEmpty) return const Text("No Departments Found");
+
           return DropdownButtonFormField<String>(
             value: selectedDepartmentId,
             hint: const Text("Department"),
-            items: snapshot.data!.docs.map((doc) {
+            items: docs.map((doc) {
               return DropdownMenuItem<String>(
                 value: doc.id,
                 child: Text(doc['name']),
@@ -359,14 +400,24 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
             .where('departmentId', isEqualTo: selectedDepartmentId)
             .snapshots(),
         builder: (_, snapshot) {
+          // ⚠️ Error Handling
+          if (snapshot.hasError) {
+            return const Text(
+              "Error loading classes.",
+              style: TextStyle(color: Colors.red),
+            );
+          }
           if (!snapshot.hasData) {
             return const LinearProgressIndicator();
           }
 
+          final docs = snapshot.data!.docs;
+          if (docs.isEmpty) return const Text("No Classes in this Department");
+
           return DropdownButtonFormField<String>(
             value: selectedClassId,
             hint: const Text("Class"),
-            items: snapshot.data!.docs.map((doc) {
+            items: docs.map((doc) {
               return DropdownMenuItem<String>(
                 value: doc.id,
                 child: Text(doc['name']),

@@ -100,22 +100,25 @@ class _LoginPageState extends State<LoginPage> {
               Positioned(
                 top: 8,
                 right: 12,
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.admin_panel_settings,
-                    color: Colors.white,
-                    size: 30,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 10.0),
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.admin_panel_settings,
+                      color: Colors.white,
+                      size: 50,
+                    ),
+                    onPressed: isLoading
+                        ? null
+                        : () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const AdminLoginPage(),
+                              ),
+                            );
+                          },
                   ),
-                  onPressed: isLoading
-                      ? null
-                      : () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const AdminLoginPage(),
-                            ),
-                          );
-                        },
                 ),
               ),
 
