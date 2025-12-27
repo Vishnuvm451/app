@@ -239,22 +239,27 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
                       const SizedBox(height: 16),
 
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const LoginPage(),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text("Already have an account? "),
+                          TextButton(
+                            onPressed: isLoading
+                                ? null
+                                : () {
+                                    Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => LoginPage(),
+                                      ),
+                                    );
+                                  },
+                            child: const Text(
+                              "Login",
+                              style: TextStyle(fontWeight: FontWeight.bold),
                             ),
-                          );
-                        },
-                        child: const Text(
-                          "Already have an account? Login",
-                          style: TextStyle(
-                            color: primaryBlue,
-                            fontWeight: FontWeight.bold,
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
