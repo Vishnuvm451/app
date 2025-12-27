@@ -142,7 +142,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           onTap: () {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const InternalMarksPage()),
+              MaterialPageRoute(
+                builder: (_) => const AddInternalMarksBulkPage(),
+              ),
             );
           },
         ),
