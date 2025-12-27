@@ -1,5 +1,6 @@
 import 'package:darzo/admin_approval.dart';
 import 'package:darzo/admin_class_sub.dart';
+import 'package:darzo/manage_department.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -58,7 +59,7 @@ class AdminDashboardPage extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const AdminClassSubjectPage(),
+                    builder: (_) => const AdminAcademicSetupPage(),
                   ),
                 );
               },
@@ -72,9 +73,14 @@ class AdminDashboardPage extends StatelessWidget {
             ),
             _adminCard(
               icon: Icons.settings,
-              title: "Settings",
+              title: "Manage Department",
               onTap: () {
-                _comingSoon(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AdminManageAcademicPage(),
+                  ),
+                );
               },
             ),
           ],
