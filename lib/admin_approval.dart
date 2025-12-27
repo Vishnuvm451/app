@@ -9,12 +9,11 @@ class TeacherApprovalPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Teacher Approvals")),
+      appBar: AppBar(title: const Text("Teacher Approvals"), centerTitle: true),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('teacher_requests')
-            .where('status', isEqualTo: 'pending')
-            .orderBy('created_at')
+            .where('status', isEqualTo: 'pending') // ✅ NO orderBy
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -22,16 +21,24 @@ class TeacherApprovalPage extends StatelessWidget {
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text("No pending teacher requests"));
+            return const Center(
+              child: Text(
+                "No pending teacher requests",
+                style: TextStyle(fontSize: 16),
+              ),
+            );
           }
 
-          return ListView(
+          return ListView.builder(
             padding: const EdgeInsets.all(12),
-            children: snapshot.data!.docs.map((doc) {
+            itemCount: snapshot.data!.docs.length,
+            itemBuilder: (context, index) {
+              final doc = snapshot.data!.docs[index];
               final data = doc.data() as Map<String, dynamic>;
 
               return Card(
                 elevation: 3,
+                margin: const EdgeInsets.only(bottom: 12),
                 child: ListTile(
                   title: Text(
                     data['name'] ?? 'No Name',
@@ -40,10 +47,10 @@ class TeacherApprovalPage extends StatelessWidget {
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(data['email']),
+                      Text(data['email'] ?? ''),
                       const SizedBox(height: 4),
                       Text(
-                        "Department: ${data['departmentId']}",
+                        "Department: ${data['departmentId'] ?? '-'}",
                         style: const TextStyle(color: Colors.grey),
                       ),
                     ],
@@ -71,7 +78,7 @@ class TeacherApprovalPage extends StatelessWidget {
                   ),
                 ),
               );
-            }).toList(),
+            },
           );
         },
       ),
@@ -89,23 +96,25 @@ class TeacherApprovalPage extends StatelessWidget {
     FirebaseApp? tempApp;
 
     try {
-      // 🔐 TEMP APP (ADMIN SHOULD NOT LOGOUT)
       tempApp = await Firebase.initializeApp(
         name: 'TempTeacherCreate',
         options: Firebase.app().options,
       );
 
+      final auth = FirebaseAuth.instanceFor(app: tempApp);
+
       // 1️⃣ CREATE AUTH USER
-      final cred = await FirebaseAuth.instanceFor(app: tempApp)
-          .createUserWithEmailAndPassword(
-            email: requestData['email'],
-            password: 'teacher@123', // temp password
-          );
+      final cred = await auth.createUserWithEmailAndPassword(
+        email: requestData['email'],
+        password: 'teacher@123', // temporary password
+      );
 
       final uid = cred.user!.uid;
 
-      // 2️⃣ CREATE USERS DOC
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      final db = FirebaseFirestore.instance;
+
+      // 2️⃣ USERS COLLECTION
+      await db.collection('users').doc(uid).set({
         'uid': uid,
         'name': requestData['name'],
         'email': requestData['email'],
@@ -113,30 +122,28 @@ class TeacherApprovalPage extends StatelessWidget {
         'created_at': FieldValue.serverTimestamp(),
       });
 
-      // 3️⃣ CREATE TEACHER DOC
-      await FirebaseFirestore.instance.collection('teachers').doc(uid).set({
+      // 3️⃣ TEACHER COLLECTION (MATCH YOUR APP → singular)
+      await db.collection('teacher').doc(uid).set({
         'uid': uid,
         'name': requestData['name'],
         'email': requestData['email'],
         'departmentId': requestData['departmentId'],
+        'isApproved': true,
         'setupCompleted': false,
         'created_at': FieldValue.serverTimestamp(),
       });
 
-      // 4️⃣ UPDATE REQUEST STATUS
-      await FirebaseFirestore.instance
-          .collection('teacher_requests')
-          .doc(requestId)
-          .update({
-            'status': 'approved',
-            'authUid': uid,
-            'approved_at': FieldValue.serverTimestamp(),
-          });
+      // 4️⃣ UPDATE REQUEST
+      await db.collection('teacher_requests').doc(requestId).update({
+        'status': 'approved',
+        'authUid': uid,
+        'approved_at': FieldValue.serverTimestamp(),
+      });
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Teacher approved. Login credentials created."),
+            content: Text("Teacher approved successfully"),
             backgroundColor: Colors.green,
           ),
         );
