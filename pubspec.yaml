@@ -39,6 +39,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   geolocator: ^10.1.0
   provider: ^6.0.5
+  camera: ^0.11.3
 
 
 dev_dependencies:
