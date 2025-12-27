@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
-import 'login.dart'; // adjust path if needed
+import 'login.dart';
+// import 'face_capture.dart'; // <--- UNCOMMENT THIS IN FUTURE
 
 class StudentRegisterPage extends StatefulWidget {
   const StudentRegisterPage({super.key});
@@ -62,7 +63,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       // 1️⃣ Firebase Auth
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
-        password: _passwordCtrl.text.trim(),
+        password: _passwordCtrl.text,
       );
 
       final uid = cred.user!.uid;
@@ -92,11 +93,17 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'courseType': classData['courseType'],
         'year': classData['year'],
         'role': 'student',
+        'face_enabled': false,
         'created_at': FieldValue.serverTimestamp(),
       });
 
+      await _db.collection('users').doc(uid).set({
+        'role': 'student',
+        'email': _emailCtrl.text.trim(),
+      });
+
       if (mounted) {
-        _showSnack("Student registered successfully", success: true);
+        _showSnack("Registration successful!", success: true);
         Future.delayed(const Duration(seconds: 1), () {
           if (!mounted) return;
           Navigator.pushReplacement(
@@ -140,19 +147,13 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                   );
                 },
         ),
-        title: Row(
-          children: [
-            Image.asset('assets/logo.png', height: 28),
-            const SizedBox(width: 10),
-            const Text("Darzo"),
-          ],
-        ),
+        title: const Text("Darzo"),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _field(_nameCtrl, "Full Name"),
-          _field(_admissionCtrl, "Admission Number"),
+          _admissionField(),
           _field(_emailCtrl, "Email"),
           _passwordFieldWithToggle(),
           _departmentDropdown(),
@@ -255,10 +256,26 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       child: TextField(
         controller: controller,
         enabled: !isLoading,
-        inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
         decoration: InputDecoration(
           labelText: label,
           border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+
+  // 🔢 Admission Number → NUMBERS ONLY
+  Widget _admissionField() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: _admissionCtrl,
+        enabled: !isLoading,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        decoration: const InputDecoration(
+          labelText: "Admission Number",
+          border: OutlineInputBorder(),
         ),
       ),
     );
@@ -271,7 +288,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         controller: _passwordCtrl,
         enabled: !isLoading,
         obscureText: !showPassword,
-        inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
         decoration: InputDecoration(
           labelText: "Password",
           border: const OutlineInputBorder(),
