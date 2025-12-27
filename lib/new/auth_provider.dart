@@ -1,9 +1,9 @@
 import 'package:darzo/new/auth_service.dart';
-import 'package:darzo/new/firestore_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:darzo/new/firestore_service.dart';
 
-class AuthProvider extends ChangeNotifier {
+class AppAuthProvider extends ChangeNotifier {
   // ===================================================
   // STATE
   // ===================================================
@@ -11,6 +11,7 @@ class AuthProvider extends ChangeNotifier {
 
   String? _role;
   String? _departmentId;
+  String? _name;
 
   bool _teacherApproved = false;
   bool _teacherSetupCompleted = false;
@@ -25,6 +26,7 @@ class AuthProvider extends ChangeNotifier {
 
   String? get role => _role;
   String? get departmentId => _departmentId;
+  String? get name => _name;
 
   bool get isLoggedIn => _user != null;
   bool get isAdmin => _role == 'admin';
@@ -38,7 +40,7 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
 
   // ===================================================
-  // INIT (APP START)
+  // INIT (AUTO LOGIN ON APP START)
   // ===================================================
   Future<void> init() async {
     _user = FirebaseAuth.instance.currentUser;
@@ -65,9 +67,11 @@ class AuthProvider extends ChangeNotifier {
 
       _user = user;
 
-      if (user != null) {
-        await _loadUserProfile(user.uid);
+      if (user == null) {
+        throw Exception("Authentication failed");
       }
+
+      await _loadUserProfile(user.uid);
     } finally {
       _setLoading(false);
     }
@@ -82,6 +86,7 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     _role = null;
     _departmentId = null;
+    _name = null;
     _teacherApproved = false;
     _teacherSetupCompleted = false;
 
@@ -89,37 +94,62 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ===================================================
-  // LOAD USER PROFILE (TYPE SAFE)
+  // LOAD USER PROFILE (ROLE SOURCE OF TRUTH)
   // ===================================================
   Future<void> _loadUserProfile(String uid) async {
-    // -------- users collection --------
+    // ---------- USERS ----------
     final userData = await FirestoreService.instance.getUserData(uid);
 
-    if (userData == null) return;
-
-    _role = userData['role'] as String?;
-
-    // -------- teacher --------
-    if (_role == 'teacher') {
-      final teacherData = await FirestoreService.instance.getTeacher(uid);
-
-      if (teacherData != null) {
-        _departmentId = teacherData['departmentId'];
-        _teacherApproved = teacherData['isApproved'] ?? false;
-        _teacherSetupCompleted = teacherData['setupCompleted'] ?? false;
-      }
+    if (userData == null) {
+      throw Exception("User role not found");
     }
 
-    // -------- student --------
+    _role = userData['role'];
+
+    // ---------- ADMIN ----------
+    if (_role == 'admin') {
+      _name = userData['name'];
+      notifyListeners();
+      return;
+    }
+
+    // ---------- STUDENT ----------
     if (_role == 'student') {
       final studentData = await FirestoreService.instance.getStudent(uid);
 
-      if (studentData != null) {
-        _departmentId = studentData['departmentId'];
+      if (studentData == null) {
+        throw Exception("Student profile missing");
       }
+
+      _departmentId = studentData['departmentId'];
+      _name = studentData['name'];
+
+      notifyListeners();
+      return;
     }
 
-    notifyListeners();
+    // ---------- TEACHER ----------
+    if (_role == 'teacher') {
+      final teacherData = await FirestoreService.instance.getTeacher(uid);
+
+      if (teacherData == null) {
+        throw Exception("Teacher profile missing");
+      }
+
+      _teacherApproved = teacherData['isApproved'] ?? false;
+      _teacherSetupCompleted = teacherData['setupCompleted'] ?? false;
+      _departmentId = teacherData['departmentId'];
+      _name = teacherData['name'];
+
+      if (!_teacherApproved) {
+        throw Exception("Teacher not approved by admin");
+      }
+
+      notifyListeners();
+      return;
+    }
+
+    throw Exception("Invalid user role");
   }
 
   // ===================================================
