@@ -1,5 +1,13 @@
+import 'package:darzo/admin_class_sub.dart';
+import 'package:darzo/new/student_register.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// TODO: replace with your real pages
+import 'student_dashboard.dart';
+import 'teacher_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -17,6 +25,94 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController emailCtrl = TextEditingController();
   final TextEditingController passwordCtrl = TextEditingController();
 
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  // ======================================================
+  // LOGIN LOGIC
+  // ======================================================
+  Future<void> login() async {
+    if (emailCtrl.text.isEmpty || passwordCtrl.text.isEmpty) {
+      _showSnack("Enter email & password");
+      return;
+    }
+
+    try {
+      // 1️⃣ Firebase Auth
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: emailCtrl.text.trim(),
+        password: passwordCtrl.text.trim(),
+      );
+
+      final uid = cred.user!.uid;
+
+      // 2️⃣ Decide collection based on toggle
+      final collection = isStudent ? 'students' : 'teachers';
+
+      final snap = await _db.collection(collection).doc(uid).get();
+
+      if (!snap.exists) {
+        _showSnack("Account not found in $collection");
+        return;
+      }
+
+      final role = snap['role'];
+
+      // 3️⃣ Role-based navigation
+      if (role == 'student') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
+        );
+      } else if (role == 'teacher') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
+        );
+      } else {
+        _showSnack("Invalid role");
+      }
+    } catch (e) {
+      _showSnack(e.toString());
+    }
+  }
+
+  // ======================================================
+  // ADMIN ICON LOGIN
+  // ======================================================
+  Future<void> adminLogin() async {
+    if (emailCtrl.text.isEmpty || passwordCtrl.text.isEmpty) {
+      _showSnack("Enter admin credentials");
+      return;
+    }
+
+    try {
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: emailCtrl.text.trim(),
+        password: passwordCtrl.text.trim(),
+      );
+
+      final uid = cred.user!.uid;
+
+      final snap = await _db.collection('admins').doc(uid).get();
+
+      if (!snap.exists || snap['role'] != 'admin') {
+        _showSnack("Not an admin account");
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const AdminClassSubjectPage()),
+      );
+    } catch (e) {
+      _showSnack(e.toString());
+    }
+  }
+
+  // ======================================================
+  // UI
+  // ======================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -35,18 +131,14 @@ class _LoginPageState extends State<LoginPage> {
                     color: Colors.white,
                     size: 30,
                   ),
-                  onPressed: () {
-                    // TODO: Navigate to Admin Login / Admin Panel
-                  },
+                  onPressed: adminLogin,
                 ),
               ),
 
-              // ================= MAIN CONTENT =================
               Column(
                 children: [
                   const SizedBox(height: 30),
 
-                  // TOP ICON
                   const CircleAvatar(
                     radius: 40,
                     backgroundColor: Colors.white24,
@@ -59,7 +151,6 @@ class _LoginPageState extends State<LoginPage> {
 
                   const SizedBox(height: 20),
 
-                  // APP NAME
                   const Text(
                     "DARZO",
                     style: TextStyle(
@@ -82,7 +173,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     child: Column(
                       children: [
-                        // STUDENT / TEACHER TOGGLE
+                        // TOGGLE
                         Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
@@ -99,26 +190,21 @@ class _LoginPageState extends State<LoginPage> {
 
                         const SizedBox(height: 20),
 
-                        // EMAIL
                         _inputField(
                           hint: isStudent ? "Student Email" : "Teacher Email",
                           icon: Icons.school,
                           controller: emailCtrl,
                         ),
 
-                        // PASSWORD
                         _passwordField(),
 
                         const SizedBox(height: 20),
 
-                        // LOGIN BUTTON
                         SizedBox(
                           width: double.infinity,
                           height: 50,
                           child: ElevatedButton(
-                            onPressed: () {
-                              // TODO: Firebase login logic
-                            },
+                            onPressed: login,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: primaryBlue,
                               shape: RoundedRectangleBorder(
@@ -135,22 +221,18 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
 
-                        const SizedBox(height: 12),
-
-                        // FORGOT PASSWORD
-                        Text(
-                          "Forgot Password?",
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-
                         const SizedBox(height: 20),
                         const Divider(),
                         const SizedBox(height: 12),
 
-                        // REGISTER BUTTONS
-                        _registerButton("REGISTER AS STUDENT"),
-                        const SizedBox(height: 10),
-                        _registerButton("REGISTER AS TEACHER"),
+                        _registerButton("REGISTER AS STUDENT", () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const StudentRegisterPage(),
+                            ),
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -164,7 +246,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ======================================================
-  // TOGGLE BUTTON
+  // UI HELPERS
   // ======================================================
   Widget _toggleButton(String text, bool student) {
     return Expanded(
@@ -190,9 +272,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // ======================================================
-  // INPUT FIELD
-  // ======================================================
   Widget _inputField({
     required String hint,
     required IconData icon,
@@ -212,9 +291,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // ======================================================
-  // PASSWORD FIELD
-  // ======================================================
   Widget _passwordField() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -227,9 +303,7 @@ class _LoginPageState extends State<LoginPage> {
           prefixIcon: const Icon(Icons.lock),
           suffixIcon: IconButton(
             icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
-            onPressed: () {
-              setState(() => showPassword = !showPassword);
-            },
+            onPressed: () => setState(() => showPassword = !showPassword),
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
@@ -237,17 +311,12 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // ======================================================
-  // REGISTER BUTTON
-  // ======================================================
-  Widget _registerButton(String text) {
+  Widget _registerButton(String text, VoidCallback onTap) {
     return SizedBox(
       width: double.infinity,
       height: 45,
       child: ElevatedButton(
-        onPressed: () {
-          // TODO: Navigate to register pages
-        },
+        onPressed: onTap,
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryBlue,
           shape: RoundedRectangleBorder(
@@ -257,5 +326,9 @@ class _LoginPageState extends State<LoginPage> {
         child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }
