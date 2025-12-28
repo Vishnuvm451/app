@@ -1,4 +1,6 @@
+import 'package:darzo/attendance_summary.dart';
 import 'package:darzo/mark_attendance_face.dart';
+import 'package:darzo/student_internal_marks_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:darzo/login.dart';
@@ -14,7 +16,6 @@ class StudentDashboardPage extends StatefulWidget {
 
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   bool isLoading = true;
-
   String classId = '';
 
   /// loading | no-session | not-marked | present | half-day | absent
@@ -23,61 +24,63 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   @override
   void initState() {
     super.initState();
-    _loadAttendance();
+    _loadFinalAttendance();
   }
 
   // --------------------------------------------------
-  // LOAD ATTENDANCE ONLY (PROFILE COMES FROM PROVIDER)
+  // LOAD FINAL DAY ATTENDANCE
   // --------------------------------------------------
-  Future<void> _loadAttendance() async {
+  Future<void> _loadFinalAttendance() async {
     try {
       final auth = context.read<AppAuthProvider>();
       final user = auth.user;
 
       if (user == null) {
-        _logout();
+        await _logout();
         return;
       }
 
       final student = await FirestoreService.instance.getStudent(user.uid);
 
       if (student == null) {
-        setState(() {
-          isLoading = false;
-          attendanceStatus = 'no-session';
-        });
+        _setNoSession();
         return;
       }
 
       classId = student['classId'] ?? '';
 
       if (classId.isEmpty) {
-        setState(() {
-          isLoading = false;
-          attendanceStatus = 'no-session';
-        });
+        _setNoSession();
         return;
       }
 
-      final status = await FirestoreService.instance.getTodayAttendanceStatus(
-        studentId: user.uid,
-        classId: classId,
-      );
+      final finalStatus = await FirestoreService.instance
+          .getTodayFinalAttendance(studentId: user.uid, classId: classId);
+
+      if (!mounted) return;
 
       setState(() {
-        attendanceStatus = status ?? 'not-marked';
+        attendanceStatus = finalStatus ?? 'not-marked';
         isLoading = false;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
-        isLoading = false;
         attendanceStatus = 'not-marked';
+        isLoading = false;
       });
     }
   }
 
+  void _setNoSession() {
+    setState(() {
+      attendanceStatus = 'no-session';
+      isLoading = false;
+    });
+  }
+
   // --------------------------------------------------
-  // LOGOUT (PROVIDER SAFE)
+  // LOGOUT
   // --------------------------------------------------
   Future<void> _logout() async {
     await context.read<AppAuthProvider>().logout();
@@ -147,10 +150,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          classId.isEmpty ? '' : "Class ID: $classId",
-          style: const TextStyle(color: Colors.white70, fontSize: 14),
-        ),
+        if (classId.isNotEmpty)
+          Text(
+            "Class ID: $classId",
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
       ],
     );
   }
@@ -225,22 +229,16 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                         ),
                       );
 
+                      if (!mounted) return;
+
                       setState(() {
                         isLoading = true;
                         attendanceStatus = 'loading';
                       });
-                      _loadAttendance();
+
+                      _loadFinalAttendance();
                     }
                   : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: canMark
-                    ? const Color(0xFF2196F3)
-                    : Colors.grey,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
             ),
           ),
         ],
@@ -273,10 +271,33 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
             children: [
-              _actionCard(Icons.bar_chart, "Attendance Summary"),
-              _actionCard(Icons.assignment, "Internal Marks"),
-              _actionCard(Icons.people, "Classmates"),
-              _actionCard(Icons.settings, "Settings"),
+              _actionCard(
+                Icons.bar_chart,
+                "Attendance Summary",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MonthlyAttendanceSummaryPage(),
+                    ),
+                  );
+                },
+              ),
+              _actionCard(
+                Icons.assignment,
+                "Internal Marks",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const StudentInternalMarksPage(),
+                    ),
+                  );
+                },
+              ),
+
+              _actionCard(Icons.people, "Classmates", onTap: _comingSoon),
+              _actionCard(Icons.settings, "Settings", onTap: _comingSoon),
             ],
           ),
         ],
@@ -284,10 +305,14 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  Widget _actionCard(IconData icon, String title) {
+  Widget _actionCard(
+    IconData icon,
+    String title, {
+    required VoidCallback onTap,
+  }) {
     return InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: () {},
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -308,5 +333,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         ),
       ),
     );
+  }
+
+  void _comingSoon() {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Coming soon 🚧")));
   }
 }
