@@ -1,5 +1,4 @@
 import 'package:darzo/login.dart';
-// import 'package:darzo/face_capture.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -31,7 +30,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     FilteringTextInputFormatter.deny(RegExp(r'\s')),
   ];
 
-  // ================= FIREBASE =================
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -63,27 +61,13 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       return;
     }
 
-    setState(() => isLoading = true);
-
     try {
-      // ---------------- CLASS VALIDATION ----------------
-      final classSnap = await _db
-          .collection('classes')
-          .doc(selectedClassId)
-          .get();
+      setState(() => isLoading = true);
 
-      if (!classSnap.exists) {
-        _showSnack("Selected class does not exist");
-        return;
-      }
-
-      final classData = classSnap.data()!;
-
-      // ---------------- ADMISSION UNIQUE ----------------
+      // Check duplicate admission number
       final existing = await _db
           .collection('students')
           .where('admissionNo', isEqualTo: _admissionCtrl.text.trim())
-          .limit(1)
           .get();
 
       if (existing.docs.isNotEmpty) {
@@ -91,7 +75,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         return;
       }
 
-      // ---------------- AUTH ----------------
+      // Firebase Auth
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
@@ -99,15 +83,15 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final uid = cred.user!.uid;
 
-      // ---------------- USERS ----------------
+      // USERS
       await _db.collection('users').doc(uid).set({
         'uid': uid,
         'email': _emailCtrl.text.trim(),
         'role': 'student',
-        'created_at': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // ---------------- STUDENTS ----------------
+      // STUDENTS
       await _db.collection('students').doc(uid).set({
         'uid': uid,
         'name': _nameCtrl.text.trim(),
@@ -115,17 +99,15 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'admissionNo': _admissionCtrl.text.trim(),
         'departmentId': selectedDepartmentId,
         'classId': selectedClassId,
-        'courseType': classData['courseType'],
-        'year': classData['year'],
         'face_enabled': false,
-        'created_at': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
 
       _showSnack("Registration successful", success: true);
 
       await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return;
 
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -133,11 +115,9 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     } on FirebaseAuthException catch (e) {
       String msg = "Registration failed";
       if (e.code == 'email-already-in-use') msg = "Email already registered";
-      if (e.code == 'weak-password') msg = "Weak password";
+      if (e.code == 'weak-password') msg = "Password too weak";
       if (e.code == 'invalid-email') msg = "Invalid email";
       _showSnack(msg);
-    } catch (e) {
-      _showSnack("Something went wrong");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -151,74 +131,104 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     return Scaffold(
       backgroundColor: primaryBlue,
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const Text(
-                  "DARZO",
-                  style: TextStyle(
-                    fontSize: 42,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 2,
-                  ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              const SizedBox(height: 30),
+              const Text(
+                "DARZO",
+                style: TextStyle(
+                  fontSize: 42,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 2,
                 ),
-                const SizedBox(height: 24),
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        "STUDENT REGISTRATION",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+              ),
+              const SizedBox(height: 30),
+
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      "STUDENT REGISTRATION",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(height: 20),
-                      _nameField(),
-                      _emailField(),
-                      _admissionField(),
-                      _departmentDropdown(),
-                      _classDropdown(),
-                      _passwordField(),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: isLoading ? null : _registerStudent,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryBlue,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
+                    ),
+                    const SizedBox(height: 20),
+
+                    _nameField(),
+                    _emailField(),
+                    _admissionField(),
+                    _departmentDropdown(),
+                    _classDropdown(),
+                    _passwordField(),
+
+                    const SizedBox(height: 24),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: isLoading ? null : _registerStudent,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryBlue,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        child: isLoading
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : const Text(
+                                "REGISTER",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // ✅ ADDED LOGIN OPTION
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text("Already have an account? "),
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const LoginPage(),
+                              ),
+                            );
+                          },
+                          child: Text(
+                            "Login",
+                            style: TextStyle(
+                              color: primaryBlue,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          child: isLoading
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white,
-                                )
-                              : const Text(
-                                  "REGISTER",
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -229,118 +239,141 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   // FIELDS
   // ======================================================
   Widget _nameField() =>
-      _field(controller: _nameCtrl, label: "Full Name", icon: Icons.person);
+      _field(ctrl: _nameCtrl, label: "Full Name", icon: Icons.person);
 
   Widget _emailField() => _field(
-    controller: _emailCtrl,
-    label: "Email ID",
+    ctrl: _emailCtrl,
+    label: "Email",
     icon: Icons.email,
     formatters: _noSpaceFormatter,
   );
 
   Widget _admissionField() => _field(
-    controller: _admissionCtrl,
+    ctrl: _admissionCtrl,
     label: "Admission Number",
     icon: Icons.badge,
-    keyboardType: TextInputType.number,
+    keyboard: TextInputType.number,
     formatters: [FilteringTextInputFormatter.digitsOnly],
   );
 
-  Widget _passwordField() => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextField(
-      controller: _passwordCtrl,
-      obscureText: !showPassword,
-      inputFormatters: _noSpaceFormatter,
-      decoration: InputDecoration(
-        labelText: "Password",
-        prefixIcon: const Icon(Icons.lock),
-        suffixIcon: IconButton(
-          icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
-          onPressed: () => setState(() => showPassword = !showPassword),
-        ),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-      ),
+  Widget _passwordField() => _field(
+    ctrl: _passwordCtrl,
+    label: "Password",
+    icon: Icons.lock,
+    obscure: !showPassword,
+    formatters: _noSpaceFormatter,
+    suffix: IconButton(
+      icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
+      onPressed: () => setState(() => showPassword = !showPassword),
     ),
   );
 
   Widget _field({
-    required TextEditingController controller,
+    required TextEditingController ctrl,
     required String label,
     required IconData icon,
+    bool obscure = false,
+    Widget? suffix,
+    TextInputType? keyboard,
     List<TextInputFormatter>? formatters,
-    TextInputType? keyboardType,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
-        controller: controller,
+        controller: ctrl,
+        obscureText: obscure,
+        keyboardType: keyboard,
         inputFormatters: formatters,
-        keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon),
+          suffixIcon: suffix,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
   }
 
-  // ======================================================
-  // DROPDOWNS
-  // ======================================================
   Widget _departmentDropdown() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _db.collection('departments').orderBy('name').snapshots(),
-      builder: (_, snap) {
-        if (!snap.hasData) return const LinearProgressIndicator();
-        return DropdownButtonFormField<String>(
-          value: selectedDepartmentId,
-          hint: const Text("Department"),
-          items: snap.data!.docs
-              .map((d) => DropdownMenuItem(value: d.id, child: Text(d['name'])))
-              .toList(),
-          onChanged: (v) => setState(
-            () => {selectedDepartmentId = v, selectedClassId = null},
-          ),
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.account_balance),
-            border: OutlineInputBorder(),
-          ),
-        );
-      },
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: _db.collection('departments').orderBy('name').snapshots(),
+        builder: (_, snap) {
+          if (!snap.hasData) {
+            return const LinearProgressIndicator();
+          }
+
+          return DropdownButtonFormField<String>(
+            value: selectedDepartmentId,
+            hint: const Text("Department"),
+            items: snap.data!.docs
+                .map(
+                  (d) => DropdownMenuItem(value: d.id, child: Text(d['name'])),
+                )
+                .toList(),
+            onChanged: (v) {
+              setState(() {
+                selectedDepartmentId = v;
+                selectedClassId = null;
+              });
+            },
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.account_balance),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 16,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
   Widget _classDropdown() {
     if (selectedDepartmentId == null) return const SizedBox();
-    return StreamBuilder<QuerySnapshot>(
-      stream: _db
-          .collection('classes')
-          .where('departmentId', isEqualTo: selectedDepartmentId)
-          .orderBy('year')
-          .snapshots(),
-      builder: (_, snap) {
-        if (!snap.hasData) return const LinearProgressIndicator();
-        return DropdownButtonFormField<String>(
-          value: selectedClassId,
-          hint: const Text("Class"),
-          items: snap.data!.docs
-              .map((c) => DropdownMenuItem(value: c.id, child: Text(c['name'])))
-              .toList(),
-          onChanged: (v) => setState(() => selectedClassId = v),
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.class_),
-            border: OutlineInputBorder(),
-          ),
-        );
-      },
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: _db
+            .collection('classes')
+            .where('departmentId', isEqualTo: selectedDepartmentId)
+            .snapshots(),
+        builder: (_, snap) {
+          if (!snap.hasData) {
+            return const LinearProgressIndicator();
+          }
+
+          return DropdownButtonFormField<String>(
+            value: selectedClassId,
+            hint: const Text("Class"),
+            items: snap.data!.docs
+                .map(
+                  (d) => DropdownMenuItem(value: d.id, child: Text(d['name'])),
+                )
+                .toList(),
+            onChanged: (v) => setState(() => selectedClassId = v),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.class_),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 16,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
-  // ======================================================
-  // SNACK
-  // ======================================================
   void _showSnack(String msg, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
