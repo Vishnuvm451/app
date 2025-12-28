@@ -1,191 +1,262 @@
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
-class AttendanceDailyPage extends StatefulWidget {
-  const AttendanceDailyPage({super.key});
+class ManualAttendancePage extends StatefulWidget {
+  final String classId;
+
+  const ManualAttendancePage({super.key, required this.classId});
 
   @override
-  State<AttendanceDailyPage> createState() => _AttendanceDailyPageState();
+  State<ManualAttendancePage> createState() => _ManualAttendancePageState();
 }
 
-class _AttendanceDailyPageState extends State<AttendanceDailyPage> {
-  String? classId;
-  int? semester;
-  String? departmentId;
+class _ManualAttendancePageState extends State<ManualAttendancePage> {
+  // ---------------- STATE ----------------
+  String selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  bool isSaving = false;
 
-  String? subjectId;
-  List<String> teacherSubjectIds = [];
+  /// studentId -> status
+  /// present | half-day | absent
+  final Map<String, String> attendanceData = {};
 
-  final Map<String, String> attendance = {}; // studentId → status
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  // ===================================================
+  // INIT — TEACHER ONLY ACCESS
+  // ===================================================
   @override
   void initState() {
     super.initState();
-    _loadTeacherSetup();
+    _checkTeacherAccess();
   }
 
-  Future<void> _loadTeacherSetup() async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    final doc = await FirebaseFirestore.instance
-        .collection('teachers')
-        .doc(uid)
-        .get();
+  Future<void> _checkTeacherAccess() async {
+    final user = FirebaseAuth.instance.currentUser;
 
-    setState(() {
-      departmentId = doc['departmentId'];
-      classId = doc['teachingClassId'];
-      semester = doc['teachingSemester'];
-      teacherSubjectIds = List<String>.from(doc['subjectIds']);
-    });
-  }
-
-  Future<void> _saveAttendance() async {
-    if (subjectId == null) return;
-
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    final today = DateTime.now().toIso8601String().split('T')[0];
-
-    // 1️⃣ CREATE ATTENDANCE SESSION
-    final sessionRef = await FirebaseFirestore.instance
-        .collection('attendance_sessions')
-        .add({
-          'teacherId': uid,
-          'departmentId': departmentId,
-          'classId': classId,
-          'subjectId': subjectId,
-          'semester': semester,
-          'date': today,
-          'created_at': FieldValue.serverTimestamp(),
-        });
-
-    // 2️⃣ SAVE ATTENDANCE RECORDS
-    final batch = FirebaseFirestore.instance.batch();
-
-    attendance.forEach((studentId, status) {
-      batch.set(
-        FirebaseFirestore.instance.collection('attendance_records').doc(),
-        {
-          'sessionId': sessionRef.id,
-          'studentId': studentId,
-          'status': status,
-          'markedBy': 'manual',
-          'timestamp': FieldValue.serverTimestamp(),
-        },
-      );
-    });
-
-    await batch.commit();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Attendance saved")));
-
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (classId == null || teacherSubjectIds.isEmpty) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (user == null) {
+      _denyAccess();
+      return;
     }
 
+    final roleSnap = await _db.collection('users').doc(user.uid).get();
+
+    if (!roleSnap.exists || roleSnap['role'] != 'teacher') {
+      _denyAccess();
+    }
+  }
+
+  void _denyAccess() {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Access denied: Teachers only"),
+        backgroundColor: Colors.red,
+      ),
+    );
+
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      Navigator.pop(context);
+    });
+  }
+
+  // ===================================================
+  // UI
+  // ===================================================
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Daily Attendance")),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      appBar: AppBar(title: const Text("Manual Attendance"), centerTitle: true),
+      body: Column(
         children: [
-          /// SUBJECT SELECTION
-          StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('subjects')
-                .where(FieldPath.documentId, whereIn: teacherSubjectIds)
-                .snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) {
-                return const CircularProgressIndicator();
-              }
+          const SizedBox(height: 12),
 
-              return DropdownButtonFormField<String>(
-                value: subjectId,
-                hint: const Text("Select Subject"),
-                items: snap.data!.docs
-                    .map(
-                      (d) =>
-                          DropdownMenuItem(value: d.id, child: Text(d['name'])),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  setState(() {
-                    subjectId = v;
-                    attendance.clear();
-                  });
-                },
-              );
-            },
-          ),
+          // ---------------- DATE ----------------
+          Text("Date: $selectedDate", style: const TextStyle(fontSize: 16)),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 6),
 
-          /// STUDENT LIST
-          if (subjectId != null)
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('students')
-                  .where('classId', isEqualTo: classId)
-                  .snapshots(),
-              builder: (context, snap) {
-                if (!snap.hasData) {
-                  return const CircularProgressIndicator();
-                }
+          ElevatedButton(onPressed: _pickDate, child: const Text("Pick Date")),
 
-                return Column(
-                  children: snap.data!.docs.map((doc) {
-                    final sid = doc.id;
+          const SizedBox(height: 12),
 
-                    return Card(
-                      child: ListTile(
-                        title: Text(doc['name']),
-                        subtitle: Text(doc['register_number']),
-                        trailing: DropdownButton<String>(
-                          value: attendance[sid],
-                          hint: const Text("Status"),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'present',
-                              child: Text("Present"),
-                            ),
-                            DropdownMenuItem(
-                              value: 'half-day',
-                              child: Text("Half Day"),
-                            ),
-                            DropdownMenuItem(
-                              value: 'absent',
-                              child: Text("Absent"),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            setState(() {
-                              attendance[sid] = v!;
-                            });
-                          },
-                        ),
+          // ---------------- STUDENTS ----------------
+          Expanded(child: _studentsList()),
+
+          // ---------------- SAVE ----------------
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: isSaving ? null : _saveAttendance,
+                child: isSaving
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
+                        "SAVE ATTENDANCE",
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
-                    );
-                  }).toList(),
-                );
-              },
+              ),
             ),
-
-          const SizedBox(height: 30),
-
-          /// SAVE BUTTON
-          ElevatedButton(
-            onPressed: subjectId == null ? null : _saveAttendance,
-            child: const Text("Save Attendance"),
           ),
         ],
+      ),
+    );
+  }
+
+  // ===================================================
+  // STUDENTS LIST
+  // ===================================================
+  Widget _studentsList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _db
+          .collection('students')
+          .where('classId', isEqualTo: widget.classId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final students = snapshot.data!.docs;
+
+        if (students.isEmpty) {
+          return const Center(child: Text("No students found"));
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: students.length,
+          itemBuilder: (context, index) {
+            final stu = students[index];
+            final stuId = stu.id;
+
+            // ✅ DEFAULT = PRESENT
+            final status = attendanceData[stuId] ?? 'present';
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                title: Text(stu['name'] ?? 'Student'),
+                subtitle: Text("Admission No: ${stu['admissionNo'] ?? ''}"),
+                trailing: DropdownButton<String>(
+                  value: status,
+                  items: const [
+                    DropdownMenuItem(value: 'present', child: Text("Present")),
+                    DropdownMenuItem(
+                      value: 'half-day',
+                      child: Text("Half Day"),
+                    ),
+                    DropdownMenuItem(value: 'absent', child: Text("Absent")),
+                  ],
+                  onChanged: (val) {
+                    setState(() {
+                      attendanceData[stuId] = val!;
+                    });
+                  },
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ===================================================
+  // DATE PICKER
+  // ===================================================
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2026),
+    );
+
+    if (picked != null) {
+      setState(() {
+        selectedDate = DateFormat('yyyy-MM-dd').format(picked);
+      });
+    }
+  }
+
+  // ===================================================
+  // SAVE ATTENDANCE (MANUAL EDIT / FUTURE EDIT)
+  // ===================================================
+  Future<void> _saveAttendance() async {
+    if (attendanceData.isEmpty) {
+      _showSnack("No attendance marked");
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // 🔒 DOUBLE CHECK ROLE
+    final roleSnap = await _db.collection('users').doc(user.uid).get();
+
+    if (!roleSnap.exists || roleSnap['role'] != 'teacher') {
+      _showSnack("Unauthorized action");
+      return;
+    }
+
+    try {
+      setState(() => isSaving = true);
+
+      final sessionId = '${widget.classId}_$selectedDate';
+      final batch = _db.batch();
+
+      // Ensure session exists / update
+      final sessionRef = _db.collection('attendance_sessions').doc(sessionId);
+
+      batch.set(sessionRef, {
+        'classId': widget.classId,
+        'date': selectedDate,
+        'startedBy': user.uid,
+        'isActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // Save student attendance
+      attendanceData.forEach((studentId, status) {
+        final ref = _db
+            .collection('attendance')
+            .doc(sessionId)
+            .collection('students')
+            .doc(studentId);
+
+        batch.set(ref, {
+          'studentId': studentId,
+          'status': status,
+          'method': 'manual',
+          'markedBy': user.uid,
+          'markedAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+      await batch.commit();
+
+      _showSnack("Attendance saved successfully", success: true);
+    } catch (e) {
+      _showSnack("Failed to save attendance");
+    } finally {
+      setState(() => isSaving = false);
+    }
+  }
+
+  // ===================================================
+  // SNACK
+  // ===================================================
+  void _showSnack(String msg, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: success ? Colors.green : Colors.red,
       ),
     );
   }
