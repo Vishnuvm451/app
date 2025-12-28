@@ -1,15 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class FirestoreService {
-  FirestoreService._private();
-  static final FirestoreService instance = FirestoreService._private();
+  FirestoreService._();
+  static final FirestoreService instance = FirestoreService._();
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   // ===================================================
   // USERS
   // ===================================================
-  Future<Map<String, dynamic>?> getUserData(String uid) async {
+  Future<Map<String, dynamic>?> getUser(String uid) async {
     final doc = await _db.collection('users').doc(uid).get();
     return doc.exists ? doc.data() : null;
   }
@@ -31,17 +32,37 @@ class FirestoreService {
   }
 
   // ===================================================
-  // TODAY FINAL ATTENDANCE (STUDENT DASHBOARD)
+  // ATTENDANCE (SESSION CHECK)
+  // ===================================================
+  Future<bool> isAttendanceActive({
+    required String classId,
+    required String sessionType, // morning / afternoon
+  }) async {
+    final today = _todayId();
+    final sessionId = '${classId}_${today}_$sessionType';
+
+    final doc = await _db
+        .collection('attendance_sessions')
+        .doc(sessionId)
+        .get();
+
+    if (!doc.exists) return false;
+    return doc['isActive'] == true;
+  }
+
+  // ===================================================
+  // STUDENT TODAY FINAL ATTENDANCE
   // ===================================================
   Future<String?> getTodayFinalAttendance({
     required String studentId,
     required String classId,
   }) async {
     final today = _todayId();
+    final docId = '${classId}_$today';
 
     final doc = await _db
         .collection('attendance_final')
-        .doc('${classId}_$today')
+        .doc(docId)
         .collection('students')
         .doc(studentId)
         .get();
@@ -61,29 +82,29 @@ class FirestoreService {
     final start = DateTime(month.year, month.month, 1);
     final end = DateTime(month.year, month.month + 1, 0);
 
-    int present = 0;
-    int halfDay = 0;
-    int absent = 0;
-    int totalDays = 0;
+    final startId = DateFormat('yyyy-MM-dd').format(start);
+    final endId = DateFormat('yyyy-MM-dd').format(end);
 
     final snap = await _db
         .collection('attendance_final')
         .where('classId', isEqualTo: classId)
-        .where('date', isGreaterThanOrEqualTo: _format(start))
-        .where('date', isLessThanOrEqualTo: _format(end))
+        .where('date', isGreaterThanOrEqualTo: startId)
+        .where('date', isLessThanOrEqualTo: endId)
         .get();
 
-    for (final dayDoc in snap.docs) {
-      final stuSnap = await dayDoc.reference
+    int present = 0;
+    int halfDay = 0;
+    int absent = 0;
+
+    for (final doc in snap.docs) {
+      final stuDoc = await doc.reference
           .collection('students')
           .doc(studentId)
           .get();
 
-      if (!stuSnap.exists) continue;
+      if (!stuDoc.exists) continue;
 
-      totalDays++;
-
-      switch (stuSnap['status']) {
+      switch (stuDoc['status']) {
         case 'present':
           present++;
           break;
@@ -100,62 +121,41 @@ class FirestoreService {
       'present': present,
       'halfDay': halfDay,
       'absent': absent,
-      'totalDays': totalDays,
+      'totalDays': present + halfDay + absent,
     };
   }
 
   // ===================================================
-  // CHECK IF ATTENDANCE SESSION IS ACTIVE (FACE ATTEND)
+  // INTERNAL MARKS (STUDENT VIEW)
   // ===================================================
-  Future<bool> isAttendanceActive({
+  Future<List<Map<String, dynamic>>> getStudentInternalMarks({
+    required String studentId,
     required String classId,
-    required String sessionType, // morning | afternoon
   }) async {
-    final today = _todayId();
-
-    final doc = await _db
-        .collection('attendance_sessions')
-        .doc('${classId}_${today}_$sessionType')
+    final snap = await _db
+        .collection('internal_marks')
+        .where('classId', isEqualTo: classId)
         .get();
 
-    if (!doc.exists) return false;
-    return doc['isActive'] == true;
-  }
+    final List<Map<String, dynamic>> result = [];
 
-  // ===================================================
-  // SAVE FACE / MANUAL ATTENDANCE ENTRY
-  // ===================================================
-  Future<void> markAttendance({
-    required String classId,
-    required String studentId,
-    required String sessionType,
-    required String status, // present | half-day | absent
-    required String method, // face | manual
-  }) async {
-    final today = _todayId();
-    final sessionId = '${classId}_${today}_$sessionType';
+    for (final doc in snap.docs) {
+      final stuDoc = await doc.reference
+          .collection('students')
+          .doc(studentId)
+          .get();
 
-    await _db
-        .collection('attendance')
-        .doc(sessionId)
-        .collection('students')
-        .doc(studentId)
-        .set({
-          'studentId': studentId,
-          'status': status,
-          'method': method,
-          'markedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-  }
+      if (!stuDoc.exists) continue;
 
-  // ===================================================
-  // INTERNAL MARKS (USED BY INTERNAL PAGES)
-  // ===================================================
-  Stream<QuerySnapshot> getStudentsByClass(String classId) {
-    return _db
-        .collection('students')
-        .where('classId', isEqualTo: classId)
-        .snapshots();
+      result.add({
+        'subjectId': doc['subjectId'],
+        'testName': doc['testName'],
+        'totalMarks': doc['totalMarks'],
+        'marks': stuDoc['marks'],
+      });
+    }
+
+    return result;
   }
 
   // ===================================================
@@ -163,10 +163,6 @@ class FirestoreService {
   // ===================================================
   String _todayId() {
     final now = DateTime.now();
-    return _format(now);
-  }
-
-  String _format(DateTime d) {
-    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    return DateFormat('yyyy-MM-dd').format(now);
   }
 }
