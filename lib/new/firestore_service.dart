@@ -1,138 +1,139 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class FirestoreService {
-  FirestoreService._privateConstructor();
-  static final FirestoreService instance =
-      FirestoreService._privateConstructor();
+  FirestoreService._private();
+  static final FirestoreService instance = FirestoreService._private();
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // ======================================================
-  // USERS (ROLE SOURCE OF TRUTH)
-  // ======================================================
+  // ===================================================
+  // USERS
+  // ===================================================
   Future<Map<String, dynamic>?> getUserData(String uid) async {
-    try {
-      final snap = await _db.collection('users').doc(uid).get();
-      return snap.exists ? snap.data() : null;
-    } catch (_) {
-      return null;
-    }
+    final doc = await _db.collection('users').doc(uid).get();
+    return doc.exists ? doc.data() : null;
   }
 
-  // ======================================================
-  // STUDENTS
-  // ======================================================
+  // ===================================================
+  // STUDENT
+  // ===================================================
   Future<Map<String, dynamic>?> getStudent(String uid) async {
-    try {
-      final snap = await _db.collection('students').doc(uid).get();
-      return snap.exists ? snap.data() : null;
-    } catch (_) {
-      return null;
-    }
+    final doc = await _db.collection('students').doc(uid).get();
+    return doc.exists ? doc.data() : null;
   }
 
-  // ======================================================
-  // TEACHERS
-  // ======================================================
+  // ===================================================
+  // TEACHER
+  // ===================================================
   Future<Map<String, dynamic>?> getTeacher(String uid) async {
-    try {
-      final snap = await _db.collection('teachers').doc(uid).get();
-      return snap.exists ? snap.data() : null;
-    } catch (_) {
-      return null;
-    }
+    final doc = await _db.collection('teacher').doc(uid).get();
+    return doc.exists ? doc.data() : null;
   }
 
-  // ======================================================
-  // CHECK IF TODAY'S ATTENDANCE SESSION IS ACTIVE (TIME AWARE)
-  // ======================================================
-  Future<bool> isAttendanceActive({required String classId}) async {
-    try {
-      final today = _todayId();
-      final sessionId = '${classId}_$today';
-
-      final snap = await _db
-          .collection('attendance_sessions')
-          .doc(sessionId)
-          .get();
-
-      if (!snap.exists) return false;
-
-      final data = snap.data();
-      if (data == null) return false;
-
-      if (data['isActive'] != true) return false;
-
-      final Timestamp endTs = data['endTime'];
-      final DateTime endTime = endTs.toDate();
-
-      // ⏰ Auto close if time expired
-      if (DateTime.now().isAfter(endTime)) {
-        await _db.collection('attendance_sessions').doc(sessionId).update({
-          'isActive': false,
-        });
-        return false;
-      }
-
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // ======================================================
-  // GET TODAY ATTENDANCE STATUS
-  // ======================================================
-  /// Returns:
-  /// present | half-day | absent | not-marked | no-session
-  Future<String?> getTodayAttendanceStatus({
+  // ===================================================
+  // TODAY FINAL ATTENDANCE (STUDENT DASHBOARD)
+  // ===================================================
+  Future<String?> getTodayFinalAttendance({
     required String studentId,
     required String classId,
   }) async {
-    try {
-      final today = _todayId();
-      final sessionId = '${classId}_$today';
+    final today = _todayId();
 
-      // 1️⃣ Session must exist
-      final sessionSnap = await _db
-          .collection('attendance_sessions')
-          .doc(sessionId)
-          .get();
+    final doc = await _db
+        .collection('attendance_final')
+        .doc('${classId}_$today')
+        .collection('students')
+        .doc(studentId)
+        .get();
 
-      if (!sessionSnap.exists) return 'no-session';
+    if (!doc.exists) return null;
+    return doc['status']; // present | half-day | absent
+  }
 
-      // 2️⃣ Check student attendance
-      final snap = await _db
-          .collection('attendance')
-          .doc(sessionId)
+  // ===================================================
+  // MONTHLY ATTENDANCE SUMMARY
+  // ===================================================
+  Future<Map<String, int>> getMonthlyAttendanceSummary({
+    required String studentId,
+    required String classId,
+    required DateTime month,
+  }) async {
+    final start = DateTime(month.year, month.month, 1);
+    final end = DateTime(month.year, month.month + 1, 0);
+
+    int present = 0;
+    int halfDay = 0;
+    int absent = 0;
+    int totalDays = 0;
+
+    final snap = await _db
+        .collection('attendance_final')
+        .where('classId', isEqualTo: classId)
+        .where('date', isGreaterThanOrEqualTo: _format(start))
+        .where('date', isLessThanOrEqualTo: _format(end))
+        .get();
+
+    for (final dayDoc in snap.docs) {
+      final stuSnap = await dayDoc.reference
           .collection('students')
           .doc(studentId)
           .get();
 
-      if (!snap.exists) return 'not-marked';
+      if (!stuSnap.exists) continue;
 
-      return snap.data()?['status'] ?? 'not-marked';
-    } catch (_) {
-      return 'no-session';
+      totalDays++;
+
+      switch (stuSnap['status']) {
+        case 'present':
+          present++;
+          break;
+        case 'half-day':
+          halfDay++;
+          break;
+        case 'absent':
+          absent++;
+          break;
+      }
     }
+
+    return {
+      'present': present,
+      'halfDay': halfDay,
+      'absent': absent,
+      'totalDays': totalDays,
+    };
   }
 
-  // ======================================================
-  // MARK ATTENDANCE (FACE / MANUAL)
-  // ======================================================
-  /// status → present | half-day | absent
-  /// method → face | manual
-  Future<void> markAttendance({
-    required String studentId,
+  // ===================================================
+  // CHECK IF ATTENDANCE SESSION IS ACTIVE (FACE ATTEND)
+  // ===================================================
+  Future<bool> isAttendanceActive({
     required String classId,
-    required String status,
-    required String method,
+    required String sessionType, // morning | afternoon
   }) async {
     final today = _todayId();
-    final sessionId = '${classId}_$today';
 
-    // ❗ DO NOT CREATE SESSION HERE
-    // Session MUST be started by teacher
+    final doc = await _db
+        .collection('attendance_sessions')
+        .doc('${classId}_${today}_$sessionType')
+        .get();
+
+    if (!doc.exists) return false;
+    return doc['isActive'] == true;
+  }
+
+  // ===================================================
+  // SAVE FACE / MANUAL ATTENDANCE ENTRY
+  // ===================================================
+  Future<void> markAttendance({
+    required String classId,
+    required String studentId,
+    required String sessionType,
+    required String status, // present | half-day | absent
+    required String method, // face | manual
+  }) async {
+    final today = _todayId();
+    final sessionId = '${classId}_${today}_$sessionType';
 
     await _db
         .collection('attendance')
@@ -147,56 +148,25 @@ class FirestoreService {
         }, SetOptions(merge: true));
   }
 
-  // ======================================================
-  // ATTENDANCE SUMMARY (STUDENT)
-  // ======================================================
-  Future<Map<String, int>> getAttendanceSummary(String studentId) async {
-    int present = 0;
-    int absent = 0;
-    int halfDay = 0;
-
-    try {
-      final snaps = await _db
-          .collectionGroup('students')
-          .where('studentId', isEqualTo: studentId)
-          .get();
-
-      for (var doc in snaps.docs) {
-        final status = doc['status'];
-        if (status == 'present') present++;
-        if (status == 'absent') absent++;
-        if (status == 'half-day') halfDay++;
-      }
-    } catch (_) {}
-
-    return {'present': present, 'absent': absent, 'half-day': halfDay};
+  // ===================================================
+  // INTERNAL MARKS (USED BY INTERNAL PAGES)
+  // ===================================================
+  Stream<QuerySnapshot> getStudentsByClass(String classId) {
+    return _db
+        .collection('students')
+        .where('classId', isEqualTo: classId)
+        .snapshots();
   }
 
-  // ======================================================
-  // ADMIN HELPERS
-  // ======================================================
-  Future<List<QueryDocumentSnapshot>> getDepartments() async {
-    final snap = await _db.collection('departments').get();
-    return snap.docs;
-  }
-
-  Future<List<QueryDocumentSnapshot>> getClassesByDepartment(
-    String departmentId,
-  ) async {
-    final snap = await _db
-        .collection('classes')
-        .where('departmentId', isEqualTo: departmentId)
-        .get();
-    return snap.docs;
-  }
-
-  // ======================================================
-  // PRIVATE DATE HELPER
-  // ======================================================
+  // ===================================================
+  // HELPERS
+  // ===================================================
   String _todayId() {
     final now = DateTime.now();
-    return '${now.year}-'
-        '${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')}';
+    return _format(now);
+  }
+
+  String _format(DateTime d) {
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
 }
