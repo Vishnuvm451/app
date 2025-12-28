@@ -1,6 +1,6 @@
-import 'package:darzo/new/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:darzo/new/auth_service.dart';
 import 'package:darzo/new/firestore_service.dart';
 
 class AppAuthProvider extends ChangeNotifier {
@@ -40,7 +40,7 @@ class AppAuthProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
 
   // ===================================================
-  // INIT (AUTO LOGIN ON APP START)
+  // INIT (AUTO LOGIN)
   // ===================================================
   Future<void> init() async {
     _user = FirebaseAuth.instance.currentUser;
@@ -65,12 +65,11 @@ class AppAuthProvider extends ChangeNotifier {
         password: password,
       );
 
-      _user = user;
-
       if (user == null) {
         throw Exception("Authentication failed");
       }
 
+      _user = user;
       await _loadUserProfile(user.uid);
     } finally {
       _setLoading(false);
@@ -94,21 +93,21 @@ class AppAuthProvider extends ChangeNotifier {
   }
 
   // ===================================================
-  // LOAD USER PROFILE (ROLE SOURCE OF TRUTH)
+  // LOAD USER PROFILE (ROLE → PROFILE)
   // ===================================================
   Future<void> _loadUserProfile(String uid) async {
-    // ---------- USERS ----------
-    final userData = await FirestoreService.instance.getUserData(uid);
+    // ---------- USERS (ROLE SOURCE OF TRUTH) ----------
+    final userData = await FirestoreService.instance.getUser(uid);
 
     if (userData == null) {
-      throw Exception("User role not found");
+      throw Exception("User document missing");
     }
 
     _role = userData['role'];
 
     // ---------- ADMIN ----------
     if (_role == 'admin') {
-      _name = userData['name'];
+      _name = userData['name']; // optional
       notifyListeners();
       return;
     }
