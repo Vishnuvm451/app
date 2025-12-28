@@ -1,5 +1,5 @@
 import 'package:darzo/login.dart';
-// import 'package:darzo/face_capture.dart'; // <--- UNCOMMENT FOR FACE CAPTURE
+// import 'package:darzo/face_capture.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -27,7 +27,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
   final Color primaryBlue = const Color(0xFF2196F3);
 
-  // ❌ No spaces for email & password
   final List<TextInputFormatter> _noSpaceFormatter = [
     FilteringTextInputFormatter.deny(RegExp(r'\s')),
   ];
@@ -46,7 +45,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // REGISTER STUDENT (FINAL FIXED VERSION)
+  // REGISTER STUDENT
   // ======================================================
   Future<void> _registerStudent() async {
     if (_nameCtrl.text.trim().isEmpty ||
@@ -64,34 +63,35 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       return;
     }
 
-    try {
-      setState(() => isLoading = true);
+    setState(() => isLoading = true);
 
-      // 1. Check if Class Exists (Data Integrity)
+    try {
+      // ---------------- CLASS VALIDATION ----------------
       final classSnap = await _db
           .collection('classes')
           .doc(selectedClassId)
           .get();
+
       if (!classSnap.exists) {
-        _showSnack("Selected class no longer exists");
-        setState(() => isLoading = false);
+        _showSnack("Selected class does not exist");
         return;
       }
+
       final classData = classSnap.data()!;
 
-      // 2. Prevent duplicate admission number
+      // ---------------- ADMISSION UNIQUE ----------------
       final existing = await _db
           .collection('students')
           .where('admissionNo', isEqualTo: _admissionCtrl.text.trim())
+          .limit(1)
           .get();
 
       if (existing.docs.isNotEmpty) {
         _showSnack("Admission number already exists");
-        setState(() => isLoading = false);
         return;
       }
 
-      // 3. Firebase Auth
+      // ---------------- AUTH ----------------
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
@@ -99,7 +99,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final uid = cred.user!.uid;
 
-      // 4. USERS (ROLE MASTER)
+      // ---------------- USERS ----------------
       await _db.collection('users').doc(uid).set({
         'uid': uid,
         'email': _emailCtrl.text.trim(),
@@ -107,7 +107,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'created_at': FieldValue.serverTimestamp(),
       });
 
-      // 5. STUDENTS (PROFILE)
+      // ---------------- STUDENTS ----------------
       await _db.collection('students').doc(uid).set({
         'uid': uid,
         'name': _nameCtrl.text.trim(),
@@ -115,9 +115,9 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'admissionNo': _admissionCtrl.text.trim(),
         'departmentId': selectedDepartmentId,
         'classId': selectedClassId,
-        'courseType': classData['courseType'] ?? 'UG',
-        'year': classData['year'] ?? 1,
-        'face_enabled': false, // Default
+        'courseType': classData['courseType'],
+        'year': classData['year'],
+        'face_enabled': false,
         'created_at': FieldValue.serverTimestamp(),
       });
 
@@ -126,31 +126,18 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted) return;
 
-      // ---------------- NAVIGATION ----------------
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
-
-      /* // 🔥 FUTURE: FACE CAPTURE NAVIGATION
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => FaceCapturePage(
-            studentUid: uid, 
-            studentName: _nameCtrl.text.trim()
-          ),
-        ),
-      ); 
-      */
     } on FirebaseAuthException catch (e) {
       String msg = "Registration failed";
       if (e.code == 'email-already-in-use') msg = "Email already registered";
-      if (e.code == 'weak-password') msg = "Password too weak";
+      if (e.code == 'weak-password') msg = "Weak password";
       if (e.code == 'invalid-email') msg = "Invalid email";
       _showSnack(msg);
     } catch (e) {
-      _showSnack(e.toString());
+      _showSnack("Something went wrong");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -179,7 +166,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -196,16 +182,13 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                         ),
                       ),
                       const SizedBox(height: 20),
-
                       _nameField(),
                       _emailField(),
                       _admissionField(),
                       _departmentDropdown(),
                       _classDropdown(),
                       _passwordField(),
-
                       const SizedBox(height: 24),
-
                       SizedBox(
                         width: double.infinity,
                         height: 50,
@@ -231,32 +214,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                                 ),
                         ),
                       ),
-
-                      const SizedBox(height: 12),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text("Already have an account? "),
-                          GestureDetector(
-                            onTap: () {
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const LoginPage(),
-                                ),
-                              );
-                            },
-                            child: Text(
-                              "Login",
-                              style: TextStyle(
-                                color: primaryBlue,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -271,67 +228,58 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   // ======================================================
   // FIELDS
   // ======================================================
+  Widget _nameField() =>
+      _field(controller: _nameCtrl, label: "Full Name", icon: Icons.person);
 
-  Widget _nameField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: TextField(
-        controller: _nameCtrl,
-        decoration: InputDecoration(
-          labelText: "Full Name",
-          prefixIcon: const Icon(Icons.person),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+  Widget _emailField() => _field(
+    controller: _emailCtrl,
+    label: "Email ID",
+    icon: Icons.email,
+    formatters: _noSpaceFormatter,
+  );
+
+  Widget _admissionField() => _field(
+    controller: _admissionCtrl,
+    label: "Admission Number",
+    icon: Icons.badge,
+    keyboardType: TextInputType.number,
+    formatters: [FilteringTextInputFormatter.digitsOnly],
+  );
+
+  Widget _passwordField() => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: TextField(
+      controller: _passwordCtrl,
+      obscureText: !showPassword,
+      inputFormatters: _noSpaceFormatter,
+      decoration: InputDecoration(
+        labelText: "Password",
+        prefixIcon: const Icon(Icons.lock),
+        suffixIcon: IconButton(
+          icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
+          onPressed: () => setState(() => showPassword = !showPassword),
         ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       ),
-    );
-  }
+    ),
+  );
 
-  Widget _emailField() {
+  Widget _field({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    List<TextInputFormatter>? formatters,
+    TextInputType? keyboardType,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
-        controller: _emailCtrl,
-        inputFormatters: _noSpaceFormatter,
+        controller: controller,
+        inputFormatters: formatters,
+        keyboardType: keyboardType,
         decoration: InputDecoration(
-          labelText: "Email ID",
-          prefixIcon: const Icon(Icons.email),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-        ),
-      ),
-    );
-  }
-
-  Widget _admissionField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: TextField(
-        controller: _admissionCtrl,
-        keyboardType: TextInputType.number,
-        // ✅ DIGITS ONLY
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        decoration: InputDecoration(
-          labelText: "Admission Number",
-          prefixIcon: const Icon(Icons.badge),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-        ),
-      ),
-    );
-  }
-
-  Widget _passwordField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: TextField(
-        controller: _passwordCtrl,
-        obscureText: !showPassword,
-        inputFormatters: _noSpaceFormatter,
-        decoration: InputDecoration(
-          labelText: "Password",
-          prefixIcon: const Icon(Icons.lock),
-          suffixIcon: IconButton(
-            icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
-            onPressed: () => setState(() => showPassword = !showPassword),
-          ),
+          labelText: label,
+          prefixIcon: Icon(icon),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
@@ -339,107 +287,59 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // DROPDOWNS (IMPROVED)
+  // DROPDOWNS
   // ======================================================
-
   Widget _departmentDropdown() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: StreamBuilder<QuerySnapshot>(
-        stream: _db.collection('departments').orderBy('name').snapshots(),
-        builder: (_, snapshot) {
-          // ⚠️ Error Handling (Important)
-          if (snapshot.hasError) {
-            return const Text(
-              "Error loading departments. Check Permissions.",
-              style: TextStyle(color: Colors.red),
-            );
-          }
-          if (!snapshot.hasData) {
-            return const LinearProgressIndicator();
-          }
-
-          final docs = snapshot.data!.docs;
-          if (docs.isEmpty) return const Text("No Departments Found");
-
-          return DropdownButtonFormField<String>(
-            value: selectedDepartmentId,
-            hint: const Text("Department"),
-            items: docs.map((doc) {
-              return DropdownMenuItem<String>(
-                value: doc.id,
-                child: Text(doc['name']),
-              );
-            }).toList(),
-            onChanged: (val) {
-              setState(() {
-                selectedDepartmentId = val;
-                selectedClassId = null;
-              });
-            },
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.account_balance),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          );
-        },
-      ),
+    return StreamBuilder<QuerySnapshot>(
+      stream: _db.collection('departments').orderBy('name').snapshots(),
+      builder: (_, snap) {
+        if (!snap.hasData) return const LinearProgressIndicator();
+        return DropdownButtonFormField<String>(
+          value: selectedDepartmentId,
+          hint: const Text("Department"),
+          items: snap.data!.docs
+              .map((d) => DropdownMenuItem(value: d.id, child: Text(d['name'])))
+              .toList(),
+          onChanged: (v) => setState(
+            () => {selectedDepartmentId = v, selectedClassId = null},
+          ),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.account_balance),
+            border: OutlineInputBorder(),
+          ),
+        );
+      },
     );
   }
 
   Widget _classDropdown() {
     if (selectedDepartmentId == null) return const SizedBox();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: StreamBuilder<QuerySnapshot>(
-        stream: _db
-            .collection('classes')
-            .where('departmentId', isEqualTo: selectedDepartmentId)
-            .snapshots(),
-        builder: (_, snapshot) {
-          // ⚠️ Error Handling
-          if (snapshot.hasError) {
-            return const Text(
-              "Error loading classes.",
-              style: TextStyle(color: Colors.red),
-            );
-          }
-          if (!snapshot.hasData) {
-            return const LinearProgressIndicator();
-          }
-
-          final docs = snapshot.data!.docs;
-          if (docs.isEmpty) return const Text("No Classes in this Department");
-
-          return DropdownButtonFormField<String>(
-            value: selectedClassId,
-            hint: const Text("Class"),
-            items: docs.map((doc) {
-              return DropdownMenuItem<String>(
-                value: doc.id,
-                child: Text(doc['name']),
-              );
-            }).toList(),
-            onChanged: (val) {
-              setState(() => selectedClassId = val);
-            },
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.class_),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          );
-        },
-      ),
+    return StreamBuilder<QuerySnapshot>(
+      stream: _db
+          .collection('classes')
+          .where('departmentId', isEqualTo: selectedDepartmentId)
+          .orderBy('year')
+          .snapshots(),
+      builder: (_, snap) {
+        if (!snap.hasData) return const LinearProgressIndicator();
+        return DropdownButtonFormField<String>(
+          value: selectedClassId,
+          hint: const Text("Class"),
+          items: snap.data!.docs
+              .map((c) => DropdownMenuItem(value: c.id, child: Text(c['name'])))
+              .toList(),
+          onChanged: (v) => setState(() => selectedClassId = v),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.class_),
+            border: OutlineInputBorder(),
+          ),
+        );
+      },
     );
   }
 
   // ======================================================
-  // SNACKBAR
+  // SNACK
   // ======================================================
   void _showSnack(String msg, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
