@@ -1,6 +1,7 @@
 import 'package:darzo/attendance_daily.dart';
 import 'package:darzo/internal.dart';
 import 'package:darzo/new/firestore_service.dart';
+import 'package:darzo/start_attendance.dart';
 import 'package:darzo/teacher_student.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -47,9 +48,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     }
 
     setState(() {
-      teacherName = teacher['name'];
-      departmentId = teacher['departmentId'];
-      setupCompleted = teacher['setupCompleted'];
+      teacherName = teacher['name'] ?? '';
+      departmentId = teacher['departmentId'] ?? '';
+      setupCompleted = teacher['setupCompleted'] ?? false;
       isLoading = false;
     });
   }
@@ -116,7 +117,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // QUICK ACTIONS
+  // QUICK ACTIONS (UPDATED)
   // --------------------------------------------------
   Widget _quickActions() {
     return GridView.count(
@@ -126,6 +127,18 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
       children: [
+        // 🔥 START ATTENDANCE (NEW)
+        _actionCard(
+          icon: Icons.play_circle_fill,
+          label: "Start Attendance",
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StartAttendancePage()),
+            );
+          },
+        ),
+
         _actionCard(
           icon: Icons.check_circle_outline,
           label: "Attendance",
@@ -136,6 +149,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             );
           },
         ),
+
         _actionCard(
           icon: Icons.assignment,
           label: "Internals",
@@ -148,6 +162,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             );
           },
         ),
+
         _actionCard(
           icon: Icons.people,
           label: "Students",
@@ -160,6 +175,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             );
           },
         ),
+
         _actionCard(
           icon: Icons.settings,
           label: "Teaching Setup",
@@ -174,6 +190,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
+  // --------------------------------------------------
+  // ACTION CARD
+  // --------------------------------------------------
   Widget _actionCard({
     required IconData icon,
     required String label,
