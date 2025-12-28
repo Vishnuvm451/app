@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
 
@@ -17,7 +18,6 @@ class FaceCapturePage extends StatefulWidget {
 }
 
 class _FaceCapturePageState extends State<FaceCapturePage> {
-  // ---------------- CAMERA STATE ----------------
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
   bool _isCapturing = false;
@@ -28,68 +28,58 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     _initializeCamera();
   }
 
-  // ---------------- INIT CAMERA ----------------
   Future<void> _initializeCamera() async {
-    try {
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) return;
+    final cameras = await availableCameras();
+    final frontCamera = cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.front,
+      orElse: () => cameras.first,
+    );
 
-      // Use front camera
-      final frontCamera = cameras.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.front,
-        orElse: () => cameras.first,
-      );
+    _cameraController = CameraController(
+      frontCamera,
+      ResolutionPreset.medium,
+      enableAudio: false,
+    );
 
-      _cameraController = CameraController(
-        frontCamera,
-        ResolutionPreset.medium,
-        enableAudio: false,
-      );
-
-      await _cameraController!.initialize();
-      if (mounted) setState(() => _isCameraInitialized = true);
-    } catch (e) {
-      debugPrint("Camera Error: $e");
-    }
+    await _cameraController!.initialize();
+    if (mounted) setState(() => _isCameraInitialized = true);
   }
 
-  // ---------------- CAPTURE LOGIC (Backend Hook) ----------------
   Future<void> _captureAndUpload() async {
-    if (!_isCameraInitialized || _isCapturing) return;
+    if (_isCapturing || !_isCameraInitialized) return;
 
     setState(() => _isCapturing = true);
 
     try {
-      // 1. Capture Image
+      // 🔥 REAL CAPTURE (UNCOMMENT LATER)
       // final image = await _cameraController!.takePicture();
-
-      // 2. BACKEND HOOK: Upload 'image.path' to Firebase Storage
       // await uploadFaceImage(widget.studentUid, File(image.path));
 
-      // 3. BACKEND HOOK: Update Firestore 'face_enabled: true'
-      // await FirebaseFirestore.instance.collection('students').doc(widget.studentUid).update({'face_enabled': true});
+      // ✅ MANDATORY FIRESTORE UPDATE
+      await FirebaseFirestore.instance
+          .collection('students')
+          .doc(widget.studentUid)
+          .update({
+            'face_enabled': true,
+            'face_registered_at': FieldValue.serverTimestamp(),
+          });
 
-      // Simulation delay
-      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Face Registered Successfully!")),
-        );
-        // Navigate to Login after success
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const LoginPage()),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Face registered successfully")),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Error: $e")));
-      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Face capture failed: $e")));
     } finally {
-      if (mounted) setState(() => _isCapturing = false);
+      setState(() => _isCapturing = false);
     }
   }
 
@@ -106,7 +96,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       appBar: AppBar(
         title: const Text("Face Registration"),
         backgroundColor: const Color(0xFF2196F3),
-        elevation: 0,
+        automaticallyImplyLeading: false, // 🚫 BACK DISABLED
       ),
       body: Column(
         children: [
@@ -115,22 +105,18 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
             "Welcome, ${widget.studentName}",
             style: const TextStyle(color: Colors.white, fontSize: 18),
           ),
-          const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: Text(
-              "Please position your face in the circle",
-              style: TextStyle(color: Colors.white70),
-            ),
+          const SizedBox(height: 8),
+          const Text(
+            "Face registration is mandatory",
+            style: TextStyle(color: Colors.white70),
           ),
           const Spacer(),
-          // CAMERA PREVIEW CIRCLE
           Container(
-            height: 300,
-            width: 300,
+            height: 280,
+            width: 280,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 4),
-              color: Colors.black12,
             ),
             clipBehavior: Clip.hardEdge,
             child: _isCameraInitialized
@@ -141,18 +127,13 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
           ),
           const Spacer(),
           Padding(
-            padding: const EdgeInsets.all(30.0),
+            padding: const EdgeInsets.all(24),
             child: SizedBox(
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
                 onPressed: _captureAndUpload,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
                 child: _isCapturing
                     ? const CircularProgressIndicator()
                     : const Text(
@@ -164,18 +145,6 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
                         ),
                       ),
               ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginPage()),
-              );
-            },
-            child: const Text(
-              "Skip for now",
-              style: TextStyle(color: Colors.white70),
             ),
           ),
           const SizedBox(height: 20),
