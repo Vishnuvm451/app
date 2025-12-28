@@ -5,6 +5,7 @@ import 'package:darzo/start_attendance.dart';
 import 'package:darzo/teacher_student.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:darzo/login.dart';
 import 'teacher_setup_page.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
@@ -19,6 +20,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
 
   String teacherName = '';
   String departmentId = '';
+  String teachingClassId = '';
   bool setupCompleted = false;
 
   @override
@@ -35,11 +37,16 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     if (uid == null) return;
 
     final teacher = await FirestoreService.instance.getTeacher(uid);
-    if (teacher == null) return;
 
-    // Force setup one-time
-    if (teacher['setupCompleted'] == false) {
-      if (!mounted) return;
+    if (!mounted) return;
+
+    if (teacher == null) {
+      setState(() => isLoading = false);
+      return;
+    }
+
+    // Force setup
+    if (teacher['setupCompleted'] != true) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
@@ -50,9 +57,24 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     setState(() {
       teacherName = teacher['name'] ?? '';
       departmentId = teacher['departmentId'] ?? '';
-      setupCompleted = teacher['setupCompleted'] ?? false;
+      teachingClassId = teacher['teachingClassId'] ?? '';
+      setupCompleted = true;
       isLoading = false;
     });
+  }
+
+  // --------------------------------------------------
+  // LOGOUT
+  // --------------------------------------------------
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (_) => false,
+    );
   }
 
   // --------------------------------------------------
@@ -68,14 +90,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       appBar: AppBar(
         title: const Text("Teacher Dashboard"),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (!mounted) return;
-              Navigator.pop(context);
-            },
-          ),
+          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
       ),
       body: ListView(
@@ -117,7 +132,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // QUICK ACTIONS (UPDATED)
+  // QUICK ACTIONS (FIXED)
   // --------------------------------------------------
   Widget _quickActions() {
     return GridView.count(
@@ -127,7 +142,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
       children: [
-        // 🔥 START ATTENDANCE (NEW)
+        // START ATTENDANCE
         _actionCard(
           icon: Icons.play_circle_fill,
           label: "Start Attendance",
@@ -139,30 +154,43 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           },
         ),
 
+        // MANUAL ATTENDANCE
         _actionCard(
           icon: Icons.check_circle_outline,
           label: "Attendance",
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AttendanceDailyPage()),
-            );
-          },
+          onTap: teachingClassId.isEmpty
+              ? _showSetupError
+              : () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ManualAttendancePage(classId: teachingClassId),
+                    ),
+                  );
+                },
         ),
 
+        // INTERNAL MARKS
         _actionCard(
           icon: Icons.assignment,
           label: "Internals",
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AddInternalMarksBulkPage(),
-              ),
-            );
-          },
+          onTap: teachingClassId.isEmpty
+              ? _showSetupError
+              : () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AddInternalMarksPage(
+                        classId: teachingClassId,
+                        subjectId: 'default',
+                      ),
+                    ),
+                  );
+                },
         ),
 
+        // STUDENTS
         _actionCard(
           icon: Icons.people,
           label: "Students",
@@ -176,6 +204,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           },
         ),
 
+        // SETUP
         _actionCard(
           icon: Icons.settings,
           label: "Teaching Setup",
@@ -220,6 +249,15 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           ],
         ),
       ),
+    );
+  }
+
+  // --------------------------------------------------
+  // HELPERS
+  // --------------------------------------------------
+  void _showSetupError() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Complete teaching setup first")),
     );
   }
 }
