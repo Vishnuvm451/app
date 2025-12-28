@@ -13,8 +13,7 @@ class FirestoreService {
   Future<Map<String, dynamic>?> getUserData(String uid) async {
     try {
       final snap = await _db.collection('users').doc(uid).get();
-      if (!snap.exists) return null;
-      return snap.data();
+      return snap.exists ? snap.data() : null;
     } catch (_) {
       return null;
     }
@@ -25,9 +24,8 @@ class FirestoreService {
   // ======================================================
   Future<Map<String, dynamic>?> getStudent(String uid) async {
     try {
-      final snap = await _db.collection('student').doc(uid).get();
-      if (!snap.exists) return null;
-      return snap.data();
+      final snap = await _db.collection('students').doc(uid).get();
+      return snap.exists ? snap.data() : null;
     } catch (_) {
       return null;
     }
@@ -38,16 +36,52 @@ class FirestoreService {
   // ======================================================
   Future<Map<String, dynamic>?> getTeacher(String uid) async {
     try {
-      final snap = await _db.collection('teacher').doc(uid).get();
-      if (!snap.exists) return null;
-      return snap.data();
+      final snap = await _db.collection('teachers').doc(uid).get();
+      return snap.exists ? snap.data() : null;
     } catch (_) {
       return null;
     }
   }
 
   // ======================================================
-  // GET TODAY ATTENDANCE STATUS (FIXED)
+  // CHECK IF TODAY'S ATTENDANCE SESSION IS ACTIVE (TIME AWARE)
+  // ======================================================
+  Future<bool> isAttendanceActive({required String classId}) async {
+    try {
+      final today = _todayId();
+      final sessionId = '${classId}_$today';
+
+      final snap = await _db
+          .collection('attendance_sessions')
+          .doc(sessionId)
+          .get();
+
+      if (!snap.exists) return false;
+
+      final data = snap.data();
+      if (data == null) return false;
+
+      if (data['isActive'] != true) return false;
+
+      final Timestamp endTs = data['endTime'];
+      final DateTime endTime = endTs.toDate();
+
+      // ⏰ Auto close if time expired
+      if (DateTime.now().isAfter(endTime)) {
+        await _db.collection('attendance_sessions').doc(sessionId).update({
+          'isActive': false,
+        });
+        return false;
+      }
+
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ======================================================
+  // GET TODAY ATTENDANCE STATUS
   // ======================================================
   /// Returns:
   /// present | half-day | absent | not-marked | no-session
@@ -57,32 +91,29 @@ class FirestoreService {
   }) async {
     try {
       final today = _todayId();
+      final sessionId = '${classId}_$today';
 
-      // 1️⃣ Check attendance session
+      // 1️⃣ Session must exist
       final sessionSnap = await _db
           .collection('attendance_sessions')
-          .doc('${classId}_$today')
+          .doc(sessionId)
           .get();
 
-      if (!sessionSnap.exists) {
-        return 'no-session';
-      }
+      if (!sessionSnap.exists) return 'no-session';
 
-      // 2️⃣ Check student attendance (FIXED: students)
-      final attendanceSnap = await _db
+      // 2️⃣ Check student attendance
+      final snap = await _db
           .collection('attendance')
-          .doc('${classId}_$today')
-          .collection('students') // ✅ FIXED
+          .doc(sessionId)
+          .collection('students')
           .doc(studentId)
           .get();
 
-      if (!attendanceSnap.exists) {
-        return 'not-marked';
-      }
+      if (!snap.exists) return 'not-marked';
 
-      return attendanceSnap.data()?['status'] ?? 'not-marked';
+      return snap.data()?['status'] ?? 'not-marked';
     } catch (_) {
-      return 'not-marked'; // ✅ safer fallback
+      return 'no-session';
     }
   }
 
@@ -90,35 +121,34 @@ class FirestoreService {
   // MARK ATTENDANCE (FACE / MANUAL)
   // ======================================================
   /// status → present | half-day | absent
+  /// method → face | manual
   Future<void> markAttendance({
     required String studentId,
     required String classId,
     required String status,
+    required String method,
   }) async {
     final today = _todayId();
+    final sessionId = '${classId}_$today';
 
-    // 1️⃣ Ensure attendance session exists
-    await _db.collection('attendance_sessions').doc('${classId}_$today').set({
-      'classId': classId,
-      'date': today,
-      'created_at': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    // ❗ DO NOT CREATE SESSION HERE
+    // Session MUST be started by teacher
 
-    // 2️⃣ Save student attendance (students - plural)
     await _db
         .collection('attendance')
-        .doc('${classId}_$today')
+        .doc(sessionId)
         .collection('students')
         .doc(studentId)
         .set({
           'studentId': studentId,
           'status': status,
-          'marked_at': FieldValue.serverTimestamp(),
-        });
+          'method': method,
+          'markedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   }
 
   // ======================================================
-  // ATTENDANCE SUMMARY (STUDENT) - FIXED
+  // ATTENDANCE SUMMARY (STUDENT)
   // ======================================================
   Future<Map<String, int>> getAttendanceSummary(String studentId) async {
     int present = 0;
@@ -127,7 +157,7 @@ class FirestoreService {
 
     try {
       final snaps = await _db
-          .collectionGroup('students') // ✅ FIXED
+          .collectionGroup('students')
           .where('studentId', isEqualTo: studentId)
           .get();
 
@@ -143,7 +173,7 @@ class FirestoreService {
   }
 
   // ======================================================
-  // ADMIN / DEPARTMENT HELPERS
+  // ADMIN HELPERS
   // ======================================================
   Future<List<QueryDocumentSnapshot>> getDepartments() async {
     final snap = await _db.collection('departments').get();
@@ -161,7 +191,7 @@ class FirestoreService {
   }
 
   // ======================================================
-  // PRIVATE HELPER
+  // PRIVATE DATE HELPER
   // ======================================================
   String _todayId() {
     final now = DateTime.now();
