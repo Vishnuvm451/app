@@ -1,3 +1,4 @@
+import 'package:darzo/face_capture.dart';
 import 'package:darzo/login.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -43,7 +44,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // REGISTER STUDENT
+  // REGISTER STUDENT (FACE CAPTURE MANDATORY)
   // ======================================================
   Future<void> _registerStudent() async {
     if (_nameCtrl.text.trim().isEmpty ||
@@ -64,18 +65,20 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     try {
       setState(() => isLoading = true);
 
-      // Check duplicate admission number
+      // ---------- DUPLICATE ADMISSION CHECK ----------
       final existing = await _db
           .collection('students')
           .where('admissionNo', isEqualTo: _admissionCtrl.text.trim())
+          .limit(1)
           .get();
 
       if (existing.docs.isNotEmpty) {
         _showSnack("Admission number already exists");
+        setState(() => isLoading = false);
         return;
       }
 
-      // Firebase Auth
+      // ---------- AUTH ----------
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
@@ -83,7 +86,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final uid = cred.user!.uid;
 
-      // USERS
+      // ---------- USERS ----------
       await _db.collection('users').doc(uid).set({
         'uid': uid,
         'email': _emailCtrl.text.trim(),
@@ -91,7 +94,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // STUDENTS
+      // ---------- STUDENTS ----------
       await _db.collection('students').doc(uid).set({
         'uid': uid,
         'name': _nameCtrl.text.trim(),
@@ -99,18 +102,21 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'admissionNo': _admissionCtrl.text.trim(),
         'departmentId': selectedDepartmentId,
         'classId': selectedClassId,
-        'face_enabled': false,
+        'face_enabled': false, // 🔒 REQUIRED
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      _showSnack("Registration successful", success: true);
-
-      await Future.delayed(const Duration(seconds: 1));
-
       if (!mounted) return;
+
+      // ---------- FACE CAPTURE (MANDATORY) ----------
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
+        MaterialPageRoute(
+          builder: (_) => FaceCapturePage(
+            studentUid: uid,
+            studentName: _nameCtrl.text.trim(),
+          ),
+        ),
       );
     } on FirebaseAuthException catch (e) {
       String msg = "Registration failed";
@@ -189,7 +195,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                                 color: Colors.white,
                               )
                             : const Text(
-                                "REGISTER",
+                                "REGISTER & CAPTURE FACE",
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -201,7 +207,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
                     const SizedBox(height: 16),
 
-                    // ✅ ADDED LOGIN OPTION
+                    // ---------- LOGIN ----------
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -300,9 +306,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       child: StreamBuilder<QuerySnapshot>(
         stream: _db.collection('departments').orderBy('name').snapshots(),
         builder: (_, snap) {
-          if (!snap.hasData) {
-            return const LinearProgressIndicator();
-          }
+          if (!snap.hasData) return const LinearProgressIndicator();
 
           return DropdownButtonFormField<String>(
             value: selectedDepartmentId,
@@ -345,9 +349,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
             .where('departmentId', isEqualTo: selectedDepartmentId)
             .snapshots(),
         builder: (_, snap) {
-          if (!snap.hasData) {
-            return const LinearProgressIndicator();
-          }
+          if (!snap.hasData) return const LinearProgressIndicator();
 
           return DropdownButtonFormField<String>(
             value: selectedClassId,
