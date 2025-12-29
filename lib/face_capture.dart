@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
@@ -21,6 +22,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
   bool _isCapturing = false;
+  String? _error;
 
   @override
   void initState() {
@@ -28,34 +30,61 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     _initializeCamera();
   }
 
+  // ===================================================
+  // INITIALIZE FRONT CAMERA
+  // ===================================================
   Future<void> _initializeCamera() async {
-    final cameras = await availableCameras();
-    final frontCamera = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.front,
-      orElse: () => cameras.first,
-    );
+    try {
+      final cameras = await availableCameras();
 
-    _cameraController = CameraController(
-      frontCamera,
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
+      if (cameras.isEmpty) {
+        setState(() => _error = "No camera found on device");
+        return;
+      }
 
-    await _cameraController!.initialize();
-    if (mounted) setState(() => _isCameraInitialized = true);
+      final frontCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      _cameraController = CameraController(
+        frontCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+
+      await _cameraController!.initialize();
+
+      if (!mounted) return;
+      setState(() => _isCameraInitialized = true);
+    } catch (e) {
+      setState(() => _error = "Camera initialization failed");
+    }
   }
 
+  // ===================================================
+  // CAPTURE + REGISTER FACE (MANDATORY)
+  // ===================================================
   Future<void> _captureAndUpload() async {
     if (_isCapturing || !_isCameraInitialized) return;
 
-    setState(() => _isCapturing = true);
+    setState(() {
+      _isCapturing = true;
+      _error = null;
+    });
 
     try {
-      // 🔥 REAL CAPTURE (UNCOMMENT LATER)
-      // final image = await _cameraController!.takePicture();
-      // await uploadFaceImage(widget.studentUid, File(image.path));
+      // ---------------- CAPTURE IMAGE ----------------
+      final image = await _cameraController!.takePicture();
+      final imageFile = File(image.path);
 
-      // ✅ MANDATORY FIRESTORE UPDATE
+      // 🔜 FUTURE (Python API):
+      // await FaceApiService.registerFace(
+      //   studentId: widget.studentUid,
+      //   imageFile: imageFile,
+      // );
+
+      // ---------------- FIRESTORE UPDATE ----------------
       await FirebaseFirestore.instance
           .collection('students')
           .doc(widget.studentUid)
@@ -67,19 +96,21 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Face registered successfully")),
+        const SnackBar(
+          content: Text("Face registered successfully"),
+          backgroundColor: Colors.green,
+        ),
       );
 
+      // ---------------- GO TO LOGIN ----------------
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Face capture failed: $e")));
+      setState(() => _error = "Face capture failed. Try again.");
     } finally {
-      setState(() => _isCapturing = false);
+      if (mounted) setState(() => _isCapturing = false);
     }
   }
 
@@ -89,6 +120,9 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     super.dispose();
   }
 
+  // ===================================================
+  // UI
+  // ===================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,27 +130,51 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       appBar: AppBar(
         title: const Text("Face Registration"),
         backgroundColor: const Color(0xFF2196F3),
-        automaticallyImplyLeading: false, // 🚫 BACK DISABLED
+        automaticallyImplyLeading: false, // 🚫 NO BACK
+        elevation: 0,
       ),
       body: Column(
         children: [
           const SizedBox(height: 20),
+
           Text(
             "Welcome, ${widget.studentName}",
-            style: const TextStyle(color: Colors.white, fontSize: 18),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-          const SizedBox(height: 8),
+
+          const SizedBox(height: 6),
+
           const Text(
             "Face registration is mandatory",
             style: TextStyle(color: Colors.white70),
           ),
+
+          const SizedBox(height: 12),
+
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: Colors.redAccent),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
           const Spacer(),
+
+          // ---------------- CAMERA PREVIEW ----------------
           Container(
             height: 280,
             width: 280,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 4),
+              color: Colors.black12,
             ),
             clipBehavior: Clip.hardEdge,
             child: _isCameraInitialized
@@ -125,15 +183,23 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
                     child: CircularProgressIndicator(color: Colors.white),
                   ),
           ),
+
           const Spacer(),
+
+          // ---------------- CAPTURE BUTTON ----------------
           Padding(
             padding: const EdgeInsets.all(24),
             child: SizedBox(
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                onPressed: _captureAndUpload,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
+                onPressed: _isCapturing ? null : _captureAndUpload,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
                 child: _isCapturing
                     ? const CircularProgressIndicator()
                     : const Text(
@@ -147,6 +213,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
               ),
             ),
           ),
+
           const SizedBox(height: 20),
         ],
       ),
