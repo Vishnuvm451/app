@@ -10,14 +10,13 @@ class MarkAttendancePage extends StatefulWidget {
 }
 
 class _MarkAttendancePageState extends State<MarkAttendancePage> {
-  bool isLoading = false;
+  bool isLoading = true;
   String? error;
 
   String? studentId;
   String? classId;
-  String? departmentId;
 
-  DocumentSnapshot? activeSession;
+  DocumentSnapshot<Map<String, dynamic>>? activeSession;
 
   @override
   void initState() {
@@ -25,119 +24,173 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     _loadStudentAndSession();
   }
 
-  // --------------------------------------------------
-  // LOAD STUDENT + ACTIVE SESSION
-  // --------------------------------------------------
+  // ===================================================
+  // LOAD STUDENT + ACTIVE ATTENDANCE SESSION
+  // ===================================================
   Future<void> _loadStudentAndSession() async {
-    setState(() => isLoading = true);
-
     try {
-      studentId = FirebaseAuth.instance.currentUser!.uid;
+      studentId = FirebaseAuth.instance.currentUser?.uid;
 
-      final studentDoc = await FirebaseFirestore.instance
+      if (studentId == null) {
+        error = "User not logged in";
+        return;
+      }
+
+      // ---------- STUDENT ----------
+      final studentSnap = await FirebaseFirestore.instance
           .collection('students')
           .doc(studentId)
           .get();
 
-      classId = studentDoc['classId'];
-      departmentId = studentDoc['departmentId'];
+      if (!studentSnap.exists) {
+        error = "Student profile not found";
+        return;
+      }
 
-      // 🔥 Find ACTIVE attendance session for this class
-      final sessionSnap = await FirebaseFirestore.instance
+      classId = studentSnap.data()!['classId'];
+
+      if (classId == null) {
+        error = "Class not assigned";
+        return;
+      }
+
+      // ---------- ACTIVE SESSION ----------
+      final sessionQuery = await FirebaseFirestore.instance
           .collection('attendance_sessions')
           .where('classId', isEqualTo: classId)
           .where('isActive', isEqualTo: true)
           .limit(1)
           .get();
 
-      if (sessionSnap.docs.isEmpty) {
+      if (sessionQuery.docs.isEmpty) {
         error = "No active attendance session";
-      } else {
-        activeSession = sessionSnap.docs.first;
+        return;
       }
-    } catch (e) {
-      error = "Error loading attendance session";
-    }
 
-    if (mounted) setState(() => isLoading = false);
+      activeSession = sessionQuery.docs.first;
+    } catch (e) {
+      error = "Failed to load attendance session";
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
   }
 
-  // --------------------------------------------------
-  // FACE + LOCATION + TIME CHECK (SIMPLIFIED)
-  // --------------------------------------------------
-  Future<bool> _verifyFaceAndLocation() async {
-    // 🔥 PLACEHOLDER
-    // 1. Capture image from camera
-    // 2. Send to Face API
-    // 3. Get match = true / false
-    // 4. Check GPS radius
+  // ===================================================
+  // FACE VERIFICATION (API HOOK)
+  // ===================================================
+  Future<bool> _verifyFace() async {
+    /*
+      🔌 HERE IS WHERE PYTHON API WILL CONNECT
+
+      Steps later:
+      1. Open camera
+      2. Capture image
+      3. Send to Python FastAPI
+      4. Receive match: true / false
+    */
 
     await Future.delayed(const Duration(seconds: 2));
 
-    return true; // Assume success for now
+    return true; // TEMP: assume success
   }
 
-  // --------------------------------------------------
+  // ===================================================
   // MARK ATTENDANCE
-  // --------------------------------------------------
+  // ===================================================
   Future<void> _markAttendance() async {
-    if (activeSession == null) return;
+    if (activeSession == null || studentId == null) return;
 
-    setState(() => isLoading = true);
+    setState(() {
+      isLoading = true;
+      error = null;
+    });
 
-    final verified = await _verifyFaceAndLocation();
+    final verified = await _verifyFace();
 
     if (!verified) {
+      if (!mounted) return;
       setState(() {
-        error = "Face or location verification failed";
         isLoading = false;
+        error = "Face verification failed";
       });
       return;
     }
 
-    // 🔥 Save attendance record
-    await FirebaseFirestore.instance.collection('attendance_records').add({
-      'sessionId': activeSession!.id,
-      'studentId': studentId,
-      'status': 'present',
-      'markedBy': 'face',
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+    try {
+      final sessionId = activeSession!.id;
 
-    if (!mounted) return;
+      await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(sessionId)
+          .collection('students')
+          .doc(studentId)
+          .set({
+            'studentId': studentId,
+            'status': 'present',
+            'method': 'face',
+            'markedAt': FieldValue.serverTimestamp(),
+          });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Attendance marked successfully")),
-    );
+      if (!mounted) return;
 
-    Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Attendance marked successfully ✅"),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        error = "Failed to mark attendance";
+        isLoading = false;
+      });
+    }
   }
 
-  // --------------------------------------------------
+  // ===================================================
   // UI
-  // --------------------------------------------------
+  // ===================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Mark Attendance")),
+      appBar: AppBar(title: const Text("Mark Attendance"), centerTitle: true),
       body: Center(
         child: isLoading
             ? const CircularProgressIndicator()
             : error != null
-            ? Text(error!, style: const TextStyle(color: Colors.red))
+            ? Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red, fontSize: 16),
+                ),
+              )
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.face, size: 80, color: Colors.blue),
+                  const Icon(Icons.face, size: 90, color: Colors.blue),
                   const SizedBox(height: 16),
                   const Text(
                     "Face Recognition Attendance",
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 24),
-                  ElevatedButton(
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text("Scan Face & Mark Attendance"),
                     onPressed: _markAttendance,
-                    child: const Text("Scan Face & Mark Attendance"),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 14,
+                      ),
+                    ),
                   ),
                 ],
               ),
