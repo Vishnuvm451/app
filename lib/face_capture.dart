@@ -2,7 +2,9 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 class FaceCapturePage extends StatefulWidget {
   final String studentUid;
@@ -24,6 +26,11 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   bool _isCapturing = false;
   String? _error;
 
+  // 🔧 CHANGE THIS
+  // Emulator: http://10.0.2.2:8000
+  // Real device: http://<PC_IP>:8000
+  static const String _apiBaseUrl = "http://YOUR_IP:8000";
+
   @override
   void initState() {
     super.initState();
@@ -36,9 +43,8 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   Future<void> _initializeCamera() async {
     try {
       final cameras = await availableCameras();
-
       if (cameras.isEmpty) {
-        setState(() => _error = "No camera found on device");
+        setState(() => _error = "No camera found");
         return;
       }
 
@@ -54,18 +60,18 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       );
 
       await _cameraController!.initialize();
-
       if (!mounted) return;
+
       setState(() => _isCameraInitialized = true);
-    } catch (e) {
+    } catch (_) {
       setState(() => _error = "Camera initialization failed");
     }
   }
 
   // ===================================================
-  // CAPTURE + REGISTER FACE (MANDATORY)
+  // CAPTURE + BACKEND + FIRESTORE + LOGOUT
   // ===================================================
-  Future<void> _captureAndUpload() async {
+  Future<void> _captureAndRegisterFace() async {
     if (_isCapturing || !_isCameraInitialized) return;
 
     setState(() {
@@ -74,17 +80,31 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     });
 
     try {
-      // ---------------- CAPTURE IMAGE ----------------
+      // ---------- CAPTURE ----------
       final image = await _cameraController!.takePicture();
       final imageFile = File(image.path);
 
-      // 🔜 FUTURE (Python API):
-      // await FaceApiService.registerFace(
-      //   studentId: widget.studentUid,
-      //   imageFile: imageFile,
-      // );
+      // ---------- BACKEND ----------
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse("$_apiBaseUrl/register-face"),
+      );
 
-      // ---------------- FIRESTORE UPDATE ----------------
+      request.fields['student_uid'] = widget.studentUid;
+      request.files.add(
+        await http.MultipartFile.fromPath('image', imageFile.path),
+      );
+
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode != 200) {
+        throw responseBody.isNotEmpty
+            ? responseBody
+            : "Face registration failed";
+      }
+
+      // ---------- FIRESTORE ----------
       await FirebaseFirestore.instance
           .collection('students')
           .doc(widget.studentUid)
@@ -92,6 +112,9 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
             'face_enabled': true,
             'face_registered_at': FieldValue.serverTimestamp(),
           });
+
+      // ---------- LOGOUT ----------
+      await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
 
@@ -102,13 +125,16 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         ),
       );
 
-      // ---------------- GO TO LOGIN ----------------
-      Navigator.pushReplacement(
+      // ---------- RESET NAVIGATION ----------
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
+        (_) => false,
       );
     } catch (e) {
-      setState(() => _error = "Face capture failed. Try again.");
+      setState(() {
+        _error = e.toString().replaceAll("Exception:", "").trim();
+      });
     } finally {
       if (mounted) setState(() => _isCapturing = false);
     }
@@ -130,7 +156,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       appBar: AppBar(
         title: const Text("Face Registration"),
         backgroundColor: const Color(0xFF2196F3),
-        automaticallyImplyLeading: false, // 🚫 NO BACK
+        automaticallyImplyLeading: false,
         elevation: 0,
       ),
       body: Column(
@@ -147,7 +173,6 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
           ),
 
           const SizedBox(height: 6),
-
           const Text(
             "Face registration is mandatory",
             style: TextStyle(color: Colors.white70),
@@ -167,14 +192,12 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
           const Spacer(),
 
-          // ---------------- CAMERA PREVIEW ----------------
           Container(
             height: 280,
             width: 280,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 4),
-              color: Colors.black12,
             ),
             clipBehavior: Clip.hardEdge,
             child: _isCameraInitialized
@@ -186,14 +209,13 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
           const Spacer(),
 
-          // ---------------- CAPTURE BUTTON ----------------
           Padding(
             padding: const EdgeInsets.all(24),
             child: SizedBox(
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                onPressed: _isCapturing ? null : _captureAndUpload,
+                onPressed: _isCapturing ? null : _captureAndRegisterFace,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
