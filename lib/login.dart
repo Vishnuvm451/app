@@ -1,6 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/admin_login.dart';
+import 'package:darzo/face_capture.dart';
 import 'package:darzo/new/auth_provider.dart';
 import 'package:darzo/new/student_register.dart';
+import 'package:darzo/student_dashboard.dart';
+import 'package:darzo/teacher_dashboard.dart';
 import 'package:darzo/teacher_register.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,6 +31,7 @@ class _LoginPageState extends State<LoginPage> {
   // ======================================================
   // LOGIN (AUTH PROVIDER)
   // ======================================================
+
   Future<void> _login() async {
     if (emailCtrl.text.trim().isEmpty || passwordCtrl.text.isEmpty) {
       _showSnack("Enter email and password");
@@ -36,12 +41,78 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => isLoading = true);
 
     try {
+      // ---------- AUTH LOGIN ----------
       await context.read<AppAuthProvider>().login(
         email: emailCtrl.text.trim(),
         password: passwordCtrl.text.trim(),
       );
-      // ❌ No navigation here
-      // ✅ SplashScreen decides routing
+
+      // ---------- GET UID ----------
+      final uid = FirebaseAuth.instance.currentUser!.uid;
+
+      // ---------- FETCH USER ROLE ----------
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+
+      if (!userDoc.exists) {
+        _showSnack("User record not found");
+        return;
+      }
+
+      final role = userDoc['role'];
+
+      // ======================================================
+      // STUDENT FLOW → CHECK FACE ENABLED
+      // ======================================================
+      if (role == 'student') {
+        final studentDoc = await FirebaseFirestore.instance
+            .collection('students')
+            .doc(uid)
+            .get();
+
+        if (!studentDoc.exists) {
+          _showSnack("Student record missing");
+          return;
+        }
+
+        final bool faceEnabled = studentDoc['face_enabled'] == true;
+
+        if (!faceEnabled) {
+          // 🚨 FORCE FACE CAPTURE
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FaceCapturePage(
+                studentUid: uid,
+                studentName: studentDoc['name'],
+              ),
+            ),
+          );
+          return;
+        }
+
+        // ✅ FACE OK → STUDENT DASHBOARD
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
+        );
+        return;
+      }
+
+      // ======================================================
+      // TEACHER FLOW (UNCHANGED)
+      // ======================================================
+      if (role == 'teacher') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const TeacherDashboardPage(), // if exists
+          ),
+        );
+        return;
+      }
     } catch (e) {
       _showSnack(e.toString().replaceAll('Exception:', '').trim());
     } finally {
