@@ -1,11 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
 
-# Local imports (we will create these files next)
-from firebase import init_firebase 
-from face_register import register_face
-from face_verify import verify_face
+from firebase import init_firebase
+from face_register import router as face_register_router
+from face_verify import router as face_verify_router
 
 # -------------------------------------------------
 # APP INIT
@@ -21,16 +19,22 @@ app = FastAPI(
 # -------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # ⚠️ later restrict to your app
+    allow_origins=["*"],   # ⚠️ restrict later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------------------------------------
-# INIT FIREBASE (ON SERVER START)
+# INIT FIREBASE
 # -------------------------------------------------
 init_firebase()
+
+# -------------------------------------------------
+# ROUTES
+# -------------------------------------------------
+app.include_router(face_register_router)
+app.include_router(face_verify_router)
 
 # -------------------------------------------------
 # HEALTH CHECK
@@ -41,41 +45,3 @@ def root():
         "status": "ok",
         "message": "DARZO Face Recognition API running"
     }
-
-# -------------------------------------------------
-# FACE REGISTRATION (MANDATORY)
-# -------------------------------------------------
-@app.post("/face/register")
-async def face_register(
-    student_id: str = Form(...),
-    image: UploadFile = File(...)
-):
-    """
-    Registers a student's face.
-    - Called after student registration
-    - Stores face embedding in Firestore
-    """
-    result = await register_face(
-        student_id=student_id,
-        image=image
-    )
-    return result
-
-# -------------------------------------------------
-# FACE VERIFICATION (LOGIN / ATTENDANCE)
-# -------------------------------------------------
-@app.post("/face/verify")
-async def face_verify(
-    student_id: Optional[str] = Form(None),
-    image: UploadFile = File(...)
-):
-    """
-    Verifies face for:
-    - Attendance
-    - Face login
-    """
-    result = await verify_face(
-        student_id=student_id,
-        image=image
-    )
-    return result

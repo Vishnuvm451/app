@@ -5,9 +5,14 @@ import face_recognition
 
 from firebase import db, bucket
 
+# =====================================================
+# ROUTER
+# =====================================================
 router = APIRouter(prefix="/face", tags=["Face Registration"])
 
-
+# =====================================================
+# FACE REGISTRATION
+# =====================================================
 @router.post("/register")
 async def register_face(
     student_uid: str,
@@ -67,8 +72,8 @@ async def register_face(
     # 4. FIRESTORE UPDATE
     # --------------------------------------------------
     student_ref = db.collection("students").document(student_uid)
-
     student_doc = student_ref.get()
+
     if not student_doc.exists:
         raise HTTPException(
             status_code=404,
@@ -88,7 +93,6 @@ async def register_face(
         contents,
         content_type=image.content_type
     )
-
     blob.make_private()
 
     # --------------------------------------------------
