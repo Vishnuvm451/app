@@ -27,12 +27,12 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
   final Color primaryBlue = const Color(0xFF2196F3);
 
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
   final List<TextInputFormatter> _noSpaceFormatter = [
     FilteringTextInputFormatter.deny(RegExp(r'\s')),
   ];
-
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   @override
   void dispose() {
@@ -44,7 +44,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // REGISTER STUDENT (FACE CAPTURE MANDATORY)
+  // REGISTER STUDENT → FORCE FACE CAPTURE
   // ======================================================
   Future<void> _registerStudent() async {
     if (_nameCtrl.text.trim().isEmpty ||
@@ -62,31 +62,20 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       return;
     }
 
+    setState(() => isLoading = true);
+
+    String uid = "";
+
     try {
-      setState(() => isLoading = true);
-
-      // ---------- DUPLICATE ADMISSION CHECK ----------
-      final existing = await _db
-          .collection('students')
-          .where('admissionNo', isEqualTo: _admissionCtrl.text.trim())
-          .limit(1)
-          .get();
-
-      if (existing.docs.isNotEmpty) {
-        _showSnack("Admission number already exists");
-        setState(() => isLoading = false);
-        return;
-      }
-
-      // ---------- AUTH ----------
+      // ---------- CREATE AUTH USER ----------
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
 
-      final uid = cred.user!.uid;
+      uid = cred.user!.uid;
 
-      // ---------- USERS ----------
+      // ---------- USERS COLLECTION ----------
       await _db.collection('users').doc(uid).set({
         'uid': uid,
         'email': _emailCtrl.text.trim(),
@@ -94,7 +83,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // ---------- STUDENTS ----------
+      // ---------- STUDENTS COLLECTION ----------
       await _db.collection('students').doc(uid).set({
         'uid': uid,
         'name': _nameCtrl.text.trim(),
@@ -102,15 +91,23 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'admissionNo': _admissionCtrl.text.trim(),
         'departmentId': selectedDepartmentId,
         'classId': selectedClassId,
-        'face_enabled': false, // 🔒 REQUIRED
+        'face_enabled': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // ---------- SUCCESS MESSAGE ----------
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("User added – enable face"),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
 
       if (!mounted) return;
 
-      // ---------- FACE CAPTURE (MANDATORY) ----------
-      Navigator.pushReplacement(
-        context,
+      // ---------- FORCE FACE CAPTURE ----------
+      Navigator.of(context, rootNavigator: true).pushReplacement(
         MaterialPageRoute(
           builder: (_) => FaceCapturePage(
             studentUid: uid,
@@ -119,13 +116,15 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         ),
       );
     } on FirebaseAuthException catch (e) {
-      String msg = "Registration failed";
-      if (e.code == 'email-already-in-use') msg = "Email already registered";
-      if (e.code == 'weak-password') msg = "Password too weak";
-      if (e.code == 'invalid-email') msg = "Invalid email";
-      _showSnack(msg);
+      _showSnack(e.message ?? "Registration failed");
+    } catch (e, stack) {
+      debugPrint("REGISTER ERROR: $e");
+      debugPrint("STACK TRACE: $stack");
+      _showSnack(e.toString());
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -170,12 +169,38 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                     ),
                     const SizedBox(height: 20),
 
-                    _nameField(),
-                    _emailField(),
-                    _admissionField(),
+                    _field(_nameCtrl, "Full Name", Icons.person),
+                    _field(
+                      _emailCtrl,
+                      "Email",
+                      Icons.email,
+                      formatters: _noSpaceFormatter,
+                    ),
+                    _field(
+                      _admissionCtrl,
+                      "Admission Number",
+                      Icons.badge,
+                      keyboard: TextInputType.number,
+                      formatters: [FilteringTextInputFormatter.digitsOnly],
+                    ),
                     _departmentDropdown(),
                     _classDropdown(),
-                    _passwordField(),
+                    _field(
+                      _passwordCtrl,
+                      "Password",
+                      Icons.lock,
+                      obscure: !showPassword,
+                      formatters: _noSpaceFormatter,
+                      suffix: IconButton(
+                        icon: Icon(
+                          showPassword
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                        ),
+                        onPressed: () =>
+                            setState(() => showPassword = !showPassword),
+                      ),
+                    ),
 
                     const SizedBox(height: 24),
 
@@ -207,7 +232,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
                     const SizedBox(height: 16),
 
-                    // ---------- LOGIN ----------
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -242,42 +266,12 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // FIELDS
+  // HELPERS
   // ======================================================
-  Widget _nameField() =>
-      _field(ctrl: _nameCtrl, label: "Full Name", icon: Icons.person);
-
-  Widget _emailField() => _field(
-    ctrl: _emailCtrl,
-    label: "Email",
-    icon: Icons.email,
-    formatters: _noSpaceFormatter,
-  );
-
-  Widget _admissionField() => _field(
-    ctrl: _admissionCtrl,
-    label: "Admission Number",
-    icon: Icons.badge,
-    keyboard: TextInputType.number,
-    formatters: [FilteringTextInputFormatter.digitsOnly],
-  );
-
-  Widget _passwordField() => _field(
-    ctrl: _passwordCtrl,
-    label: "Password",
-    icon: Icons.lock,
-    obscure: !showPassword,
-    formatters: _noSpaceFormatter,
-    suffix: IconButton(
-      icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
-      onPressed: () => setState(() => showPassword = !showPassword),
-    ),
-  );
-
-  Widget _field({
-    required TextEditingController ctrl,
-    required String label,
-    required IconData icon,
+  Widget _field(
+    TextEditingController ctrl,
+    String label,
+    IconData icon, {
     bool obscure = false,
     Widget? suffix,
     TextInputType? keyboard,
@@ -305,15 +299,39 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       padding: const EdgeInsets.only(bottom: 14),
       child: StreamBuilder<QuerySnapshot>(
         stream: _db.collection('departments').orderBy('name').snapshots(),
-        builder: (_, snap) {
-          if (!snap.hasData) return const LinearProgressIndicator();
+        builder: (context, snap) {
+          if (!snap.hasData) {
+            return const LinearProgressIndicator();
+          }
 
           return DropdownButtonFormField<String>(
             value: selectedDepartmentId,
-            hint: const Text("Department"),
+            hint: const Text("Select Department"),
+            decoration: InputDecoration(
+              labelText: "Department",
+              prefixIcon: const Icon(Icons.account_balance),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Colors.grey),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: primaryBlue, width: 2),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 16,
+              ),
+            ),
             items: snap.data!.docs
                 .map(
-                  (d) => DropdownMenuItem(value: d.id, child: Text(d['name'])),
+                  (d) => DropdownMenuItem<String>(
+                    value: d.id,
+                    child: Text(d['name']),
+                  ),
                 )
                 .toList(),
             onChanged: (v) {
@@ -322,16 +340,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                 selectedClassId = null;
               });
             },
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.account_balance),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 16,
-              ),
-            ),
           );
         },
       ),
@@ -348,40 +356,51 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
             .collection('classes')
             .where('departmentId', isEqualTo: selectedDepartmentId)
             .snapshots(),
-        builder: (_, snap) {
-          if (!snap.hasData) return const LinearProgressIndicator();
+        builder: (context, snap) {
+          if (!snap.hasData) {
+            return const LinearProgressIndicator();
+          }
 
           return DropdownButtonFormField<String>(
             value: selectedClassId,
-            hint: const Text("Class"),
-            items: snap.data!.docs
-                .map(
-                  (d) => DropdownMenuItem(value: d.id, child: Text(d['name'])),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => selectedClassId = v),
+            hint: const Text("Select Class"),
             decoration: InputDecoration(
+              labelText: "Class",
               prefixIcon: const Icon(Icons.class_),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Colors.grey),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: primaryBlue, width: 2),
               ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 16,
               ),
             ),
+            items: snap.data!.docs
+                .map(
+                  (d) => DropdownMenuItem<String>(
+                    value: d.id,
+                    child: Text(d['name']),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) {
+              setState(() => selectedClassId = v);
+            },
           );
         },
       ),
     );
   }
 
-  void _showSnack(String msg, {bool success = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: success ? Colors.green : Colors.red,
-      ),
-    );
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }
