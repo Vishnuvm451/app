@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/login.dart';
@@ -24,11 +23,10 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
   bool _isCapturing = false;
+  bool _isLightingGood = true;
   String? _error;
 
-  // 🔧 CHANGE THIS
-  // Emulator: http://10.0.2.2:8000
-  // Real device: http://<PC_IP>:8000
+  // 🔧 UPDATE WITH YOUR IP
   static const String _apiBaseUrl = "http://YOUR_IP:8000";
 
   @override
@@ -38,15 +36,11 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   }
 
   // ===================================================
-  // INITIALIZE FRONT CAMERA
+  // INITIALIZE CAMERA
   // ===================================================
   Future<void> _initializeCamera() async {
     try {
       final cameras = await availableCameras();
-      if (cameras.isEmpty) {
-        setState(() => _error = "No camera found");
-        return;
-      }
 
       final frontCamera = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
@@ -55,16 +49,39 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
       _cameraController = CameraController(
         frontCamera,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
       );
 
       await _cameraController!.initialize();
+      await _cameraController!.setExposureMode(ExposureMode.auto);
+
       if (!mounted) return;
 
       setState(() => _isCameraInitialized = true);
-    } catch (_) {
+
+      _checkLighting();
+    } catch (e) {
       setState(() => _error = "Camera initialization failed");
+    }
+  }
+
+  // ===================================================
+  // SIMPLE LIGHTING CHECK (SAFE & STABLE)
+  // ===================================================
+  Future<void> _checkLighting() async {
+    try {
+      final step = await _cameraController!.getExposureOffsetStepSize();
+
+      // Heuristic:
+      // Very low exposure step usually means dark environment
+      setState(() {
+        _isLightingGood = step > 0.01;
+      });
+    } catch (_) {
+      setState(() {
+        _isLightingGood = true; // fallback safe
+      });
     }
   }
 
@@ -74,37 +91,35 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   Future<void> _captureAndRegisterFace() async {
     if (_isCapturing || !_isCameraInitialized) return;
 
+    if (!_isLightingGood) {
+      setState(() {
+        _error = "Lighting is too low. Move to a brighter place.";
+      });
+      return;
+    }
+
     setState(() {
       _isCapturing = true;
       _error = null;
     });
 
     try {
-      // ---------- CAPTURE ----------
       final image = await _cameraController!.takePicture();
-      final imageFile = File(image.path);
 
-      // ---------- BACKEND ----------
       final request = http.MultipartRequest(
         'POST',
         Uri.parse("$_apiBaseUrl/register-face"),
       );
 
       request.fields['student_uid'] = widget.studentUid;
-      request.files.add(
-        await http.MultipartFile.fromPath('image', imageFile.path),
-      );
+      request.files.add(await http.MultipartFile.fromPath('image', image.path));
 
       final response = await request.send();
-      final responseBody = await response.stream.bytesToString();
 
       if (response.statusCode != 200) {
-        throw responseBody.isNotEmpty
-            ? responseBody
-            : "Face registration failed";
+        throw "Face registration failed";
       }
 
-      // ---------- FIRESTORE ----------
       await FirebaseFirestore.instance
           .collection('students')
           .doc(widget.studentUid)
@@ -113,7 +128,6 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
             'face_registered_at': FieldValue.serverTimestamp(),
           });
 
-      // ---------- LOGOUT ----------
       await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
@@ -125,16 +139,13 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         ),
       );
 
-      // ---------- RESET NAVIGATION ----------
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
         (_) => false,
       );
     } catch (e) {
-      setState(() {
-        _error = e.toString().replaceAll("Exception:", "").trim();
-      });
+      setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _isCapturing = false);
     }
@@ -155,6 +166,12 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
         title: const Text("Face Registration"),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 26,
+          fontWeight: FontWeight.bold,
+        ),
+        centerTitle: true,
         backgroundColor: const Color(0xFF2196F3),
         automaticallyImplyLeading: false,
         elevation: 0,
@@ -167,22 +184,33 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
             "Welcome, ${widget.studentName}",
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 18,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
           ),
 
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           const Text(
-            "Face registration is mandatory",
-            style: TextStyle(color: Colors.white70),
+            "Align your face inside the circle",
+            style: TextStyle(color: Colors.white70, fontSize: 16),
           ),
 
-          const SizedBox(height: 12),
+          if (!_isLightingGood)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                "⚠️ Low lighting detected",
+                style: TextStyle(
+                  color: Colors.yellowAccent,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
 
           if (_error != null)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(12),
               child: Text(
                 _error!,
                 style: const TextStyle(color: Colors.redAccent),
@@ -190,27 +218,61 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
               ),
             ),
 
-          const Spacer(),
+          const SizedBox(height: 24),
 
-          Container(
-            height: 280,
-            width: 280,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 4),
-            ),
-            clipBehavior: Clip.hardEdge,
-            child: _isCameraInitialized
-                ? CameraPreview(_cameraController!)
-                : const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
+          // ================= CAMERA CIRCLE =================
+          SizedBox(
+            height: 300,
+            width: 300,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // -------- CAMERA CIRCLE --------
+                ClipOval(
+                  child: SizedBox(
+                    height: 300,
+                    width: 300,
+                    child: _isCameraInitialized
+                        ? FittedBox(
+                            fit: BoxFit.cover, // 🔥 KEY FIX
+                            child: SizedBox(
+                              width:
+                                  _cameraController!.value.previewSize!.height,
+                              height:
+                                  _cameraController!.value.previewSize!.width,
+                              child: CameraPreview(_cameraController!),
+                            ),
+                          )
+                        : const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          ),
                   ),
+                ),
+
+                // -------- BORDER INDICATOR --------
+                Container(
+                  height: 300,
+                  width: 300,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _error == null
+                          ? Colors.greenAccent
+                          : Colors.redAccent,
+                      width: 4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
 
           const Spacer(),
 
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: 24),
             child: SizedBox(
               width: double.infinity,
               height: 55,
@@ -236,7 +298,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
             ),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 30),
         ],
       ),
     );
