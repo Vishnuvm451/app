@@ -77,21 +77,21 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
 
-        final bool faceEnabled = studentDoc['face_enabled'] == true;
+        // final bool faceEnabled = studentDoc['face_enabled'] == true;
 
-        if (!faceEnabled) {
-          // 🚨 FORCE FACE CAPTURE
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => FaceCapturePage(
-                studentUid: uid,
-                studentName: studentDoc['name'],
-              ),
-            ),
-          );
-          return;
-        }
+        // if (!faceEnabled) {
+        //   // 🚨 FORCE FACE CAPTURE
+        //   Navigator.pushReplacement(
+        //     context,
+        //     MaterialPageRoute(
+        //       builder: (_) => FaceCapturePage(
+        //         studentUid: uid,
+        //         studentName: studentDoc['name'],
+        //       ),
+        //     ),
+        //   );
+        //   return;
+        // }
 
         // ✅ FACE OK → STUDENT DASHBOARD
         Navigator.pushReplacement(
