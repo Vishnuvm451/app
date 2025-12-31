@@ -6,12 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 class FaceCapturePage extends StatefulWidget {
-  final String studentUid;
+  final String admissionNo;
   final String studentName;
 
   const FaceCapturePage({
     super.key,
-    required this.studentUid,
+    required this.admissionNo,
     required this.studentName,
   });
 
@@ -26,7 +26,9 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   bool _isLightingGood = true;
   String? _error;
 
-  // 🔧 UPDATE WITH YOUR IP
+  // 🔧 CHANGE TO YOUR BACKEND IP
+  // Emulator: http://10.0.2.2:8000
+  // Real device: http://<PC_IP>:8000
   static const String _apiBaseUrl = "http://YOUR_IP:8000";
 
   @override
@@ -36,7 +38,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   }
 
   // ===================================================
-  // INITIALIZE CAMERA
+  // INITIALIZE FRONT CAMERA
   // ===================================================
   Future<void> _initializeCamera() async {
     try {
@@ -61,26 +63,24 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       setState(() => _isCameraInitialized = true);
 
       _checkLighting();
-    } catch (e) {
+    } catch (_) {
       setState(() => _error = "Camera initialization failed");
     }
   }
 
   // ===================================================
-  // SIMPLE LIGHTING CHECK (SAFE & STABLE)
+  // LIGHTING CHECK (SAFE HEURISTIC)
   // ===================================================
   Future<void> _checkLighting() async {
     try {
       final step = await _cameraController!.getExposureOffsetStepSize();
 
-      // Heuristic:
-      // Very low exposure step usually means dark environment
       setState(() {
         _isLightingGood = step > 0.01;
       });
     } catch (_) {
       setState(() {
-        _isLightingGood = true; // fallback safe
+        _isLightingGood = true;
       });
     }
   }
@@ -106,12 +106,13 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     try {
       final image = await _cameraController!.takePicture();
 
+      // ---------- BACKEND ----------
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse("$_apiBaseUrl/register-face"),
+        Uri.parse("$_apiBaseUrl/face/register"),
       );
 
-      request.fields['student_uid'] = widget.studentUid;
+      request.fields['admission_no'] = widget.admissionNo;
       request.files.add(await http.MultipartFile.fromPath('image', image.path));
 
       final response = await request.send();
@@ -120,14 +121,16 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         throw "Face registration failed";
       }
 
+      // ---------- FIRESTORE ----------
       await FirebaseFirestore.instance
           .collection('students')
-          .doc(widget.studentUid)
+          .doc(widget.admissionNo)
           .update({
             'face_enabled': true,
             'face_registered_at': FieldValue.serverTimestamp(),
           });
 
+      // ---------- LOGOUT ----------
       await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
@@ -145,7 +148,9 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         (_) => false,
       );
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() {
+        _error = e.toString().replaceAll("Exception:", "").trim();
+      });
     } finally {
       if (mounted) setState(() => _isCapturing = false);
     }
@@ -158,10 +163,12 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   }
 
   // ===================================================
-  // UI
+  // UI (UNCHANGED VISUALLY)
   // ===================================================
   @override
   Widget build(BuildContext context) {
+    final bool isOk = _error == null && _isLightingGood;
+
     return Scaffold(
       backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
@@ -227,14 +234,13 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // -------- CAMERA CIRCLE --------
                 ClipOval(
                   child: SizedBox(
                     height: 300,
                     width: 300,
                     child: _isCameraInitialized
                         ? FittedBox(
-                            fit: BoxFit.cover, // 🔥 KEY FIX
+                            fit: BoxFit.cover,
                             child: SizedBox(
                               width:
                                   _cameraController!.value.previewSize!.height,
@@ -251,16 +257,13 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
                   ),
                 ),
 
-                // -------- BORDER INDICATOR --------
                 Container(
                   height: 300,
                   width: 300,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: _error == null
-                          ? Colors.greenAccent
-                          : Colors.redAccent,
+                      color: isOk ? Colors.greenAccent : Colors.redAccent,
                       width: 4,
                     ),
                   ),

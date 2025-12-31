@@ -15,19 +15,35 @@ router = APIRouter(prefix="/face", tags=["Face Registration"])
 # =====================================================
 @router.post("/register")
 async def register_face(
-    student_uid: str,
+    admission_no: str,
+    auth_uid: str,
     image: UploadFile = File(...)
 ):
     """
-    Registers student's face:
-    - Accepts image
-    - Extracts face embedding
-    - Stores embedding in Firestore
-    - Uploads image to Firebase Storage
+    Registers student's face (Admission-based):
+    - admission_no = Firestore document ID
+    - auth_uid = Firebase Auth UID
     """
 
     # --------------------------------------------------
-    # 1. READ IMAGE
+    # 1. VALIDATE STUDENT RECORD
+    # --------------------------------------------------
+    student_ref = db.collection("students").document(admission_no)
+    student_doc = student_ref.get()
+
+    if not student_doc.exists:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student_data = student_doc.to_dict()
+
+    if student_data.get("authUid") != auth_uid:
+        raise HTTPException(status_code=403, detail="Auth UID mismatch")
+
+    if student_data.get("face_enabled") is True:
+        raise HTTPException(status_code=400, detail="Face already registered")
+
+    # --------------------------------------------------
+    # 2. READ IMAGE
     # --------------------------------------------------
     contents = await image.read()
     np_arr = np.frombuffer(contents, np.uint8)
@@ -36,11 +52,10 @@ async def register_face(
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
-    # Convert BGR → RGB
     rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     # --------------------------------------------------
-    # 2. FACE DETECTION
+    # 3. FACE DETECTION
     # --------------------------------------------------
     face_locations = face_recognition.face_locations(rgb_img)
 
@@ -50,55 +65,40 @@ async def register_face(
     if len(face_locations) > 1:
         raise HTTPException(
             status_code=400,
-            detail="Multiple faces detected. Only one allowed."
+            detail="Multiple faces detected. Only one allowed"
         )
 
     # --------------------------------------------------
-    # 3. FACE EMBEDDING
+    # 4. FACE ENCODING
     # --------------------------------------------------
-    face_encodings = face_recognition.face_encodings(
-        rgb_img, face_locations
-    )
+    encodings = face_recognition.face_encodings(rgb_img, face_locations)
 
-    if not face_encodings:
-        raise HTTPException(
-            status_code=400,
-            detail="Face encoding failed"
-        )
+    if not encodings:
+        raise HTTPException(status_code=400, detail="Face encoding failed")
 
-    embedding = face_encodings[0]  # 128-d vector
+    embedding = encodings[0]  # 128-d vector
 
     # --------------------------------------------------
-    # 4. FIRESTORE UPDATE
+    # 5. UPDATE FIRESTORE
     # --------------------------------------------------
-    student_ref = db.collection("students").document(student_uid)
-    student_doc = student_ref.get()
-
-    if not student_doc.exists:
-        raise HTTPException(
-            status_code=404,
-            detail="Student not found"
-        )
-
     student_ref.update({
         "face_embedding": embedding.tolist(),
-        "face_enabled": True
+        "face_enabled": True,
+        "face_registered_at": db.SERVER_TIMESTAMP,
     })
 
     # --------------------------------------------------
-    # 5. UPLOAD IMAGE TO FIREBASE STORAGE
+    # 6. UPLOAD IMAGE (OPTIONAL)
     # --------------------------------------------------
-    blob = bucket.blob(f"face_images/{student_uid}/register.jpg")
-    blob.upload_from_string(
-        contents,
-        content_type=image.content_type
-    )
+    blob = bucket.blob(f"face_images/{admission_no}/register.jpg")
+    blob.upload_from_string(contents, content_type=image.content_type)
     blob.make_private()
 
     # --------------------------------------------------
-    # 6. RESPONSE
+    # 7. RESPONSE
     # --------------------------------------------------
     return {
         "success": True,
+        "admissionNo": admission_no,
         "message": "Face registered successfully"
     }

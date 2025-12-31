@@ -3,8 +3,8 @@ import 'package:darzo/admin_class_sub.dart';
 import 'package:darzo/manage_department.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
-import '../login.dart';
+import 'package:darzo/admin_manage_users.dart';
+import 'package:darzo/login.dart';
 
 class AdminDashboardPage extends StatelessWidget {
   const AdminDashboardPage({super.key});
@@ -65,12 +65,18 @@ class AdminDashboardPage extends StatelessWidget {
               },
             ),
             _adminCard(
-              icon: Icons.badge,
-              title: "Students (Master)",
+              icon: Icons.people,
+              title: "Manage Users",
               onTap: () {
-                _comingSoon(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AdminManageUsersPage(),
+                  ),
+                );
               },
             ),
+
             _adminCard(
               icon: Icons.settings,
               title: "Manage Department",
@@ -127,11 +133,5 @@ class AdminDashboardPage extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  void _comingSoon(BuildContext context) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Coming soon")));
   }
 }

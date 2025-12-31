@@ -44,7 +44,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // REGISTER STUDENT → FORCE FACE CAPTURE
+  // REGISTER STUDENT → ADMISSION-BASED ID (FINAL)
   // ======================================================
   Future<void> _registerStudent() async {
     if (_nameCtrl.text.trim().isEmpty ||
@@ -64,37 +64,46 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
     setState(() => isLoading = true);
 
-    String uid = "";
+    final String admissionNo = _admissionCtrl.text.trim();
 
     try {
+      // ---------- CHECK UNIQUE ADMISSION ----------
+      final existing = await _db.collection('students').doc(admissionNo).get();
+
+      if (existing.exists) {
+        _showSnack("Admission number already exists");
+        return;
+      }
+
       // ---------- CREATE AUTH USER ----------
       final cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
 
-      uid = cred.user!.uid;
+      final String authUid = cred.user!.uid;
 
       // ---------- USERS COLLECTION ----------
-      await _db.collection('users').doc(uid).set({
-        'uid': uid,
+      await _db.collection('users').doc(authUid).set({
+        'uid': authUid,
         'email': _emailCtrl.text.trim(),
         'role': 'student',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // ---------- STUDENTS COLLECTION ----------
-      await _db.collection('students').doc(uid).set({
-        'uid': uid,
+      // ---------- STUDENTS COLLECTION (ADMISSION ID) ----------
+      await _db.collection('students').doc(admissionNo).set({
+        'admissionNo': admissionNo,
+        'authUid': authUid,
         'name': _nameCtrl.text.trim(),
         'email': _emailCtrl.text.trim(),
-        'admissionNo': _admissionCtrl.text.trim(),
         'departmentId': selectedDepartmentId,
         'classId': selectedClassId,
         'face_enabled': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
-      // ---------- SUCCESS MESSAGE ----------
+
+      // ---------- SUCCESS ----------
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("User added – enable face"),
@@ -107,10 +116,11 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       if (!mounted) return;
 
       // ---------- FORCE FACE CAPTURE ----------
-      Navigator.of(context, rootNavigator: true).pushReplacement(
+      Navigator.pushReplacement(
+        context,
         MaterialPageRoute(
           builder: (_) => FaceCapturePage(
-            studentUid: uid,
+            admissionNo: admissionNo,
             studentName: _nameCtrl.text.trim(),
           ),
         ),
@@ -120,16 +130,14 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     } catch (e, stack) {
       debugPrint("REGISTER ERROR: $e");
       debugPrint("STACK TRACE: $stack");
-      _showSnack(e.toString());
+      _showSnack("Something went wrong");
     } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
   // ======================================================
-  // UI
+  // UI (UNCHANGED)
   // ======================================================
   @override
   Widget build(BuildContext context) {
@@ -266,7 +274,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // HELPERS
+  // HELPERS (UNCHANGED)
   // ======================================================
   Widget _field(
     TextEditingController ctrl,
@@ -313,18 +321,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Colors.grey),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: primaryBlue, width: 2),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 16,
-              ),
             ),
             items: snap.data!.docs
                 .map(
@@ -369,18 +365,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
               prefixIcon: const Icon(Icons.class_),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Colors.grey),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: primaryBlue, width: 2),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 16,
               ),
             ),
             items: snap.data!.docs

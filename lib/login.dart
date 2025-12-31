@@ -29,9 +29,8 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController passwordCtrl = TextEditingController();
 
   // ======================================================
-  // LOGIN (AUTH PROVIDER)
+  // LOGIN
   // ======================================================
-
   Future<void> _login() async {
     if (emailCtrl.text.trim().isEmpty || passwordCtrl.text.isEmpty) {
       _showSnack("Enter email and password");
@@ -41,16 +40,15 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => isLoading = true);
 
     try {
-      // ---------- AUTH LOGIN ----------
+      // ---------- AUTH ----------
       await context.read<AppAuthProvider>().login(
         email: emailCtrl.text.trim(),
         password: passwordCtrl.text.trim(),
       );
 
-      // ---------- GET UID ----------
-      final uid = FirebaseAuth.instance.currentUser!.uid;
+      final String uid = FirebaseAuth.instance.currentUser!.uid;
 
-      // ---------- FETCH USER ROLE ----------
+      // ---------- USER ROLE ----------
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
@@ -61,39 +59,42 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      final role = userDoc['role'];
+      final String role = userDoc['role'];
 
       // ======================================================
-      // STUDENT FLOW → CHECK FACE ENABLED
+      // STUDENT FLOW (ADMISSION BASED)
       // ======================================================
       if (role == 'student') {
-        final studentDoc = await FirebaseFirestore.instance
+        final studentQuery = await FirebaseFirestore.instance
             .collection('students')
-            .doc(uid)
+            .where('authUid', isEqualTo: uid)
+            .limit(1)
             .get();
 
-        if (!studentDoc.exists) {
+        if (studentQuery.docs.isEmpty) {
           _showSnack("Student record missing");
           return;
         }
 
-        // final bool faceEnabled = studentDoc['face_enabled'] == true;
+        final studentDoc = studentQuery.docs.first;
+        final String admissionNo = studentDoc.id;
+        final bool faceEnabled = studentDoc['face_enabled'] == true;
 
-        // if (!faceEnabled) {
-        //   // 🚨 FORCE FACE CAPTURE
-        //   Navigator.pushReplacement(
-        //     context,
-        //     MaterialPageRoute(
-        //       builder: (_) => FaceCapturePage(
-        //         studentUid: uid,
-        //         studentName: studentDoc['name'],
-        //       ),
-        //     ),
-        //   );
-        //   return;
-        // }
+        // ---------- FACE NOT REGISTERED ----------
+        if (!faceEnabled) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FaceCapturePage(
+                admissionNo: admissionNo,
+                studentName: studentDoc['name'],
+              ),
+            ),
+          );
+          return;
+        }
 
-        // ✅ FACE OK → STUDENT DASHBOARD
+        // ---------- FACE OK ----------
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
@@ -102,14 +103,12 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       // ======================================================
-      // TEACHER FLOW (UNCHANGED)
+      // TEACHER FLOW
       // ======================================================
       if (role == 'teacher') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => const TeacherDashboardPage(), // if exists
-          ),
+          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
         );
         return;
       }
@@ -157,7 +156,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ======================================================
-  // UI
+  // UI (UNCHANGED)
   // ======================================================
   @override
   Widget build(BuildContext context) {
@@ -167,32 +166,27 @@ class _LoginPageState extends State<LoginPage> {
         child: SingleChildScrollView(
           child: Stack(
             children: [
-              // ADMIN LOGIN ICON
               Positioned(
                 top: 8,
                 right: 12,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 10.0),
-                  child: IconButton(
-                    icon: const Icon(
-                      Icons.admin_panel_settings,
-                      color: Colors.white,
-                      size: 50,
-                    ),
-                    onPressed: isLoading
-                        ? null
-                        : () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const AdminLoginPage(),
-                              ),
-                            );
-                          },
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.admin_panel_settings,
+                    color: Colors.white,
+                    size: 50,
                   ),
+                  onPressed: isLoading
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AdminLoginPage(),
+                            ),
+                          );
+                        },
                 ),
               ),
-
               Column(
                 children: [
                   const SizedBox(height: 30),
@@ -216,7 +210,6 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 30),
-
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 20),
                     padding: const EdgeInsets.all(20),
@@ -226,7 +219,6 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     child: Column(
                       children: [
-                        // LOGIN TOGGLE
                         Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
@@ -241,17 +233,13 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         const SizedBox(height: 20),
-
                         _inputField(
                           hint: isStudent ? "Student Email" : "Teacher Email",
                           icon: Icons.email,
                           controller: emailCtrl,
                         ),
-
                         _passwordField(),
                         const SizedBox(height: 12),
-
-                        // FORGOT PASSWORD
                         Align(
                           alignment: Alignment.centerRight,
                           child: GestureDetector(
@@ -265,9 +253,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 20),
-
                         SizedBox(
                           width: double.infinity,
                           height: 50,
@@ -293,11 +279,9 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                           ),
                         ),
-
                         const SizedBox(height: 20),
                         const Divider(),
                         const SizedBox(height: 12),
-
                         _registerButton(
                           "REGISTER AS STUDENT",
                           () => Navigator.push(
@@ -330,7 +314,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ======================================================
-  // HELPERS
+  // HELPERS (UNCHANGED)
   // ======================================================
   Widget _toggleButton(String text, bool student) {
     return Expanded(
