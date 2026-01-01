@@ -34,7 +34,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final snap = await _db.collection('teachers').doc(user.uid).get();
+    final snap = await _db.collection('teacher').doc(user.uid).get();
     if (!snap.exists) return;
 
     final data = snap.data()!;
@@ -77,7 +77,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     setState(() => isSaving = true);
 
     try {
-      await _db.collection('teachers').doc(user.uid).update({
+      await _db.collection('teacher').doc(user.uid).update({
         'classId': selectedClassId,
         'semester': selectedSemester,
         'subjectIds': selectedSubjectIds,
@@ -128,7 +128,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
   Widget _classDropdown() {
     return StreamBuilder<QuerySnapshot>(
       stream: _db
-          .collection('classes')
+          .collection('class')
           .where('departmentId', isEqualTo: departmentId)
           .orderBy('year')
           .snapshots(),
@@ -192,7 +192,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
     return StreamBuilder<QuerySnapshot>(
       stream: _db
-          .collection('subjects')
+          .collection('subject')
           .where('classId', isEqualTo: selectedClassId)
           .where('semester', isEqualTo: selectedSemester)
           .snapshots(),
