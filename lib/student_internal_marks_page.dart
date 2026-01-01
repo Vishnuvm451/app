@@ -27,7 +27,7 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
   // LOAD STUDENT CLASS
   // --------------------------------------------------
   Future<void> _loadStudentClass() async {
-    final snap = await _db.collection('students').doc(uid).get();
+    final snap = await _db.collection('student').doc(uid).get();
 
     if (!snap.exists) return;
 
@@ -56,7 +56,7 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
   Widget _marksList() {
     return StreamBuilder<QuerySnapshot>(
       stream: _db
-          .collection('internal_marks')
+          .collection('internal_mark')
           .where('classId', isEqualTo: classId)
           .snapshots(),
       builder: (context, snapshot) {
@@ -77,7 +77,7 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
             final test = tests[index];
 
             return FutureBuilder<DocumentSnapshot>(
-              future: test.reference.collection('students').doc(uid).get(),
+              future: test.reference.collection('student').doc(uid).get(),
               builder: (_, stuSnap) {
                 if (!stuSnap.hasData || !stuSnap.data!.exists) {
                   return const SizedBox(); // not marked
