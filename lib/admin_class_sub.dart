@@ -49,10 +49,10 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
     final id = name.toUpperCase().replaceAll(RegExp(r'\s+'), '_');
 
     try {
-      final doc = await _db.collection('departments').doc(id).get();
+      final doc = await _db.collection('department').doc(id).get();
       if (doc.exists) throw "Department already exists";
 
-      await _db.collection('departments').doc(id).set({
+      await _db.collection('department').doc(id).set({
         'id': id,
         'name': name,
         'created_at': FieldValue.serverTimestamp(),
@@ -84,7 +84,7 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
           "${selectedDeptIdForClass}_${courseTypeForClass}_YEAR$yearForClass";
       final displayName = "$courseTypeForClass Year $yearForClass";
 
-      await _db.collection('classes').doc(classId).set({
+      await _db.collection('class').doc(classId).set({
         'id': classId,
         'name': displayName,
         'departmentId': selectedDeptIdForClass,
@@ -122,7 +122,7 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
       final subjectId =
           "${selectedClassIdForSubject}_SEM${semesterForSubject}_$cleanSubName";
 
-      await _db.collection('subjects').doc(subjectId).set({
+      await _db.collection('subject').doc(subjectId).set({
         'id': subjectId,
         'name': subjectName,
         'classId': selectedClassIdForSubject,
@@ -360,7 +360,7 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
     required Function(String?) onChanged,
   }) {
     return StreamBuilder<QuerySnapshot>(
-      stream: _db.collection('departments').orderBy('name').snapshots(),
+      stream: _db.collection('department').orderBy('name').snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const LinearProgressIndicator();
         return DropdownButtonFormField<String>(
@@ -415,7 +415,7 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
 
     return StreamBuilder<QuerySnapshot>(
       stream: _db
-          .collection('classes')
+          .collection('class')
           .where('departmentId', isEqualTo: selectedDeptIdForSubject)
           .snapshots(),
       builder: (context, snapshot) {
