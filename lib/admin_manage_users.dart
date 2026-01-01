@@ -45,7 +45,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
     if (!confirmed) return;
 
     final studentRef = FirebaseFirestore.instance
-        .collection('students')
+        .collection('student')
         .doc(admissionNo);
     final snap = await studentRef.get();
 
@@ -65,7 +65,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
     final confirmed = await _confirmDelete(context, name);
     if (!confirmed) return;
 
-    await FirebaseFirestore.instance.collection('teachers').doc(uid).delete();
+    await FirebaseFirestore.instance.collection('teacher').doc(uid).delete();
     await FirebaseFirestore.instance.collection('users').doc(uid).delete();
   }
 
@@ -122,7 +122,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
   // ======================================================
   Widget _studentsList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('students').snapshots(),
+      stream: FirebaseFirestore.instance.collection('student').snapshots(),
       builder: (_, snap) {
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -190,7 +190,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
   // ======================================================
   Widget _teachersList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('teachers').snapshots(),
+      stream: FirebaseFirestore.instance.collection('teacher').snapshots(),
       builder: (_, snap) {
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
