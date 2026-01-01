@@ -67,7 +67,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
     try {
       // 🔐 CHECK UNIQUE ADMISSION NUMBER
-      final docRef = _db.collection('students').doc(admissionNo);
+      final docRef = _db.collection('student').doc(admissionNo);
       final existing = await docRef.get();
 
       if (existing.exists) {
@@ -305,7 +305,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: StreamBuilder<QuerySnapshot>(
-        stream: _db.collection('departments').orderBy('name').snapshots(),
+        stream: _db.collection('department').orderBy('name').snapshots(),
         builder: (context, snap) {
           if (!snap.hasData) {
             return const LinearProgressIndicator();
@@ -347,7 +347,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       padding: const EdgeInsets.only(bottom: 14),
       child: StreamBuilder<QuerySnapshot>(
         stream: _db
-            .collection('classes')
+            .collection('class')
             .where('departmentId', isEqualTo: selectedDepartmentId)
             .snapshots(),
         builder: (context, snap) {
