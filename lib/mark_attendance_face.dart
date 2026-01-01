@@ -38,7 +38,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       // ---------- STUDENT ----------
       final studentSnap = await FirebaseFirestore.instance
-          .collection('students')
+          .collection('student')
           .doc(studentId)
           .get();
 
@@ -56,7 +56,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       // ---------- ACTIVE SESSION ----------
       final sessionQuery = await FirebaseFirestore.instance
-          .collection('attendance_sessions')
+          .collection('attendance_session')
           .where('classId', isEqualTo: classId)
           .where('isActive', isEqualTo: true)
           .limit(1)
@@ -124,7 +124,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       await FirebaseFirestore.instance
           .collection('attendance')
           .doc(sessionId)
-          .collection('students')
+          .collection('student')
           .doc(studentId)
           .set({
             'studentId': studentId,
