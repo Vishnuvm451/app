@@ -13,7 +13,7 @@ class TeacherApprovalPage extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('teacher_requests')
-            .where('status', isEqualTo: 'pending') // ✅ NO orderBy
+            .where('status', isEqualTo: 'pending')
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -86,7 +86,7 @@ class TeacherApprovalPage extends StatelessWidget {
   }
 
   // --------------------------------------------------
-  // APPROVE TEACHER
+  // APPROVE TEACHER (ADMIN ONLY)
   // --------------------------------------------------
   Future<void> _approveTeacher({
     required BuildContext context,
@@ -96,6 +96,18 @@ class TeacherApprovalPage extends StatelessWidget {
     FirebaseApp? tempApp;
 
     try {
+      final db = FirebaseFirestore.instance;
+
+      // 🔒 Safety check (already approved?)
+      final reqSnap = await db
+          .collection('teacher_requests')
+          .doc(requestId)
+          .get();
+      if (!reqSnap.exists || reqSnap['status'] != 'pending') {
+        return;
+      }
+
+      // 🔐 Create secondary Firebase app
       tempApp = await Firebase.initializeApp(
         name: 'TempTeacherCreate',
         options: Firebase.app().options,
@@ -103,15 +115,13 @@ class TeacherApprovalPage extends StatelessWidget {
 
       final auth = FirebaseAuth.instanceFor(app: tempApp);
 
-      // 1️⃣ CREATE AUTH USER
+      // 1️⃣ CREATE AUTH USER (TEMP PASSWORD)
       final cred = await auth.createUserWithEmailAndPassword(
         email: requestData['email'],
-        password: 'teacher@123', // temporary password
+        password: 'Temp@12345', // temporary
       );
 
       final uid = cred.user!.uid;
-
-      final db = FirebaseFirestore.instance;
 
       // 2️⃣ USERS COLLECTION
       await db.collection('users').doc(uid).set({
@@ -119,25 +129,25 @@ class TeacherApprovalPage extends StatelessWidget {
         'name': requestData['name'],
         'email': requestData['email'],
         'role': 'teacher',
-        'created_at': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 3️⃣ TEACHER COLLECTION (MATCH YOUR APP → singular)
-      await db.collection('teacher').doc(uid).set({
+      // 3️⃣ TEACHERS COLLECTION (CORRECT COLLECTION NAME)
+      await db.collection('teachers').doc(uid).set({
         'uid': uid,
         'name': requestData['name'],
         'email': requestData['email'],
         'departmentId': requestData['departmentId'],
         'isApproved': true,
         'setupCompleted': false,
-        'created_at': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 4️⃣ UPDATE REQUEST
+      // 4️⃣ UPDATE REQUEST STATUS
       await db.collection('teacher_requests').doc(requestId).update({
         'status': 'approved',
         'authUid': uid,
-        'approved_at': FieldValue.serverTimestamp(),
+        'approvedAt': FieldValue.serverTimestamp(),
       });
 
       if (context.mounted) {
@@ -152,7 +162,7 @@ class TeacherApprovalPage extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Approval failed: $e"),
+            content: Text("Approval failed"),
             backgroundColor: Colors.red,
           ),
         );
@@ -174,7 +184,7 @@ class TeacherApprovalPage extends StatelessWidget {
         .doc(requestId)
         .update({
           'status': 'rejected',
-          'rejected_at': FieldValue.serverTimestamp(),
+          'rejectedAt': FieldValue.serverTimestamp(),
         });
 
     if (context.mounted) {
