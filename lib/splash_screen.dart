@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'new/auth_provider.dart';
+import '/auth_provider.dart';
 import 'login.dart';
 import 'admin_dashboard.dart';
 import 'student_dashboard.dart';

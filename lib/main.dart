@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 
-import 'new/firebase_options.dart';
-import 'new/auth_provider.dart';
+import 'firebase_options.dart';
+import '/auth_provider.dart';
 // import 'splash_screen.dart';
 
 Future<void> main() async {

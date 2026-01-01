@@ -1,6 +1,6 @@
 import 'package:darzo/attendance_daily.dart';
 import 'package:darzo/internal.dart';
-import 'package:darzo/new/firestore_service.dart';
+import 'package:darzo/firestore_service.dart';
 import 'package:darzo/start_attendance.dart';
 import 'package:darzo/teacher_student.dart';
 import 'package:flutter/material.dart';

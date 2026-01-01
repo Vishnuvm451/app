@@ -1,5 +1,5 @@
 import 'package:darzo/admin_dashboard.dart';
-import 'package:darzo/new/auth_provider.dart';
+import 'package:darzo/auth_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Required for InputFormatters
 import 'package:provider/provider.dart';

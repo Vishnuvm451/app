@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/admin_login.dart';
 import 'package:darzo/face_capture.dart';
-import 'package:darzo/new/auth_provider.dart';
-import 'package:darzo/new/student_register.dart';
+import 'package:darzo/auth_provider.dart';
+import 'package:darzo/student_register.dart';
 import 'package:darzo/student_dashboard.dart';
 import 'package:darzo/teacher_dashboard.dart';
 import 'package:darzo/teacher_register.dart';

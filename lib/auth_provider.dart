@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:darzo/new/auth_service.dart';
-import 'package:darzo/new/firestore_service.dart';
+import 'package:darzo/auth_service.dart';
+import 'package:darzo/firestore_service.dart';
 
 class AppAuthProvider extends ChangeNotifier {
   // ===================================================

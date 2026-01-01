@@ -4,8 +4,8 @@ import 'package:darzo/student_internal_marks_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:darzo/login.dart';
-import 'package:darzo/new/auth_provider.dart';
-import 'package:darzo/new/firestore_service.dart';
+import 'package:darzo/auth_provider.dart';
+import 'package:darzo/firestore_service.dart';
 
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
