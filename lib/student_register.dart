@@ -13,13 +13,11 @@ class StudentRegisterPage extends StatefulWidget {
 }
 
 class _StudentRegisterPageState extends State<StudentRegisterPage> {
-  // ================= CONTROLLERS =================
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _admissionCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
-  // ================= STATE =================
   String? selectedDepartmentId;
   String? selectedClassId;
   bool isLoading = false;
@@ -44,7 +42,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // REGISTER STUDENT → ADMISSION-BASED ID (FINAL)
+  // REGISTER STUDENT → ADMISSION NUMBER AS UNIQUE ID
   // ======================================================
   Future<void> _registerStudent() async {
     if (_nameCtrl.text.trim().isEmpty ||
@@ -65,34 +63,39 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     setState(() => isLoading = true);
 
     final String admissionNo = _admissionCtrl.text.trim();
+    UserCredential? cred;
 
     try {
-      // ---------- CHECK UNIQUE ADMISSION ----------
-      final existing = await _db.collection('students').doc(admissionNo).get();
+      // 🔐 CHECK UNIQUE ADMISSION NUMBER
+      final docRef = _db.collection('students').doc(admissionNo);
+      final existing = await docRef.get();
 
       if (existing.exists) {
         _showSnack("Admission number already exists");
+        setState(() => isLoading = false);
         return;
       }
 
-      // ---------- CREATE AUTH USER ----------
-      final cred = await _auth.createUserWithEmailAndPassword(
+      // 🔐 CREATE AUTH USER
+      cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
 
       final String authUid = cred.user!.uid;
 
-      // ---------- USERS COLLECTION ----------
-      await _db.collection('users').doc(authUid).set({
+      // 🔐 WRITE BOTH DOCUMENTS SAFELY
+      final batch = _db.batch();
+
+      final userRef = _db.collection('users').doc(authUid);
+      batch.set(userRef, {
         'uid': authUid,
         'email': _emailCtrl.text.trim(),
         'role': 'student',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // ---------- STUDENTS COLLECTION (ADMISSION ID) ----------
-      await _db.collection('students').doc(admissionNo).set({
+      batch.set(docRef, {
         'admissionNo': admissionNo,
         'authUid': authUid,
         'name': _nameCtrl.text.trim(),
@@ -103,19 +106,18 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // ---------- SUCCESS ----------
+      await batch.commit();
+
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("User added – enable face"),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
         ),
       );
 
-      if (!mounted) return;
-
-      // ---------- FORCE FACE CAPTURE ----------
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -127,18 +129,22 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       );
     } on FirebaseAuthException catch (e) {
       _showSnack(e.message ?? "Registration failed");
-    } catch (e, stack) {
+    } on FirebaseException catch (e) {
+      // 🔥 ROLLBACK AUTH USER IF FIRESTORE FAILS
+      if (cred?.user != null) {
+        await cred!.user!.delete();
+      }
+      _showSnack(e.message ?? "Permission denied");
+    } catch (e) {
       debugPrint("REGISTER ERROR: $e");
-      debugPrint("STACK TRACE: $stack");
       _showSnack("Something went wrong");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
-  // ======================================================
-  // UI (UNCHANGED)
-  // ======================================================
+  // ================= UI (UNCHANGED) =================
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -159,7 +165,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                 ),
               ),
               const SizedBox(height: 30),
-
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -176,7 +181,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                       ),
                     ),
                     const SizedBox(height: 20),
-
                     _field(_nameCtrl, "Full Name", Icons.person),
                     _field(
                       _emailCtrl,
@@ -209,9 +213,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                             setState(() => showPassword = !showPassword),
                       ),
                     ),
-
                     const SizedBox(height: 24),
-
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -237,9 +239,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
                               ),
                       ),
                     ),
-
                     const SizedBox(height: 16),
-
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -273,9 +273,8 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     );
   }
 
-  // ======================================================
-  // HELPERS (UNCHANGED)
-  // ======================================================
+  // ================= HELPERS =================
+
   Widget _field(
     TextEditingController ctrl,
     String label,
@@ -311,7 +310,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
           if (!snap.hasData) {
             return const LinearProgressIndicator();
           }
-
           return DropdownButtonFormField<String>(
             value: selectedDepartmentId,
             hint: const Text("Select Department"),
@@ -356,7 +354,6 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
           if (!snap.hasData) {
             return const LinearProgressIndicator();
           }
-
           return DropdownButtonFormField<String>(
             value: selectedClassId,
             hint: const Text("Select Class"),
