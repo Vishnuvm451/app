@@ -27,44 +27,66 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
   bool isSaving = false;
   bool isLoadingExisting = false;
 
-  /// studentId -> marks controller
+  String? teacherClassId;
+  List<String> teacherSubjects = [];
+
+  /// studentUid -> marks controller
   final Map<String, TextEditingController> marksControllers = {};
 
-  // ===================================================
-  // INIT — TEACHER ONLY ACCESS
-  // ===================================================
   @override
   void initState() {
     super.initState();
-    _checkTeacherAccess();
+    _validateTeacher();
   }
 
-  Future<void> _checkTeacherAccess() async {
+  // ===================================================
+  // VALIDATE TEACHER ACCESS
+  // ===================================================
+  Future<void> _validateTeacher() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _denyAccess();
+      _denyAccess("Not logged in");
       return;
     }
 
-    final roleSnap = await _db.collection('users').doc(user.uid).get();
-    if (!roleSnap.exists || roleSnap['role'] != 'teacher') {
-      _denyAccess();
+    final snap = await _db.collection('teachers').doc(user.uid).get();
+    if (!snap.exists) {
+      _denyAccess("Teacher profile not found");
+      return;
+    }
+
+    final data = snap.data()!;
+
+    if (data['isApproved'] != true) {
+      _denyAccess("Account not approved");
+      return;
+    }
+
+    if (data['setupCompleted'] != true) {
+      _denyAccess("Complete setup first");
+      return;
+    }
+
+    teacherClassId = data['classId'];
+    teacherSubjects = List<String>.from(data['subjectIds'] ?? []);
+
+    if (teacherClassId != widget.classId ||
+        !teacherSubjects.contains(widget.subjectId)) {
+      _denyAccess("Unauthorized class or subject");
+      return;
     }
   }
 
-  void _denyAccess() {
+  void _denyAccess(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Access denied: Teachers only"),
-        backgroundColor: Colors.red,
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
     Navigator.pop(context);
   }
 
   // ===================================================
-  // LOAD EXISTING MARKS (EDIT MODE)
+  // LOAD EXISTING MARKS
   // ===================================================
   Future<void> _loadExistingMarks(String testName) async {
     if (testName.trim().isEmpty) return;
@@ -72,9 +94,10 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
     setState(() => isLoadingExisting = true);
 
     final docId = '${widget.classId}_${widget.subjectId}_$testName';
-    final ref = _db.collection('internal_marks').doc(docId);
 
+    final ref = _db.collection('internalMarks').doc(docId);
     final snap = await ref.get();
+
     if (!snap.exists) {
       setState(() => isLoadingExisting = false);
       return;
@@ -106,8 +129,8 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       return;
     }
 
-    final teacherId = FirebaseAuth.instance.currentUser!.uid;
     final testName = _testNameCtrl.text.trim();
+    final teacherId = FirebaseAuth.instance.currentUser!.uid;
 
     final docId = '${widget.classId}_${widget.subjectId}_$testName';
 
@@ -115,9 +138,8 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       setState(() => isSaving = true);
 
       final batch = _db.batch();
-      final mainRef = _db.collection('internal_marks').doc(docId);
+      final mainRef = _db.collection('internalMarks').doc(docId);
 
-      // -------- MAIN DOC --------
       batch.set(mainRef, {
         'classId': widget.classId,
         'subjectId': widget.subjectId,
@@ -127,15 +149,13 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      // -------- STUDENT MARKS --------
       marksControllers.forEach((studentId, ctrl) {
         if (ctrl.text.trim().isEmpty) return;
 
         final marks = int.tryParse(ctrl.text.trim());
         if (marks == null || marks < 0 || marks > totalMarks) return;
 
-        final stuRef = mainRef.collection('students').doc(studentId);
-        batch.set(stuRef, {
+        batch.set(mainRef.collection('students').doc(studentId), {
           'studentId': studentId,
           'marks': marks,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -144,12 +164,12 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
 
       await batch.commit();
 
-      _showSnack("Internal marks saved / updated", success: true);
+      _showSnack("Internal marks saved", success: true);
       Navigator.pop(context);
     } catch (e) {
       _showSnack("Failed to save marks");
     } finally {
-      setState(() => isSaving = false);
+      if (mounted) setState(() => isSaving = false);
     }
   }
 
@@ -257,7 +277,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
                 title: Text(stu['name']),
-                subtitle: Text("Admission: ${stu['admissionNo']}"),
+                subtitle: Text("Admission: ${stu.id}"),
                 trailing: SizedBox(
                   width: 80,
                   child: TextField(

@@ -47,11 +47,12 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
     final studentRef = FirebaseFirestore.instance
         .collection('students')
         .doc(admissionNo);
-    final studentSnap = await studentRef.get();
+    final snap = await studentRef.get();
 
-    if (!studentSnap.exists) return;
+    if (!snap.exists) return;
 
-    final authUid = studentSnap.data()!['authUid'];
+    final data = snap.data() as Map<String, dynamic>;
+    final authUid = data['authUid'];
 
     await studentRef.delete();
     await FirebaseFirestore.instance.collection('users').doc(authUid).delete();
@@ -66,15 +67,6 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
 
     await FirebaseFirestore.instance.collection('teachers').doc(uid).delete();
     await FirebaseFirestore.instance.collection('users').doc(uid).delete();
-  }
-
-  // ======================================================
-  // APPROVE TEACHER
-  // ======================================================
-  Future<void> _approveTeacher(String uid) async {
-    await FirebaseFirestore.instance.collection('teachers').doc(uid).update({
-      'isApproved': true,
-    });
   }
 
   // ======================================================
@@ -132,11 +124,15 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('students').snapshots(),
       builder: (_, snap) {
-        if (!snap.hasData) return const CircularProgressIndicator();
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-        final students = snap.data!.docs.where((d) {
-          final name = d['name'].toString().toLowerCase();
-          final email = d['email'].toString().toLowerCase();
+        final students = snap.data!.docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final name = (data['name'] ?? '').toString().toLowerCase();
+          final email = (data['email'] ?? '').toString().toLowerCase();
+
           return name.contains(searchQuery) || email.contains(searchQuery);
         });
 
@@ -146,6 +142,14 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
   }
 
   Widget _studentCard(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+
+    final name = data['name'] ?? 'Unknown';
+    final email = data['email'] ?? 'Email not available';
+    final departmentId = data['departmentId'] ?? '-';
+    final classId = data['classId'] ?? '-';
+    final faceEnabled = data['face_enabled'] == true;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -153,19 +157,14 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              doc['name'],
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            Text(doc['email']),
+            Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(email),
             Text("Admission: ${doc.id}"),
-            Text("Department: ${doc['departmentId']}"),
-            Text("Class: ${doc['classId']}"),
+            Text("Department: $departmentId"),
+            Text("Class: $classId"),
             Text(
-              "Face: ${doc['face_enabled'] ? 'Enabled' : 'Not Registered'}",
-              style: TextStyle(
-                color: doc['face_enabled'] ? Colors.green : Colors.red,
-              ),
+              "Face: ${faceEnabled ? 'Enabled' : 'Not Registered'}",
+              style: TextStyle(color: faceEnabled ? Colors.green : Colors.red),
             ),
             const SizedBox(height: 10),
             Row(
@@ -175,7 +174,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
                 _actionButton(
                   "Delete",
                   Icons.delete,
-                  () => _deleteStudent(doc.id, doc['name']),
+                  () => _deleteStudent(doc.id, name),
                   color: Colors.red,
                 ),
               ],
@@ -193,11 +192,15 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('teachers').snapshots(),
       builder: (_, snap) {
-        if (!snap.hasData) return const CircularProgressIndicator();
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-        final teachers = snap.data!.docs.where((d) {
-          final name = d['name'].toString().toLowerCase();
-          final email = d['email'].toString().toLowerCase();
+        final teachers = snap.data!.docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final name = (data['name'] ?? '').toString().toLowerCase();
+          final email = (data['email'] ?? '').toString().toLowerCase();
+
           return name.contains(searchQuery) || email.contains(searchQuery);
         });
 
@@ -207,7 +210,12 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
   }
 
   Widget _teacherCard(QueryDocumentSnapshot doc) {
-    final approved = doc['isApproved'] == true;
+    final data = doc.data() as Map<String, dynamic>;
+
+    final name = data['name'] ?? 'Unknown';
+    final email = data['email'] ?? 'Email not available';
+    final departmentId = data['departmentId'] ?? '-';
+    final approved = data['isApproved'] == true;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -216,12 +224,9 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              doc['name'],
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            Text(doc['email']),
-            Text("Department: ${doc['departmentId']}"),
+            Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(email),
+            Text("Department: $departmentId"),
             Text(
               approved ? "Approved" : "Pending",
               style: TextStyle(color: approved ? Colors.green : Colors.orange),
@@ -229,20 +234,12 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
             const SizedBox(height: 10),
             Row(
               children: [
-                if (!approved)
-                  _actionButton(
-                    "Approve",
-                    Icons.check,
-                    () => _approveTeacher(doc.id),
-                    color: Colors.green,
-                  ),
-                const SizedBox(width: 10),
                 _actionButton("Edit", Icons.edit, () {}),
                 const SizedBox(width: 10),
                 _actionButton(
                   "Delete",
                   Icons.delete,
-                  () => _deleteTeacher(doc.id, doc['name']),
+                  () => _deleteTeacher(doc.id, name),
                   color: Colors.red,
                 ),
               ],
