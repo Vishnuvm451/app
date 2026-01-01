@@ -26,7 +26,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   bool _isLightingGood = true;
   String? _error;
 
-  // 🔧 CHANGE TO YOUR BACKEND IP
+  // 🔧 UPDATE THIS
   // Emulator: http://10.0.2.2:8000
   // Real device: http://<PC_IP>:8000
   static const String _apiBaseUrl = "http://YOUR_IP:8000";
@@ -63,8 +63,10 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
       setState(() => _isCameraInitialized = true);
 
       _checkLighting();
-    } catch (_) {
-      setState(() => _error = "Camera initialization failed");
+    } catch (e) {
+      setState(() {
+        _error = "Camera initialization failed";
+      });
     }
   }
 
@@ -74,7 +76,6 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   Future<void> _checkLighting() async {
     try {
       final step = await _cameraController!.getExposureOffsetStepSize();
-
       setState(() {
         _isLightingGood = step > 0.01;
       });
@@ -112,13 +113,15 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         Uri.parse("$_apiBaseUrl/face/register"),
       );
 
+      // 🔑 MUST MATCH BACKEND
       request.fields['admission_no'] = widget.admissionNo;
+
       request.files.add(await http.MultipartFile.fromPath('image', image.path));
 
       final response = await request.send();
 
       if (response.statusCode != 200) {
-        throw "Face registration failed";
+        throw Exception("Face registration failed");
       }
 
       // ---------- FIRESTORE ----------
@@ -139,6 +142,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         const SnackBar(
           content: Text("Face registered successfully"),
           backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
         ),
       );
 
@@ -152,7 +156,9 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         _error = e.toString().replaceAll("Exception:", "").trim();
       });
     } finally {
-      if (mounted) setState(() => _isCapturing = false);
+      if (mounted) {
+        setState(() => _isCapturing = false);
+      }
     }
   }
 
@@ -163,7 +169,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   }
 
   // ===================================================
-  // UI (UNCHANGED VISUALLY)
+  // UI (UNCHANGED)
   // ===================================================
   @override
   Widget build(BuildContext context) {
