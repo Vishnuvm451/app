@@ -1,9 +1,9 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException
 import numpy as np
 import cv2
-import face_recognition
 
 from firebase import db, bucket
+from face_utils import register_face_encoding
 
 # =====================================================
 # ROUTER
@@ -20,9 +20,10 @@ async def register_face(
     image: UploadFile = File(...)
 ):
     """
-    Registers student's face (Admission-based):
+    Registers student's face (Admission-based)
     - admission_no = Firestore document ID
     - auth_uid = Firebase Auth UID
+    - Face data stored locally in backend (pickle)
     """
 
     # --------------------------------------------------
@@ -52,50 +53,34 @@ async def register_face(
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
-    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # --------------------------------------------------
+    # 3. REGISTER FACE (LOCAL DB)
+    # --------------------------------------------------
+    success, message = register_face_encoding(
+        image=img,
+        admission_no=admission_no
+    )
+
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
 
     # --------------------------------------------------
-    # 3. FACE DETECTION
-    # --------------------------------------------------
-    face_locations = face_recognition.face_locations(rgb_img)
-
-    if len(face_locations) == 0:
-        raise HTTPException(status_code=400, detail="No face detected")
-
-    if len(face_locations) > 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Multiple faces detected. Only one allowed"
-        )
-
-    # --------------------------------------------------
-    # 4. FACE ENCODING
-    # --------------------------------------------------
-    encodings = face_recognition.face_encodings(rgb_img, face_locations)
-
-    if not encodings:
-        raise HTTPException(status_code=400, detail="Face encoding failed")
-
-    embedding = encodings[0]  # 128-d vector
-
-    # --------------------------------------------------
-    # 5. UPDATE FIRESTORE
+    # 4. UPDATE FIRESTORE (FLAG ONLY)
     # --------------------------------------------------
     student_ref.update({
-        "face_embedding": embedding.tolist(),
         "face_enabled": True,
         "face_registered_at": db.SERVER_TIMESTAMP,
     })
 
     # --------------------------------------------------
-    # 6. UPLOAD IMAGE (OPTIONAL)
+    # 5. UPLOAD IMAGE (OPTIONAL – FOR AUDIT)
     # --------------------------------------------------
     blob = bucket.blob(f"face_images/{admission_no}/register.jpg")
     blob.upload_from_string(contents, content_type=image.content_type)
     blob.make_private()
 
     # --------------------------------------------------
-    # 7. RESPONSE
+    # 6. RESPONSE
     # --------------------------------------------------
     return {
         "success": True,
