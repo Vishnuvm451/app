@@ -114,7 +114,7 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   Widget _studentsList() {
     return StreamBuilder<QuerySnapshot>(
       stream: _db
-          .collection('students')
+          .collection('student')
           .where('classId', isEqualTo: widget.classId)
           .snapshots(),
       builder: (context, snapshot) {
@@ -212,7 +212,7 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
       final batch = _db.batch();
 
       // Ensure session exists / update
-      final sessionRef = _db.collection('attendance_sessions').doc(sessionId);
+      final sessionRef = _db.collection('attendance_session').doc(sessionId);
 
       batch.set(sessionRef, {
         'classId': widget.classId,
@@ -227,7 +227,7 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
         final ref = _db
             .collection('attendance')
             .doc(sessionId)
-            .collection('students')
+            .collection('student')
             .doc(studentId);
 
         batch.set(ref, {
