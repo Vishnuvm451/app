@@ -16,29 +16,47 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
   String? departmentId;
   bool isSaving = false;
+  bool isApproved = false;
+  bool setupCompleted = false;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadTeacherDepartment();
+    _loadTeacherProfile();
   }
 
   // --------------------------------------------------
-  // LOAD TEACHER DEPARTMENT
+  // LOAD TEACHER PROFILE
   // --------------------------------------------------
-  Future<void> _loadTeacherDepartment() async {
+  Future<void> _loadTeacherProfile() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     final snap = await _db.collection('teachers').doc(user.uid).get();
-
     if (!snap.exists) return;
+
+    final data = snap.data()!;
+
+    isApproved = data['isApproved'] == true;
+    setupCompleted = data['setupCompleted'] == true;
+
+    if (!isApproved) {
+      _showSnack("Your account is not approved yet");
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+
+    if (setupCompleted) {
+      _showSnack("Setup already completed");
+      if (mounted) Navigator.pop(context);
+      return;
+    }
 
     if (!mounted) return;
     setState(() {
-      departmentId = snap['departmentId'];
+      departmentId = data['departmentId'];
     });
   }
 
@@ -68,6 +86,8 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
       });
 
       if (!mounted) return;
+
+      _showSnack("Setup completed successfully");
       Navigator.pop(context);
     } catch (e) {
       _showSnack("Failed to save setup");
