@@ -39,14 +39,14 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     final db = FirebaseFirestore.instance;
 
     final req = await db
-        .collection('teacher_requests')
+        .collection('teacher_request')
         .where('email', isEqualTo: email)
         .limit(1)
         .get();
     if (req.docs.isNotEmpty) return true;
 
     final teachers = await db
-        .collection('teachers')
+        .collection('teacher')
         .where('email', isEqualTo: email)
         .limit(1)
         .get();
@@ -92,7 +92,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       }
 
       // 🔐 STORE REQUEST ONLY (NO PASSWORD)
-      await FirebaseFirestore.instance.collection('teacher_requests').add({
+      await FirebaseFirestore.instance.collection('teacher_request').add({
         'name': nameController.text.trim(),
         'email': email,
         'departmentId': selectedDeptId,
@@ -207,7 +207,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       const SizedBox(height: 15),
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
-                            .collection('departments')
+                            .collection('department')
                             .orderBy('name')
                             .snapshots(),
                         builder: (context, snapshot) {
