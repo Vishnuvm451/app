@@ -12,7 +12,7 @@ class TeacherApprovalPage extends StatelessWidget {
       appBar: AppBar(title: const Text("Teacher Approvals"), centerTitle: true),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
-            .collection('teacher_requests')
+            .collection('teacher_request')
             .where('status', isEqualTo: 'pending')
             .snapshots(),
         builder: (context, snapshot) {
@@ -100,7 +100,7 @@ class TeacherApprovalPage extends StatelessWidget {
 
       // 🔒 Safety check (already approved?)
       final reqSnap = await db
-          .collection('teacher_requests')
+          .collection('teacher_request')
           .doc(requestId)
           .get();
       if (!reqSnap.exists || reqSnap['status'] != 'pending') {
@@ -133,7 +133,7 @@ class TeacherApprovalPage extends StatelessWidget {
       });
 
       // 3️⃣ TEACHERS COLLECTION (CORRECT COLLECTION NAME)
-      await db.collection('teachers').doc(uid).set({
+      await db.collection('teacher').doc(uid).set({
         'uid': uid,
         'name': requestData['name'],
         'email': requestData['email'],
@@ -144,7 +144,7 @@ class TeacherApprovalPage extends StatelessWidget {
       });
 
       // 4️⃣ UPDATE REQUEST STATUS
-      await db.collection('teacher_requests').doc(requestId).update({
+      await db.collection('teacher_request').doc(requestId).update({
         'status': 'approved',
         'authUid': uid,
         'approvedAt': FieldValue.serverTimestamp(),
@@ -180,7 +180,7 @@ class TeacherApprovalPage extends StatelessWidget {
     required String requestId,
   }) async {
     await FirebaseFirestore.instance
-        .collection('teacher_requests')
+        .collection('teacher_request')
         .doc(requestId)
         .update({
           'status': 'rejected',
