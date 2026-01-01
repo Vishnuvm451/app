@@ -38,7 +38,7 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
     );
 
     if (confirm == true) {
-      await _db.collection('departments').doc(docId).delete();
+      await _db.collection('department').doc(docId).delete();
       if (mounted)
         ScaffoldMessenger.of(
           context,
@@ -68,7 +68,7 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
           ElevatedButton(
             onPressed: () async {
               if (ctrl.text.trim().isNotEmpty) {
-                await _db.collection('departments').doc(docId).update({
+                await _db.collection('department').doc(docId).update({
                   'name': ctrl.text.trim(),
                 });
                 if (mounted) Navigator.pop(ctx);
@@ -93,7 +93,7 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
       ),
       backgroundColor: Colors.grey.shade100,
       body: StreamBuilder<QuerySnapshot>(
-        stream: _db.collection('departments').orderBy('name').snapshots(),
+        stream: _db.collection('department').orderBy('name').snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
@@ -227,7 +227,7 @@ class _ClassesList extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('classes')
+          .collection('class')
           .where('departmentId', isEqualTo: deptId)
           .snapshots(),
       builder: (context, snapshot) {
@@ -290,7 +290,7 @@ class _SubjectsList extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('subjects')
+          .collection('subject')
           .where('departmentId', isEqualTo: deptId)
           .snapshots(),
       builder: (context, snapshot) {
