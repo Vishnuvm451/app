@@ -49,7 +49,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       return;
     }
 
-    final snap = await _db.collection('teachers').doc(user.uid).get();
+    final snap = await _db.collection('teacher').doc(user.uid).get();
     if (!snap.exists) {
       _denyAccess("Teacher profile not found");
       return;
@@ -95,7 +95,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
 
     final docId = '${widget.classId}_${widget.subjectId}_$testName';
 
-    final ref = _db.collection('internalMarks').doc(docId);
+    final ref = _db.collection('internal_mark').doc(docId);
     final snap = await ref.get();
 
     if (!snap.exists) {
@@ -103,7 +103,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       return;
     }
 
-    final studentsSnap = await ref.collection('students').get();
+    final studentsSnap = await ref.collection('student').get();
 
     for (var doc in studentsSnap.docs) {
       marksControllers.putIfAbsent(doc.id, () => TextEditingController());
@@ -138,7 +138,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       setState(() => isSaving = true);
 
       final batch = _db.batch();
-      final mainRef = _db.collection('internalMarks').doc(docId);
+      final mainRef = _db.collection('internal_mark').doc(docId);
 
       batch.set(mainRef, {
         'classId': widget.classId,
@@ -155,7 +155,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
         final marks = int.tryParse(ctrl.text.trim());
         if (marks == null || marks < 0 || marks > totalMarks) return;
 
-        batch.set(mainRef.collection('students').doc(studentId), {
+        batch.set(mainRef.collection('student').doc(studentId), {
           'studentId': studentId,
           'marks': marks,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -251,7 +251,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
   Widget _studentsList() {
     return StreamBuilder<QuerySnapshot>(
       stream: _db
-          .collection('students')
+          .collection('student')
           .where('classId', isEqualTo: widget.classId)
           .snapshots(),
       builder: (_, snapshot) {
