@@ -19,8 +19,14 @@ class FirestoreService {
   // STUDENT
   // ===================================================
   Future<Map<String, dynamic>?> getStudent(String uid) async {
-    final doc = await _db.collection('students').doc(uid).get();
-    return doc.exists ? doc.data() : null;
+    final snap = await _db
+        .collection('student')
+        .where('authUid', isEqualTo: uid)
+        .limit(1)
+        .get();
+
+    if (snap.docs.isEmpty) return null;
+    return snap.docs.first.data();
   }
 
   // ===================================================
@@ -41,10 +47,7 @@ class FirestoreService {
     final today = _todayId();
     final sessionId = '${classId}_${today}_$sessionType';
 
-    final doc = await _db
-        .collection('attendance_sessions')
-        .doc(sessionId)
-        .get();
+    final doc = await _db.collection('attendance_session').doc(sessionId).get();
 
     if (!doc.exists) return false;
     return doc['isActive'] == true;
@@ -63,7 +66,7 @@ class FirestoreService {
     final doc = await _db
         .collection('attendance_final')
         .doc(docId)
-        .collection('students')
+        .collection('student')
         .doc(studentId)
         .get();
 
@@ -98,7 +101,7 @@ class FirestoreService {
 
     for (final doc in snap.docs) {
       final stuDoc = await doc.reference
-          .collection('students')
+          .collection('student')
           .doc(studentId)
           .get();
 
@@ -133,7 +136,7 @@ class FirestoreService {
     required String classId,
   }) async {
     final snap = await _db
-        .collection('internal_marks')
+        .collection('internal_mark')
         .where('classId', isEqualTo: classId)
         .get();
 
@@ -141,7 +144,7 @@ class FirestoreService {
 
     for (final doc in snap.docs) {
       final stuDoc = await doc.reference
-          .collection('students')
+          .collection('student')
           .doc(studentId)
           .get();
 
