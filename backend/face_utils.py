@@ -1,77 +1,105 @@
-import cv2
-import numpy as np
+import os
+import pickle
 import face_recognition
-from typing import List
+import numpy as np
+
+# -------------------------------------------------
+# LOCAL FACE DATABASE
+# -------------------------------------------------
+FACES_DB = "faces_db.pkl"
 
 
 # -------------------------------------------------
-# LOAD IMAGE FROM BYTES
+# LOAD KNOWN FACES
 # -------------------------------------------------
-def load_image_from_bytes(image_bytes: bytes) -> np.ndarray:
+def load_known_faces():
     """
-    Convert image bytes to OpenCV image
+    Loads saved face encodings and admission numbers
     """
-    np_arr = np.frombuffer(image_bytes, np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if not os.path.exists(FACES_DB):
+        return [], []
 
-    if image is None:
-        raise ValueError("Invalid image data")
+    with open(FACES_DB, "rb") as f:
+        data = pickle.load(f)
 
-    return image
+    return data.get("encodings", []), data.get("admissions", [])
 
 
 # -------------------------------------------------
-# DETECT FACE LOCATIONS
+# REGISTER FACE ENCODING
 # -------------------------------------------------
-def detect_faces(image: np.ndarray) -> List[tuple]:
+def register_face_encoding(image, admission_no):
     """
-    Detect face locations in an image
-    Returns list of face bounding boxes
+    Extract and store face encoding for a student
     """
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    rgb = image[:, :, ::-1]
+    locations = face_recognition.face_locations(rgb)
 
-    face_locations = face_recognition.face_locations(
-        rgb_image,
-        model="hog"  # fast & reliable (cnn requires GPU)
+    if len(locations) != 1:
+        return False, "Exactly one face must be visible"
+
+    encoding = face_recognition.face_encodings(rgb, locations)[0]
+
+    if os.path.exists(FACES_DB):
+        with open(FACES_DB, "rb") as f:
+            data = pickle.load(f)
+    else:
+        data = {"encodings": [], "admissions": []}
+
+    # Prevent duplicate registration
+    if admission_no in data["admissions"]:
+        return False, "Face already registered"
+
+    data["encodings"].append(encoding)
+    data["admissions"].append(admission_no)
+
+    with open(FACES_DB, "wb") as f:
+        pickle.dump(data, f)
+
+    return True, "Face registered successfully"
+
+
+# -------------------------------------------------
+# EXTRACT FACE ENCODING
+# -------------------------------------------------
+def extract_face_encoding(image):
+    """
+    Extract face encoding from image
+    """
+    rgb = image[:, :, ::-1]
+    locations = face_recognition.face_locations(rgb)
+
+    if len(locations) != 1:
+        return None
+
+    encodings = face_recognition.face_encodings(rgb, locations)
+    return encodings[0] if encodings else None
+
+
+# -------------------------------------------------
+# COMPARE FACE ENCODINGS
+# -------------------------------------------------
+def compare_faces(
+    unknown_encoding,
+    known_encodings,
+    admissions,
+    tolerance=0.45
+):
+    """
+    Compare unknown face with known faces
+    Returns admission number if matched
+    """
+    if not known_encodings:
+        return None
+
+    results = face_recognition.compare_faces(
+        known_encodings,
+        unknown_encoding,
+        tolerance=tolerance
     )
 
-    return face_locations
+    for i, matched in enumerate(results):
+        if matched:
+            return admissions[i]
 
-
-# -------------------------------------------------
-# EXTRACT FACE EMBEDDINGS
-# -------------------------------------------------
-def extract_face_embeddings(image: np.ndarray) -> List[List[float]]:
-    """
-    Extract 128-d face embeddings from image
-    """
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    face_encodings = face_recognition.face_encodings(rgb_image)
-
-    if not face_encodings:
-        raise ValueError("No face detected")
-
-    # Convert numpy arrays to Python lists (Firestore safe)
-    return [encoding.tolist() for encoding in face_encodings]
-
-
-# -------------------------------------------------
-# VERIFY FACE (COMPARE EMBEDDINGS)
-# -------------------------------------------------
-def verify_face(
-    known_embedding: List[float],
-    unknown_embedding: List[float],
-    threshold: float = 0.6,
-) -> bool:
-    """
-    Compare two face embeddings
-    """
-    known = np.array(known_embedding)
-    unknown = np.array(unknown_embedding)
-
-    distance = np.linalg.norm(known - unknown)
-
-    print(f"🔍 Face distance: {distance}")
-
-    return distance <= threshold
+    return None
