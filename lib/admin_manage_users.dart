@@ -10,7 +10,6 @@ class AdminManageUsersPage extends StatefulWidget {
 
 class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
   final Color primaryBlue = const Color(0xFF2196F3);
-
   String searchQuery = "";
 
   // ======================================================
@@ -39,14 +38,34 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
   }
 
   // ======================================================
-  // DELETE USER (STUDENT / TEACHER)
+  // DELETE STUDENT (ADMISSION BASED)
   // ======================================================
-  Future<void> _deleteUser(String uid, String role, String name) async {
+  Future<void> _deleteStudent(String admissionNo, String name) async {
     final confirmed = await _confirmDelete(context, name);
     if (!confirmed) return;
 
-    await FirebaseFirestore.instance.collection(role + "s").doc(uid).delete();
-    await FirebaseFirestore.instance.collection("users").doc(uid).delete();
+    final studentRef = FirebaseFirestore.instance
+        .collection('students')
+        .doc(admissionNo);
+    final studentSnap = await studentRef.get();
+
+    if (!studentSnap.exists) return;
+
+    final authUid = studentSnap.data()!['authUid'];
+
+    await studentRef.delete();
+    await FirebaseFirestore.instance.collection('users').doc(authUid).delete();
+  }
+
+  // ======================================================
+  // DELETE TEACHER
+  // ======================================================
+  Future<void> _deleteTeacher(String uid, String name) async {
+    final confirmed = await _confirmDelete(context, name);
+    if (!confirmed) return;
+
+    await FirebaseFirestore.instance.collection('teachers').doc(uid).delete();
+    await FirebaseFirestore.instance.collection('users').doc(uid).delete();
   }
 
   // ======================================================
@@ -121,11 +140,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
           return name.contains(searchQuery) || email.contains(searchQuery);
         });
 
-        return Column(
-          children: students.map((doc) {
-            return _studentCard(doc);
-          }).toList(),
-        );
+        return Column(children: students.map(_studentCard).toList());
       },
     );
   }
@@ -143,7 +158,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             Text(doc['email']),
-            Text("Admission: ${doc['admissionNo']}"),
+            Text("Admission: ${doc.id}"),
             Text("Department: ${doc['departmentId']}"),
             Text("Class: ${doc['classId']}"),
             Text(
@@ -160,7 +175,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
                 _actionButton(
                   "Delete",
                   Icons.delete,
-                  () => _deleteUser(doc.id, "student", doc['name']),
+                  () => _deleteStudent(doc.id, doc['name']),
                   color: Colors.red,
                 ),
               ],
@@ -186,11 +201,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
           return name.contains(searchQuery) || email.contains(searchQuery);
         });
 
-        return Column(
-          children: teachers.map((doc) {
-            return _teacherCard(doc);
-          }).toList(),
-        );
+        return Column(children: teachers.map(_teacherCard).toList());
       },
     );
   }
@@ -231,7 +242,7 @@ class _AdminManageUsersPageState extends State<AdminManageUsersPage> {
                 _actionButton(
                   "Delete",
                   Icons.delete,
-                  () => _deleteUser(doc.id, "teacher", doc['name']),
+                  () => _deleteTeacher(doc.id, doc['name']),
                   color: Colors.red,
                 ),
               ],
