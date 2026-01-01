@@ -66,7 +66,7 @@ class _LoginPageState extends State<LoginPage> {
       // ======================================================
       if (role == 'student') {
         final studentQuery = await FirebaseFirestore.instance
-            .collection('students')
+            .collection('student')
             .where('authUid', isEqualTo: uid)
             .limit(1)
             .get();
@@ -105,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
       // ======================================================
       if (role == 'teacher') {
         final teacherDoc = await FirebaseFirestore.instance
-            .collection('teachers')
+            .collection('teacher')
             .doc(uid)
             .get();
 
