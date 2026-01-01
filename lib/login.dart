@@ -80,7 +80,6 @@ class _LoginPageState extends State<LoginPage> {
         final String admissionNo = studentDoc.id;
         final bool faceEnabled = studentDoc['face_enabled'] == true;
 
-        // ---------- FACE NOT REGISTERED ----------
         if (!faceEnabled) {
           Navigator.pushReplacement(
             context,
@@ -94,7 +93,6 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
 
-        // ---------- FACE OK ----------
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
@@ -103,9 +101,34 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       // ======================================================
-      // TEACHER FLOW
+      // TEACHER FLOW (ADMIN CONTROLLED)
       // ======================================================
       if (role == 'teacher') {
+        final teacherDoc = await FirebaseFirestore.instance
+            .collection('teachers')
+            .doc(uid)
+            .get();
+
+        if (!teacherDoc.exists) {
+          _showSnack("Teacher profile not found");
+          return;
+        }
+
+        final bool isApproved = teacherDoc['isApproved'] == true;
+        final bool setupCompleted = teacherDoc['setupCompleted'] == true;
+
+        if (!isApproved) {
+          _showSnack("Your account is not approved yet");
+          await FirebaseAuth.instance.signOut();
+          return;
+        }
+
+        if (!setupCompleted) {
+          _showSnack("Complete your profile setup");
+          // 👉 if you have a setup page, navigate here later
+          return;
+        }
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
