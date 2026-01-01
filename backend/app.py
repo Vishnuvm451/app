@@ -33,8 +33,10 @@ init_firebase()
 # -------------------------------------------------
 # ROUTES
 # -------------------------------------------------
-app.include_router(face_register_router)
-app.include_router(face_verify_router)
+# Face Registration → /face/register
+# Face Verification → /face/verify
+app.include_router(face_register_router, prefix="/face")
+app.include_router(face_verify_router, prefix="/face")
 
 # -------------------------------------------------
 # HEALTH CHECK
