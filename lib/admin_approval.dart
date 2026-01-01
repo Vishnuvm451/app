@@ -85,9 +85,9 @@ class TeacherApprovalPage extends StatelessWidget {
     );
   }
 
-  // --------------------------------------------------
-  // APPROVE TEACHER (ADMIN ONLY)
-  // --------------------------------------------------
+  // ==================================================
+  // APPROVE TEACHER (ADMIN)
+  // ==================================================
   Future<void> _approveTeacher({
     required BuildContext context,
     required String requestId,
@@ -98,16 +98,20 @@ class TeacherApprovalPage extends StatelessWidget {
     try {
       final db = FirebaseFirestore.instance;
 
-      // 🔒 Safety check (already approved?)
+      // 🔒 Re-check request state
       final reqSnap = await db
           .collection('teacher_request')
           .doc(requestId)
           .get();
-      if (!reqSnap.exists || reqSnap['status'] != 'pending') {
+
+      if (!reqSnap.exists) return;
+
+      if (reqSnap['status'] != 'pending') {
+        _showSnack(context, "This request is already processed");
         return;
       }
 
-      // 🔐 Create secondary Firebase app
+      // 🔐 TEMP FIREBASE APP (ADMIN CREATION)
       tempApp = await Firebase.initializeApp(
         name: 'TempTeacherCreate',
         options: Firebase.app().options,
@@ -115,10 +119,10 @@ class TeacherApprovalPage extends StatelessWidget {
 
       final auth = FirebaseAuth.instanceFor(app: tempApp);
 
-      // 1️⃣ CREATE AUTH USER (TEMP PASSWORD)
+      // 1️⃣ CREATE AUTH USER
       final cred = await auth.createUserWithEmailAndPassword(
         email: requestData['email'],
-        password: 'Temp@12345', // temporary
+        password: requestData['password'],
       );
 
       final uid = cred.user!.uid;
@@ -132,7 +136,7 @@ class TeacherApprovalPage extends StatelessWidget {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 3️⃣ TEACHERS COLLECTION (CORRECT COLLECTION NAME)
+      // 3️⃣ TEACHER COLLECTION
       await db.collection('teacher').doc(uid).set({
         'uid': uid,
         'name': requestData['name'],
@@ -143,38 +147,38 @@ class TeacherApprovalPage extends StatelessWidget {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 4️⃣ UPDATE REQUEST STATUS
+      // 4️⃣ UPDATE REQUEST
       await db.collection('teacher_request').doc(requestId).update({
         'status': 'approved',
         'authUid': uid,
         'approvedAt': FieldValue.serverTimestamp(),
+        'password': FieldValue.delete(), // 🔒 remove password after use
       });
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Teacher approved successfully"),
-            backgroundColor: Colors.green,
-          ),
-        );
+      _showSnack(
+        context,
+        "Teacher approved successfully. The teacher can now log in.",
+        success: true,
+      );
+    } on FirebaseAuthException catch (e) {
+      String msg = "Approval failed. Try again.";
+
+      if (e.code == 'email-already-in-use') {
+        msg =
+            "Approval failed. This teacher account already exists or was approved earlier.";
       }
+
+      _showSnack(context, msg);
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Approval failed"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      _showSnack(context, "Approval failed due to unexpected error");
     } finally {
       await tempApp?.delete();
     }
   }
 
-  // --------------------------------------------------
+  // ==================================================
   // REJECT TEACHER
-  // --------------------------------------------------
+  // ==================================================
   Future<void> _rejectTeacher({
     required BuildContext context,
     required String requestId,
@@ -187,10 +191,22 @@ class TeacherApprovalPage extends StatelessWidget {
           'rejectedAt': FieldValue.serverTimestamp(),
         });
 
-    if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Teacher request rejected")));
-    }
+    _showSnack(context, "Teacher request rejected", success: true);
+  }
+
+  // ==================================================
+  // SNACKBAR
+  // ==================================================
+  void _showSnack(BuildContext context, String msg, {bool success = false}) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 2),
+        backgroundColor: success ? Colors.green : Colors.red,
+      ),
+    );
   }
 }
