@@ -7,6 +7,7 @@ from firebase_admin import credentials, firestore, storage
 db = None
 bucket = None
 
+
 # -------------------------------------------------
 # INIT FIREBASE (RUN ONCE)
 # -------------------------------------------------
@@ -14,17 +15,17 @@ def init_firebase():
     global db, bucket
 
     if firebase_admin._apps:
-        # Already initialized
-        return
+        return  # Already initialized
 
-    # 🔐 Service account key
+    # 🔐 Service account key (same folder as app.py)
     cred = credentials.Certificate("serviceAccountKey.json")
 
     firebase_admin.initialize_app(
         cred,
         {
-            # 🔥 CHANGE THIS TO YOUR BUCKET NAME
-            "storageBucket": "YOUR_PROJECT_ID.appspot.com"
+            # 🔥 MUST MATCH YOUR FIREBASE PROJECT
+            # Example: darzo-attendance.appspot.com
+            "storageBucket": "darzo-attendance.appspot.com"
         }
     )
 
@@ -35,15 +36,15 @@ def init_firebase():
 
 
 # -------------------------------------------------
-# HELPERS
+# SAFE ACCESSORS (OPTIONAL BUT GOOD PRACTICE)
 # -------------------------------------------------
 def get_db():
     if db is None:
-        raise Exception("Firestore not initialized")
+        raise RuntimeError("❌ Firestore not initialized. Call init_firebase() first.")
     return db
 
 
 def get_bucket():
     if bucket is None:
-        raise Exception("Storage not initialized")
+        raise RuntimeError("❌ Storage not initialized. Call init_firebase() first.")
     return bucket
