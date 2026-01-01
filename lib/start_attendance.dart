@@ -34,7 +34,7 @@ class _TeacherAttendanceSessionPageState
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final snap = await _db.collection('teachers').doc(user.uid).get();
+    final snap = await _db.collection('teacher').doc(user.uid).get();
     if (!snap.exists) return;
 
     final data = snap.data()!;
@@ -56,7 +56,7 @@ class _TeacherAttendanceSessionPageState
 
     if (!mounted) return;
     setState(() {
-      classId = data['classId']; // 🔒 lock class
+      classId = data['classId']; // 🔒 locked class
     });
   }
 
@@ -74,27 +74,23 @@ class _TeacherAttendanceSessionPageState
 
     setState(() => isLoading = true);
 
-    final today = DateTime.now();
-    final date =
-        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
-
-    final sessionId = "${classId}_$date\_$sessionType";
+    final today = _todayId();
+    final sessionId = "${classId}_$today\_$sessionType";
 
     try {
-      final ref = _db.collection('attendance_sessions').doc(sessionId);
+      final ref = _db.collection('attendance_session').doc(sessionId);
 
       final snap = await ref.get();
-
       if (snap.exists && snap['isActive'] == true) {
         _showSnack("Session already active");
         return;
       }
 
-      // 🔒 ensure no other active session for same class today
+      // Ensure only ONE active session per class per day
       final activeQuery = await _db
-          .collection('attendance_sessions')
+          .collection('attendance_session')
           .where('classId', isEqualTo: classId)
-          .where('date', isEqualTo: date)
+          .where('date', isEqualTo: today)
           .where('isActive', isEqualTo: true)
           .limit(1)
           .get();
@@ -106,7 +102,7 @@ class _TeacherAttendanceSessionPageState
 
       await ref.set({
         'classId': classId,
-        'date': date,
+        'date': today,
         'sessionType': sessionType,
         'isActive': true,
         'startedBy': user.uid,
@@ -122,7 +118,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // STOP SESSION
+  // STOP SESSION + FINALIZE ATTENDANCE
   // --------------------------------------------------
   Future<void> _stopSession() async {
     if (classId == null) {
@@ -130,15 +126,11 @@ class _TeacherAttendanceSessionPageState
       return;
     }
 
-    final today = DateTime.now();
-    final date =
-        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
-
-    final sessionId = "${classId}_$date\_$sessionType";
+    final today = _todayId();
+    final sessionId = "${classId}_$today\_$sessionType";
 
     try {
-      final ref = _db.collection('attendance_sessions').doc(sessionId);
-
+      final ref = _db.collection('attendance_session').doc(sessionId);
       final snap = await ref.get();
 
       if (!snap.exists || snap['isActive'] != true) {
@@ -151,10 +143,84 @@ class _TeacherAttendanceSessionPageState
         'endedAt': FieldValue.serverTimestamp(),
       });
 
-      _showSnack("Attendance session stopped", success: true);
+      // ✅ FINALIZE DAILY ATTENDANCE
+      await _finalizeAttendance(classId!);
+
+      _showSnack("Attendance finalized", success: true);
     } catch (e) {
       _showSnack("Failed to stop session");
     }
+  }
+
+  // --------------------------------------------------
+  // FINALIZE DAILY ATTENDANCE
+  // --------------------------------------------------
+  Future<void> _finalizeAttendance(String classId) async {
+    final today = _todayId();
+    final finalDocId = '${classId}_$today';
+
+    final finalRef = _db.collection('attendance_final').doc(finalDocId);
+
+    // 1️⃣ Parent doc
+    await finalRef.set({
+      'classId': classId,
+      'date': today,
+      'finalizedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // 2️⃣ Load students of class
+    final studentsSnap = await _db
+        .collection('student')
+        .where('classId', isEqualTo: classId)
+        .get();
+
+    if (studentsSnap.docs.isEmpty) return;
+
+    // 3️⃣ Load session attendance
+    final morningId = '${classId}_${today}_morning';
+    final afternoonId = '${classId}_${today}_afternoon';
+
+    final morningSnap = await _db
+        .collection('attendance')
+        .doc(morningId)
+        .collection('student')
+        .get();
+
+    final afternoonSnap = await _db
+        .collection('attendance')
+        .doc(afternoonId)
+        .collection('student')
+        .get();
+
+    final morningMap = {for (var d in morningSnap.docs) d.id: true};
+    final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
+
+    // 4️⃣ Compute final status
+    final batch = _db.batch();
+
+    for (final stu in studentsSnap.docs) {
+      final studentId = stu.id;
+
+      final bool m = morningMap[studentId] == true;
+      final bool a = afternoonMap[studentId] == true;
+
+      String status;
+      if (m && a) {
+        status = 'present';
+      } else if (m || a) {
+        status = 'half-day';
+      } else {
+        status = 'absent';
+      }
+
+      batch.set(finalRef.collection('student').doc(studentId), {
+        'studentId': studentId,
+        'status': status,
+        'computedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
   }
 
   // --------------------------------------------------
@@ -274,4 +340,14 @@ class _TeacherAttendanceSessionPageState
       ),
     );
   }
+}
+
+// --------------------------------------------------
+// DATE HELPER
+// --------------------------------------------------
+String _todayId() {
+  final now = DateTime.now();
+  return '${now.year}-'
+      '${now.month.toString().padLeft(2, '0')}-'
+      '${now.day.toString().padLeft(2, '0')}';
 }
