@@ -43,23 +43,8 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         .where('email', isEqualTo: email)
         .limit(1)
         .get();
-    if (req.docs.isNotEmpty) return true;
 
-    final teachers = await db
-        .collection('teacher')
-        .where('email', isEqualTo: email)
-        .limit(1)
-        .get();
-    if (teachers.docs.isNotEmpty) return true;
-
-    final users = await db
-        .collection('users')
-        .where('email', isEqualTo: email)
-        .limit(1)
-        .get();
-    if (users.docs.isNotEmpty) return true;
-
-    return false;
+    return req.docs.isNotEmpty;
   }
 
   // ======================================================
@@ -95,6 +80,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       await FirebaseFirestore.instance.collection('teacher_request').add({
         'name': nameController.text.trim(),
         'email': email,
+        'password': passwordController.text, // ✅ ADD THIS
         'departmentId': selectedDeptId,
         'departmentName': selectedDeptName,
         'status': 'pending',
