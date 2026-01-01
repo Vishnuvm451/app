@@ -29,7 +29,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   // 🔧 UPDATE THIS
   // Emulator: http://10.0.2.2:8000
   // Real device: http://<PC_IP>:8000
-  static const String _apiBaseUrl = "http://YOUR_IP:8000";
+  static const String _apiBaseUrl = "http://10.90.62.181";
 
   @override
   void initState() {
@@ -126,7 +126,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
       // ---------- FIRESTORE ----------
       await FirebaseFirestore.instance
-          .collection('students')
+          .collection('student')
           .doc(widget.admissionNo)
           .update({
             'face_enabled': true,
