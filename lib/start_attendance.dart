@@ -1,249 +1,271 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
-class StartAttendancePage extends StatefulWidget {
-  const StartAttendancePage({super.key});
+class TeacherAttendanceSessionPage extends StatefulWidget {
+  const TeacherAttendanceSessionPage({super.key});
 
   @override
-  State<StartAttendancePage> createState() => _StartAttendancePageState();
+  State<TeacherAttendanceSessionPage> createState() =>
+      _TeacherAttendanceSessionPageState();
 }
 
-class _StartAttendancePageState extends State<StartAttendancePage> {
-  String? selectedClassId;
-  String sessionType = 'morning'; // morning | afternoon
-  int selectedMinutes = 10;
+class _TeacherAttendanceSessionPageState
+    extends State<TeacherAttendanceSessionPage> {
+  String? classId;
+  String sessionType = "morning";
   bool isLoading = false;
+
+  bool isApproved = false;
+  bool setupCompleted = false;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  final List<int> durations = [5, 10, 15, 20, 30];
-  final List<String> sessionTypes = ['morning', 'afternoon'];
+  @override
+  void initState() {
+    super.initState();
+    _loadTeacherProfile();
+  }
 
-  // ===================================================
-  // START ATTENDANCE
-  // ===================================================
-  Future<void> _startAttendance() async {
-    if (selectedClassId == null) {
-      _showSnack("Select a class");
+  // --------------------------------------------------
+  // LOAD TEACHER PROFILE
+  // --------------------------------------------------
+  Future<void> _loadTeacherProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final snap = await _db.collection('teachers').doc(user.uid).get();
+    if (!snap.exists) return;
+
+    final data = snap.data()!;
+
+    isApproved = data['isApproved'] == true;
+    setupCompleted = data['setupCompleted'] == true;
+
+    if (!isApproved) {
+      _showSnack("Your account is not approved");
+      if (mounted) Navigator.pop(context);
       return;
     }
 
-    final teacher = FirebaseAuth.instance.currentUser;
-    if (teacher == null) return;
+    if (!setupCompleted) {
+      _showSnack("Complete setup before starting attendance");
+      if (mounted) Navigator.pop(context);
+      return;
+    }
 
-    final today = _todayId();
-    final sessionId = '${selectedClassId}_${today}_$sessionType';
+    if (!mounted) return;
+    setState(() {
+      classId = data['classId']; // 🔒 lock class
+    });
+  }
 
-    final startTime = DateTime.now();
-    final endTime = startTime.add(Duration(minutes: selectedMinutes));
+  // --------------------------------------------------
+  // START SESSION
+  // --------------------------------------------------
+  Future<void> _startSession() async {
+    if (classId == null) {
+      _showSnack("Class not assigned");
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    setState(() => isLoading = true);
+
+    final today = DateTime.now();
+    final date =
+        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+
+    final sessionId = "${classId}_$date\_$sessionType";
 
     try {
-      setState(() => isLoading = true);
-
       final ref = _db.collection('attendance_sessions').doc(sessionId);
 
-      // Prevent duplicate
-      if ((await ref.get()).exists) {
-        _showSnack("Attendance already started for ${_prettySession()}");
+      final snap = await ref.get();
+
+      if (snap.exists && snap['isActive'] == true) {
+        _showSnack("Session already active");
         return;
       }
 
-      // ---------- CREATE SESSION ----------
+      // 🔒 ensure no other active session for same class today
+      final activeQuery = await _db
+          .collection('attendance_sessions')
+          .where('classId', isEqualTo: classId)
+          .where('date', isEqualTo: date)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (activeQuery.docs.isNotEmpty) {
+        _showSnack("Another session is already active");
+        return;
+      }
+
       await ref.set({
-        'classId': selectedClassId,
-        'date': today,
+        'classId': classId,
+        'date': date,
         'sessionType': sessionType,
-        'startedBy': teacher.uid,
         'isActive': true,
-        'startTime': Timestamp.fromDate(startTime),
-        'endTime': Timestamp.fromDate(endTime),
-        'durationMinutes': selectedMinutes,
-        'createdAt': FieldValue.serverTimestamp(),
+        'startedBy': user.uid,
+        'startedAt': FieldValue.serverTimestamp(),
       });
 
-      _showSnack("${_prettySession()} attendance started", success: true);
-
-      Navigator.pop(context);
+      _showSnack("Attendance session started", success: true);
     } catch (e) {
-      _showSnack("Failed to start attendance");
+      _showSnack("Failed to start session");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
-  // ===================================================
-  // FINAL DAY ATTENDANCE (MORNING + AFTERNOON)
-  // ===================================================
-  Future<void> calculateFinalAttendance({
-    required String classId,
-    required String date,
-  }) async {
-    final morningId = '${classId}_${date}_morning';
-    final afternoonId = '${classId}_${date}_afternoon';
-
-    final morningSnap = await _db
-        .collection('attendance')
-        .doc(morningId)
-        .collection('students')
-        .get();
-
-    final afternoonSnap = await _db
-        .collection('attendance')
-        .doc(afternoonId)
-        .collection('students')
-        .get();
-
-    // ❗ Both sessions must exist
-    if (morningSnap.docs.isEmpty || afternoonSnap.docs.isEmpty) return;
-
-    final Map<String, String> morning = {
-      for (var d in morningSnap.docs) d.id: d['status'],
-    };
-
-    final Map<String, String> afternoon = {
-      for (var d in afternoonSnap.docs) d.id: d['status'],
-    };
-
-    final batch = _db.batch();
-    final finalRef = _db.collection('attendance_final').doc('${classId}_$date');
-
-    for (final studentId in morning.keys) {
-      final m = morning[studentId];
-      final a = afternoon[studentId];
-
-      String finalStatus;
-      if (m == 'present' && a == 'present') {
-        finalStatus = 'present';
-      } else if (m == 'absent' && a == 'absent') {
-        finalStatus = 'absent';
-      } else {
-        finalStatus = 'half-day';
-      }
-
-      batch.set(finalRef.collection('students').doc(studentId), {
-        'studentId': studentId,
-        'status': finalStatus,
-        'date': date,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+  // --------------------------------------------------
+  // STOP SESSION
+  // --------------------------------------------------
+  Future<void> _stopSession() async {
+    if (classId == null) {
+      _showSnack("Class not assigned");
+      return;
     }
 
-    await batch.commit();
+    final today = DateTime.now();
+    final date =
+        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+
+    final sessionId = "${classId}_$date\_$sessionType";
+
+    try {
+      final ref = _db.collection('attendance_sessions').doc(sessionId);
+
+      final snap = await ref.get();
+
+      if (!snap.exists || snap['isActive'] != true) {
+        _showSnack("No active session to stop");
+        return;
+      }
+
+      await ref.update({
+        'isActive': false,
+        'endedAt': FieldValue.serverTimestamp(),
+      });
+
+      _showSnack("Attendance session stopped", success: true);
+    } catch (e) {
+      _showSnack("Failed to stop session");
+    }
   }
 
-  // ===================================================
+  // --------------------------------------------------
   // UI
-  // ===================================================
+  // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    if (classId == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Start Attendance"), centerTitle: true),
+      appBar: AppBar(
+        title: const Text("Attendance Session"),
+        centerTitle: true,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _classDropdown(),
-            const SizedBox(height: 16),
-            _sessionTypeDropdown(),
-            const SizedBox(height: 16),
-            _durationDropdown(),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: isLoading ? null : _startAttendance,
-                child: isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        "START ATTENDANCE",
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-              ),
-            ),
+            _classInfo(),
+            const SizedBox(height: 20),
+            _sessionTypeSelector(),
+            const SizedBox(height: 40),
+            _actionButtons(),
           ],
         ),
       ),
     );
   }
 
-  // ===================================================
-  // CLASS DROPDOWN (FIXED)
-  // ===================================================
-  Widget _classDropdown() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _db.collection('classes').orderBy('name').snapshots(),
-      builder: (_, snap) {
-        if (!snap.hasData) {
-          return const LinearProgressIndicator();
-        }
-
-        return DropdownButtonFormField<String>(
-          hint: const Text("Select Class"),
-          value: selectedClassId,
-          items: snap.data!.docs.map((doc) {
-            return DropdownMenuItem(value: doc.id, child: Text(doc['name']));
-          }).toList(),
-          onChanged: (v) => setState(() => selectedClassId = v),
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.class_),
-          ),
-        );
-      },
+  // --------------------------------------------------
+  // CLASS INFO (LOCKED)
+  // --------------------------------------------------
+  Widget _classInfo() {
+    return TextField(
+      enabled: false,
+      decoration: InputDecoration(
+        labelText: "Class",
+        prefixIcon: const Icon(Icons.class_),
+        border: const OutlineInputBorder(),
+        hintText: classId,
+      ),
     );
   }
 
-  // ===================================================
+  // --------------------------------------------------
   // SESSION TYPE
-  // ===================================================
-  Widget _sessionTypeDropdown() {
-    return DropdownButtonFormField<String>(
-      value: sessionType,
-      items: sessionTypes.map((s) {
-        return DropdownMenuItem(
-          value: s,
-          child: Text(s == 'morning' ? 'Morning Session' : 'Afternoon Session'),
-        );
-      }).toList(),
-      onChanged: (v) => setState(() => sessionType = v!),
-      decoration: const InputDecoration(
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.wb_sunny),
-        labelText: "Session Type",
-      ),
+  // --------------------------------------------------
+  Widget _sessionTypeSelector() {
+    return Row(
+      children: [
+        Expanded(
+          child: RadioListTile<String>(
+            value: "morning",
+            groupValue: sessionType,
+            title: const Text("Morning"),
+            onChanged: (v) => setState(() => sessionType = v!),
+          ),
+        ),
+        Expanded(
+          child: RadioListTile<String>(
+            value: "afternoon",
+            groupValue: sessionType,
+            title: const Text("Afternoon"),
+            onChanged: (v) => setState(() => sessionType = v!),
+          ),
+        ),
+      ],
     );
   }
 
-  // ===================================================
-  // DURATION
-  // ===================================================
-  Widget _durationDropdown() {
-    return DropdownButtonFormField<int>(
-      value: selectedMinutes,
-      items: durations
-          .map((m) => DropdownMenuItem(value: m, child: Text("$m minutes")))
-          .toList(),
-      onChanged: (v) => setState(() => selectedMinutes = v!),
-      decoration: const InputDecoration(
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.timer),
-        labelText: "Attendance Duration",
-      ),
+  // --------------------------------------------------
+  // BUTTONS
+  // --------------------------------------------------
+  Widget _actionButtons() {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            onPressed: isLoading ? null : _startSession,
+            child: isLoading
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text(
+                    "START ATTENDANCE",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: _stopSession,
+            child: const Text(
+              "STOP ATTENDANCE",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  // ===================================================
-  // HELPERS
-  // ===================================================
-  String _todayId() {
-    final n = DateTime.now();
-    return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
-  }
-
-  String _prettySession() => sessionType == 'morning' ? 'Morning' : 'Afternoon';
-
+  // --------------------------------------------------
+  // SNACK
+  // --------------------------------------------------
   void _showSnack(String msg, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
