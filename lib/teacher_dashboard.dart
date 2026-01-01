@@ -38,7 +38,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    final snap = await _db.collection('teachers').doc(uid).get();
+    final snap = await _db.collection('teacher').doc(uid).get();
 
     if (!mounted) return;
 
