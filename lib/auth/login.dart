@@ -6,10 +6,12 @@ import 'package:darzo/student/student_register.dart';
 import 'package:darzo/student/student_dashboard.dart';
 import 'package:darzo/teacher/teacher_dashboard.dart';
 import 'package:darzo/teacher/teacher_register.dart';
+import 'package:darzo/teacher/teacher_setup_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:darzo/auth/forgot_password_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -46,9 +48,23 @@ class _LoginPageState extends State<LoginPage> {
         password: passwordCtrl.text.trim(),
       );
 
-      final String uid = FirebaseAuth.instance.currentUser!.uid;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        _showSnack("Login failed");
+        return;
+      }
 
-      // ---------- USER ROLE ----------
+      // ---------- EMAIL VERIFICATION ----------
+      await user.reload();
+      if (!user.emailVerified) {
+        _showSnack("Please verify your email before logging in");
+        await FirebaseAuth.instance.signOut();
+        return;
+      }
+
+      final uid = user.uid;
+
+      // ---------- ROLE ----------
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
@@ -62,7 +78,7 @@ class _LoginPageState extends State<LoginPage> {
       final String role = userDoc['role'];
 
       // ======================================================
-      // STUDENT FLOW (ADMISSION BASED)
+      // STUDENT FLOW
       // ======================================================
       if (role == 'student') {
         final studentQuery = await FirebaseFirestore.instance
@@ -77,7 +93,7 @@ class _LoginPageState extends State<LoginPage> {
         }
 
         final studentDoc = studentQuery.docs.first;
-        final String admissionNo = studentDoc.id;
+        final admissionNo = studentDoc.id;
         final bool faceEnabled = studentDoc['face_enabled'] == true;
 
         if (!faceEnabled) {
@@ -101,7 +117,7 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       // ======================================================
-      // TEACHER FLOW (ADMIN CONTROLLED)
+      // TEACHER FLOW
       // ======================================================
       if (role == 'teacher') {
         final teacherDoc = await FirebaseFirestore.instance
@@ -124,8 +140,10 @@ class _LoginPageState extends State<LoginPage> {
         }
 
         if (!setupCompleted) {
-          _showSnack("Complete your profile setup");
-          // 👉 if you have a setup page, navigate here later
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
+          );
           return;
         }
 
@@ -135,39 +153,14 @@ class _LoginPageState extends State<LoginPage> {
         );
         return;
       }
+
+      _showSnack("Invalid role detected");
     } catch (e) {
       _showSnack(e.toString().replaceAll('Exception:', '').trim());
     } finally {
-      if (mounted) setState(() => isLoading = false);
-    }
-  }
-
-  // ======================================================
-  // FORGOT PASSWORD
-  // ======================================================
-  Future<void> _forgotPassword() async {
-    final email = emailCtrl.text.trim();
-
-    if (email.isEmpty) {
-      _showSnack("Enter your email to reset password");
-      return;
-    }
-
-    try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      _showSnack("Password reset email sent");
-    } on FirebaseAuthException catch (e) {
-      String msg = "Failed to send reset email";
-
-      if (e.code == 'user-not-found') {
-        msg = "No user found with this email";
-      } else if (e.code == 'invalid-email') {
-        msg = "Invalid email address";
+      if (mounted) {
+        setState(() => isLoading = false);
       }
-
-      _showSnack(msg);
-    } catch (_) {
-      _showSnack("Something went wrong. Try again.");
     }
   }
 
@@ -262,18 +255,18 @@ class _LoginPageState extends State<LoginPage> {
                           controller: emailCtrl,
                         ),
                         _passwordField(),
-                        const SizedBox(height: 12),
                         Align(
                           alignment: Alignment.centerRight,
-                          child: GestureDetector(
-                            onTap: isLoading ? null : _forgotPassword,
-                            child: Text(
-                              "Forgot Password?",
-                              style: TextStyle(
-                                color: primaryBlue,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                          child: TextButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ForgotPasswordPage(),
+                                ),
+                              );
+                            },
+                            child: const Text("Forgot Password?"),
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -295,7 +288,6 @@ class _LoginPageState extends State<LoginPage> {
                                 : const Text(
                                     "LOGIN",
                                     style: TextStyle(
-                                      fontSize: 16,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.white,
                                     ),
@@ -337,7 +329,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ======================================================
-  // HELPERS (UNCHANGED)
+  // HELPERS
   // ======================================================
   Widget _toggleButton(String text, bool student) {
     return Expanded(
@@ -425,7 +417,12 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _showSnack(String message, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: success ? Colors.green : Colors.red,
+      ),
+    );
   }
 }

@@ -36,43 +36,93 @@ class TeacherApprovalPage extends StatelessWidget {
               final doc = snapshot.data!.docs[index];
               final data = doc.data() as Map<String, dynamic>;
 
+              final bool emailVerified = data['emailVerified'] == true;
+
+              final String deptName =
+                  data['departmentName'] ?? data['departmentId'] ?? '-';
+
               return Card(
                 elevation: 3,
                 margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  title: Text(
-                    data['name'] ?? 'No Name',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(data['email'] ?? ''),
-                      const SizedBox(height: 4),
+                      // ---------- NAME ----------
                       Text(
-                        "Department: ${data['departmentId'] ?? '-'}",
+                        data['name'] ?? 'No Name',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+
+                      const SizedBox(height: 6),
+
+                      // ---------- EMAIL ----------
+                      Text(data['email'] ?? ''),
+
+                      const SizedBox(height: 6),
+
+                      // ---------- DEPARTMENT ----------
+                      Text(
+                        "Department: $deptName",
                         style: const TextStyle(color: Colors.grey),
                       ),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.check_circle,
-                          color: Colors.green,
-                        ),
-                        onPressed: () => _approveTeacher(
-                          context: context,
-                          requestId: doc.id,
-                          requestData: data,
-                        ),
+
+                      const SizedBox(height: 6),
+
+                      // ---------- EMAIL VERIFIED STATUS ----------
+                      Row(
+                        children: [
+                          Icon(
+                            emailVerified
+                                ? Icons.verified
+                                : Icons.warning_amber_rounded,
+                            color: emailVerified ? Colors.green : Colors.orange,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            emailVerified
+                                ? "Email Verified"
+                                : "Email NOT Verified",
+                            style: TextStyle(
+                              color: emailVerified
+                                  ? Colors.green
+                                  : Colors.orange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.cancel, color: Colors.red),
-                        onPressed: () =>
-                            _rejectTeacher(context: context, requestId: doc.id),
+
+                      const SizedBox(height: 12),
+
+                      // ---------- ACTION BUTTONS ----------
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
+                            ),
+                            onPressed: () => _approveTeacher(
+                              context: context,
+                              requestId: doc.id,
+                              requestData: data,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.cancel, color: Colors.red),
+                            onPressed: () => _rejectTeacher(
+                              context: context,
+                              requestId: doc.id,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -98,20 +148,16 @@ class TeacherApprovalPage extends StatelessWidget {
     try {
       final db = FirebaseFirestore.instance;
 
-      // 🔒 Re-check request state
       final reqSnap = await db
           .collection('teacher_request')
           .doc(requestId)
           .get();
 
-      if (!reqSnap.exists) return;
-
-      if (reqSnap['status'] != 'pending') {
-        _showSnack(context, "This request is already processed");
+      if (!reqSnap.exists || reqSnap['status'] != 'pending') {
+        _showSnack(context, "Request already processed");
         return;
       }
 
-      // 🔐 TEMP FIREBASE APP (ADMIN CREATION)
       tempApp = await Firebase.initializeApp(
         name: 'TempTeacherCreate',
         options: Firebase.app().options,
@@ -119,7 +165,6 @@ class TeacherApprovalPage extends StatelessWidget {
 
       final auth = FirebaseAuth.instanceFor(app: tempApp);
 
-      // 1️⃣ CREATE AUTH USER
       final cred = await auth.createUserWithEmailAndPassword(
         email: requestData['email'],
         password: requestData['password'],
@@ -127,7 +172,6 @@ class TeacherApprovalPage extends StatelessWidget {
 
       final uid = cred.user!.uid;
 
-      // 2️⃣ USERS COLLECTION
       await db.collection('users').doc(uid).set({
         'uid': uid,
         'name': requestData['name'],
@@ -136,7 +180,6 @@ class TeacherApprovalPage extends StatelessWidget {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 3️⃣ TEACHER COLLECTION
       await db.collection('teacher').doc(uid).set({
         'uid': uid,
         'name': requestData['name'],
@@ -147,12 +190,11 @@ class TeacherApprovalPage extends StatelessWidget {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 4️⃣ UPDATE REQUEST
       await db.collection('teacher_request').doc(requestId).update({
         'status': 'approved',
         'authUid': uid,
         'approvedAt': FieldValue.serverTimestamp(),
-        'password': FieldValue.delete(), // 🔒 remove password after use
+        'password': FieldValue.delete(),
       });
 
       _showSnack(
@@ -161,16 +203,15 @@ class TeacherApprovalPage extends StatelessWidget {
         success: true,
       );
     } on FirebaseAuthException catch (e) {
-      String msg = "Approval failed. Try again.";
+      String msg = "Approval failed";
 
       if (e.code == 'email-already-in-use') {
-        msg =
-            "Approval failed. This teacher account already exists or was approved earlier.";
+        msg = "This email is already registered";
       }
 
       _showSnack(context, msg);
-    } catch (e) {
-      _showSnack(context, "Approval failed due to unexpected error");
+    } catch (_) {
+      _showSnack(context, "Unexpected error during approval");
     } finally {
       await tempApp?.delete();
     }
@@ -198,10 +239,7 @@ class TeacherApprovalPage extends StatelessWidget {
   // SNACKBAR
   // ==================================================
   void _showSnack(BuildContext context, String msg, {bool success = false}) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-
-    messenger.showSnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
         duration: const Duration(seconds: 2),
