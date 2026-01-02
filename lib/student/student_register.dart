@@ -42,7 +42,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
   }
 
   // ======================================================
-  // REGISTER STUDENT → ADMISSION NUMBER AS UNIQUE ID
+  // REGISTER STUDENT
   // ======================================================
   Future<void> _registerStudent() async {
     if (_nameCtrl.text.trim().isEmpty ||
@@ -66,17 +66,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     UserCredential? cred;
 
     try {
-      // 🔐 CHECK UNIQUE ADMISSION NUMBER
-      final docRef = _db.collection('student').doc(admissionNo);
-      final existing = await docRef.get();
-
-      if (existing.exists) {
-        _showSnack("Admission number already exists");
-        setState(() => isLoading = false);
-        return;
-      }
-
-      // 🔐 CREATE AUTH USER
+      // 1. ✅ CREATE AUTH USER FIRST (So we are "Signed In")
       cred = await _auth.createUserWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
@@ -84,7 +74,9 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       final String authUid = cred.user!.uid;
 
-      // 🔐 WRITE BOTH DOCUMENTS SAFELY
+      // 2. ✅ WRITE TO FIRESTORE
+      // If admissionNo already exists, the Security Rules will REJECT this write
+      // because 'allow update' is restricted to the owner of the existing doc.
       final batch = _db.batch();
 
       final userRef = _db.collection('users').doc(authUid);
@@ -95,7 +87,8 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      batch.set(docRef, {
+      final studentRef = _db.collection('student').doc(admissionNo);
+      batch.set(studentRef, {
         'admissionNo': admissionNo,
         'authUid': authUid,
         'name': _nameCtrl.text.trim(),
@@ -130,13 +123,19 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
     } on FirebaseAuthException catch (e) {
       _showSnack(e.message ?? "Registration failed");
     } on FirebaseException catch (e) {
-      // 🔥 ROLLBACK AUTH USER IF FIRESTORE FAILS
+      // 🔥 ROLLBACK: If Firestore fails (e.g. Admission Number taken), delete the Auth user
       if (cred?.user != null) {
         await cred!.user!.delete();
       }
-      _showSnack(e.message ?? "Permission denied");
+
+      if (e.code == 'permission-denied') {
+        _showSnack("Admission Number already exists or Permission Denied");
+      } else {
+        _showSnack("Database Error: ${e.message}");
+      }
     } catch (e) {
-      debugPrint("REGISTER ERROR: $e");
+      // General rollback
+      if (cred?.user != null) await cred!.user!.delete();
       _showSnack("Something went wrong");
     } finally {
       if (mounted) setState(() => isLoading = false);
