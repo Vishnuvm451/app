@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -65,45 +66,55 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     }
 
     final email = emailController.text.trim().toLowerCase();
-
     setState(() => isLoading = true);
 
     try {
+      // 1️⃣ CHECK DUPLICATE EMAIL
       final exists = await _emailAlreadyExists(email);
       if (exists) {
         _showSnack("This email is already registered or pending approval");
-        setState(() => isLoading = false);
         return;
       }
 
-      // 🔐 STORE REQUEST ONLY (NO PASSWORD)
+      // 2️⃣ CREATE AUTH USER (THIS WAS MISSING)
+      final UserCredential cred = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: email,
+            password: passwordController.text,
+          );
+
+      // 3️⃣ SEND EMAIL VERIFICATION
+      await cred.user!.sendEmailVerification();
+
+      // 4️⃣ CREATE TEACHER REQUEST (NOW cred IS VALID)
       await FirebaseFirestore.instance.collection('teacher_request').add({
+        'authUid': cred.user!.uid,
         'name': nameController.text.trim(),
         'email': email,
-        'password': passwordController.text, // ✅ ADD THIS
         'departmentId': selectedDeptId,
         'departmentName': selectedDeptName,
         'status': 'pending',
+        'emailVerified': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
 
       _showSnack(
-        "Registration request sent.\nWait for admin approval.",
+        "Verification email sent.\nVerify email, then wait for admin approval.",
         success: true,
       );
 
       await Future.delayed(const Duration(seconds: 2));
 
-      if (!mounted) return;
-
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
-    } catch (e) {
-      _showSnack("Error occurred. Try again");
+    } on FirebaseAuthException catch (e) {
+      _showSnack(e.message ?? "Registration failed");
+    } catch (_) {
+      _showSnack("Something went wrong");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
