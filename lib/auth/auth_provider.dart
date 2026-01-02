@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:darzo/auth/auth_service.dart';
@@ -69,8 +70,25 @@ class AppAuthProvider extends ChangeNotifier {
         throw Exception("Authentication failed");
       }
 
-      _user = user;
-      await _loadUserProfile(user.uid);
+      // 🔁 REFRESH AUTH STATE
+      await user.reload();
+      _user = FirebaseAuth.instance.currentUser;
+
+      // ✅ EMAIL VERIFICATION CHECK (TEACHER FLOW)
+      if (_user != null && _user!.emailVerified) {
+        final snap = await FirebaseFirestore.instance
+            .collection('teacher_request')
+            .where('authUid', isEqualTo: _user!.uid)
+            .limit(1)
+            .get();
+
+        if (snap.docs.isNotEmpty) {
+          await snap.docs.first.reference.update({'emailVerified': true});
+        }
+      }
+
+      // 🔐 LOAD ROLE + PROFILE
+      await _loadUserProfile(_user!.uid);
     } finally {
       _setLoading(false);
     }
