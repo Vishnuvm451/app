@@ -183,8 +183,8 @@ class _LoginPageState extends State<LoginPage> {
           child: Stack(
             children: [
               Positioned(
-                top: 8,
-                right: 12,
+                top: 5,
+                right: 25,
                 child: IconButton(
                   icon: const Icon(
                     Icons.admin_panel_settings,
