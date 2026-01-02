@@ -34,24 +34,10 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // CHECK DUPLICATES (EMAIL)
-  // ======================================================
-  Future<bool> _emailAlreadyExists(String email) async {
-    final db = FirebaseFirestore.instance;
-
-    final req = await db
-        .collection('teacher_request')
-        .where('email', isEqualTo: email)
-        .limit(1)
-        .get();
-
-    return req.docs.isNotEmpty;
-  }
-
-  // ======================================================
-  // TEACHER REGISTER → REQUEST ONLY (SECURE)
+  // TEACHER REGISTER -> REQUEST ONLY (SECURE)
   // ======================================================
   Future<void> registerTeacher() async {
+    // 1. Validation
     if (nameController.text.trim().isEmpty ||
         emailController.text.trim().isEmpty ||
         passwordController.text.isEmpty ||
@@ -68,29 +54,31 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     final email = emailController.text.trim().toLowerCase();
     setState(() => isLoading = true);
 
+    UserCredential? cred;
+
     try {
-      // 1️⃣ CHECK DUPLICATE EMAIL
-      final exists = await _emailAlreadyExists(email);
-      if (exists) {
-        _showSnack("This email is already registered or pending approval");
-        return;
-      }
+      // 2. CREATE AUTH USER
+      // 🔥 Firebase Auth automatically handles "Email Already Exists" check here.
+      cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: passwordController.text,
+      );
 
-      // 2️⃣ CREATE AUTH USER (THIS WAS MISSING)
-      final UserCredential cred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: email,
-            password: passwordController.text,
-          );
+      final uid = cred.user!.uid;
 
-      // 3️⃣ SEND EMAIL VERIFICATION
+      // 3. SEND VERIFICATION
       await cred.user!.sendEmailVerification();
 
-      // 4️⃣ CREATE TEACHER REQUEST (NOW cred IS VALID)
+      // 4. CREATE REQUEST IN FIRESTORE
+      // Note: We do NOT write to 'users' collection yet.
+      // The Admin will do that when they Approve the request.
       await FirebaseFirestore.instance.collection('teacher_request').add({
-        'authUid': cred.user!.uid,
+        'authUid': uid,
         'name': nameController.text.trim(),
         'email': email,
+        // We store password securely in Auth, but for approval flow,
+        // usually, we don't store raw password in Firestore.
+        // If you need it for admin creation later, handle with care.
         'departmentId': selectedDeptId,
         'departmentName': selectedDeptName,
         'status': 'pending',
@@ -101,20 +89,33 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       if (!mounted) return;
 
       _showSnack(
-        "Verification email sent.\nVerify email, then wait for admin approval.",
+        "Request Sent! Verify your email and wait for Admin approval.",
         success: true,
       );
 
+      // 5. SIGN OUT (Prevent auto-login as "pending" user)
+      await FirebaseAuth.instance.signOut();
+
       await Future.delayed(const Duration(seconds: 2));
 
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
     } on FirebaseAuthException catch (e) {
-      _showSnack(e.message ?? "Registration failed");
-    } catch (_) {
-      _showSnack("Something went wrong");
+      String msg = "Registration failed";
+      if (e.code == 'email-already-in-use')
+        msg = "Email is already registered.";
+      if (e.code == 'weak-password') msg = "Password is too weak.";
+      if (e.code == 'invalid-email') msg = "Invalid email format.";
+      _showSnack(msg);
+    } catch (e) {
+      // Rollback: Delete user if Firestore write fails
+      if (cred?.user != null) {
+        await cred!.user!.delete();
+      }
+      _showSnack("Error: ${e.toString()}");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -131,7 +132,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // UI (UNCHANGED)
+  // UI
   // ======================================================
   @override
   Widget build(BuildContext context) {
@@ -171,13 +172,16 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                         ),
                       ),
                       const SizedBox(height: 20),
+
                       _field(nameController, "Full Name", Icons.person_outline),
+
                       _field(
                         emailController,
                         "Email",
                         Icons.email_outlined,
                         blockSpaces: true,
                       ),
+
                       TextField(
                         controller: passwordController,
                         obscureText: !_isPasswordVisible,
@@ -202,9 +206,13 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                         ),
                       ),
                       const SizedBox(height: 15),
+
+                      // DEPARTMENT DROPDOWN (SINGULAR 'department')
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
-                            .collection('department')
+                            .collection(
+                              'department',
+                            ) // Matches Rules (Singular)
                             .orderBy('name')
                             .snapshots(),
                         builder: (context, snapshot) {
@@ -249,6 +257,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                         },
                       ),
                       const SizedBox(height: 25),
+
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -279,6 +288,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                         ),
                       ),
                       const SizedBox(height: 16),
+
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
