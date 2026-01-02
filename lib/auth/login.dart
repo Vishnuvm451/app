@@ -61,6 +61,36 @@ class _LoginPageState extends State<LoginPage> {
         await FirebaseAuth.instance.signOut();
         return;
       }
+      // ======================================================
+      // TEACHER EMAIL VERIFIED → UPDATE REQUEST & STOP LOGIN
+      // ======================================================
+      final snap = await FirebaseFirestore.instance
+          .collection('teacher_request')
+          .where('email', isEqualTo: user.email)
+          .limit(1)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        final doc = snap.docs.first;
+        final data = doc.data() as Map<String, dynamic>;
+
+        // Update only once
+        if (data['emailVerified'] != true) {
+          await doc.reference.update({
+            'emailVerified': true,
+            'emailVerifiedAt': FieldValue.serverTimestamp(),
+          });
+
+          _showSnack(
+            "Email verified successfully.\nWaiting for admin approval.",
+            success: true,
+          );
+
+          // ❌ STOP login here (teacher not approved yet)
+          await FirebaseAuth.instance.signOut();
+          return;
+        }
+      }
 
       final uid = user.uid;
 
@@ -76,6 +106,37 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       final String role = userDoc['role'];
+
+      // ======================================================
+      // TEACHER EMAIL VERIFIED → UPDATE REQUEST (ONLY IF NOT APPROVED)
+      // ======================================================
+      if (role == 'teacher') {
+        final snap = await FirebaseFirestore.instance
+            .collection('teacher_request')
+            .where('email', isEqualTo: user.email)
+            .limit(1)
+            .get();
+
+        if (snap.docs.isNotEmpty) {
+          final doc = snap.docs.first;
+          final data = doc.data() as Map<String, dynamic>;
+
+          if (data['emailVerified'] != true) {
+            await doc.reference.update({
+              'emailVerified': true,
+              'emailVerifiedAt': FieldValue.serverTimestamp(),
+            });
+
+            _showSnack(
+              "Email verified successfully.\nWaiting for admin approval.",
+              success: true,
+            );
+
+            await FirebaseAuth.instance.signOut();
+            return;
+          }
+        }
+      }
 
       // ======================================================
       // STUDENT FLOW
