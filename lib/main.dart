@@ -1,10 +1,10 @@
-import 'package:darzo/login.dart';
+import 'package:darzo/auth/login.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import 'firebase_options.dart';
-import '/auth_provider.dart';
+import 'auth/auth_provider.dart';
 // import 'splash_screen.dart';
 
 Future<void> main() async {

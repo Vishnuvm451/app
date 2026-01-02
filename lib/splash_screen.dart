@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '/auth_provider.dart';
-import 'login.dart';
-import 'admin_dashboard.dart';
-import 'student_dashboard.dart';
-import 'teacher_dashboard.dart';
-import 'teacher_setup_page.dart';
+import 'auth/auth_provider.dart';
+import 'auth/login.dart';
+import 'admin/admin_dashboard.dart';
+import 'student/student_dashboard.dart';
+import 'teacher/teacher_dashboard.dart';
+import 'teacher/teacher_setup_page.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
