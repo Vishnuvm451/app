@@ -42,7 +42,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => isLoading = true);
 
     try {
-      // ---------- AUTH ----------
+      // AUTH
       await context.read<AppAuthProvider>().login(
         email: emailCtrl.text.trim(),
         password: passwordCtrl.text.trim(),
@@ -54,89 +54,24 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      // ---------- EMAIL VERIFICATION ----------
-      await user.reload();
-      if (!user.emailVerified) {
-        _showSnack("Please verify your email before logging in");
-        await FirebaseAuth.instance.signOut();
-        return;
-      }
-      // ======================================================
-      // TEACHER EMAIL VERIFIED → UPDATE REQUEST & STOP LOGIN
-      // ======================================================
-      final snap = await FirebaseFirestore.instance
-          .collection('teacher_request')
-          .where('email', isEqualTo: user.email)
-          .limit(1)
-          .get();
-
-      if (snap.docs.isNotEmpty) {
-        final doc = snap.docs.first;
-        final data = doc.data() as Map<String, dynamic>;
-
-        // Update only once
-        if (data['emailVerified'] != true) {
-          await doc.reference.update({
-            'emailVerified': true,
-            'emailVerifiedAt': FieldValue.serverTimestamp(),
-          });
-
-          _showSnack(
-            "Email verified successfully.\nWaiting for admin approval.",
-            success: true,
-          );
-
-          // ❌ STOP login here (teacher not approved yet)
-          await FirebaseAuth.instance.signOut();
-          return;
-        }
-      }
-
       final uid = user.uid;
 
-      // ---------- ROLE ----------
+      // ======================================================
+      // CHECK USER PROFILE
+      // ======================================================
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
           .get();
 
+      // 🚨 TEACHER NOT APPROVED YET
       if (!userDoc.exists) {
-        _showSnack("User record not found");
+        _showSnack("Your registration is pending.\nWait for admin approval.");
+        await FirebaseAuth.instance.signOut();
         return;
       }
 
       final String role = userDoc['role'];
-
-      // ======================================================
-      // TEACHER EMAIL VERIFIED → UPDATE REQUEST (ONLY IF NOT APPROVED)
-      // ======================================================
-      if (role == 'teacher') {
-        final snap = await FirebaseFirestore.instance
-            .collection('teacher_request')
-            .where('email', isEqualTo: user.email)
-            .limit(1)
-            .get();
-
-        if (snap.docs.isNotEmpty) {
-          final doc = snap.docs.first;
-          final data = doc.data() as Map<String, dynamic>;
-
-          if (data['emailVerified'] != true) {
-            await doc.reference.update({
-              'emailVerified': true,
-              'emailVerifiedAt': FieldValue.serverTimestamp(),
-            });
-
-            _showSnack(
-              "Email verified successfully.\nWaiting for admin approval.",
-              success: true,
-            );
-
-            await FirebaseAuth.instance.signOut();
-            return;
-          }
-        }
-      }
 
       // ======================================================
       // STUDENT FLOW
@@ -191,14 +126,7 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
 
-        final bool isApproved = teacherDoc['isApproved'] == true;
         final bool setupCompleted = teacherDoc['setupCompleted'] == true;
-
-        if (!isApproved) {
-          _showSnack("Your account is not approved yet");
-          await FirebaseAuth.instance.signOut();
-          return;
-        }
 
         if (!setupCompleted) {
           Navigator.pushReplacement(
@@ -219,9 +147,7 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       _showSnack(e.toString().replaceAll('Exception:', '').trim());
     } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
+      if (mounted) setState(() => isLoading = false);
     }
   }
 

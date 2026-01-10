@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:darzo/auth/auth_service.dart';
@@ -70,24 +69,10 @@ class AppAuthProvider extends ChangeNotifier {
         throw Exception("Authentication failed");
       }
 
-      // 🔁 REFRESH AUTH STATE
       await user.reload();
       _user = FirebaseAuth.instance.currentUser;
 
-      // ✅ EMAIL VERIFICATION CHECK (TEACHER FLOW)
-      if (_user != null && _user!.emailVerified) {
-        final snap = await FirebaseFirestore.instance
-            .collection('teacher_request')
-            .where('authUid', isEqualTo: _user!.uid)
-            .limit(1)
-            .get();
-
-        if (snap.docs.isNotEmpty) {
-          await snap.docs.first.reference.update({'emailVerified': true});
-        }
-      }
-
-      // 🔐 LOAD ROLE + PROFILE
+      // 🔐 LOAD ROLE + PROFILE ONLY
       await _loadUserProfile(_user!.uid);
     } finally {
       _setLoading(false);
@@ -111,10 +96,9 @@ class AppAuthProvider extends ChangeNotifier {
   }
 
   // ===================================================
-  // LOAD USER PROFILE (ROLE → PROFILE)
+  // LOAD USER PROFILE
   // ===================================================
   Future<void> _loadUserProfile(String uid) async {
-    // ---------- USERS (ROLE SOURCE OF TRUTH) ----------
     final userData = await FirestoreService.instance.getUser(uid);
 
     if (userData == null) {
@@ -125,7 +109,7 @@ class AppAuthProvider extends ChangeNotifier {
 
     // ---------- ADMIN ----------
     if (_role == 'admin') {
-      _name = userData['name']; // optional
+      _name = userData['name'];
       notifyListeners();
       return;
     }
@@ -158,10 +142,7 @@ class AppAuthProvider extends ChangeNotifier {
       _departmentId = teacherData['departmentId'];
       _name = teacherData['name'];
 
-      if (!_teacherApproved) {
-        throw Exception("Teacher not approved by admin");
-      }
-
+      // ❌ DO NOT THROW — LOGIN PAGE HANDLES THIS
       notifyListeners();
       return;
     }

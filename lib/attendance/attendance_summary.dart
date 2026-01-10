@@ -30,7 +30,7 @@ class _MonthlyAttendanceSummaryPageState
   }
 
   // --------------------------------------------------
-  // LOAD MONTHLY SUMMARY
+  // LOAD MONTHLY SUMMARY (RULE-SAFE)
   // --------------------------------------------------
   Future<void> _loadMonthlySummary() async {
     setState(() => isLoading = true);
@@ -46,10 +46,15 @@ class _MonthlyAttendanceSummaryPageState
 
     final classId = student['classId'];
 
+    // ✅ Generate attendance_final doc IDs for the month
+    final List<String> attendanceDocIds = _generateAttendanceDocIds(
+      classId,
+      selectedMonth,
+    );
+
     final result = await FirestoreService.instance.getMonthlyAttendanceSummary(
       studentId: user.uid,
-      classId: classId,
-      month: selectedMonth, // ⭐ NEW
+      attendanceDocIds: attendanceDocIds,
     );
 
     if (!mounted) return;
@@ -64,6 +69,24 @@ class _MonthlyAttendanceSummaryPageState
   }
 
   // --------------------------------------------------
+  // GENERATE DOC IDS (yyyy-MM-dd)
+  // --------------------------------------------------
+  List<String> _generateAttendanceDocIds(String classId, DateTime month) {
+    final List<String> ids = [];
+
+    final firstDay = DateTime(month.year, month.month, 1);
+    final lastDay = DateTime(month.year, month.month + 1, 0);
+
+    for (int i = 0; i < lastDay.day; i++) {
+      final date = DateTime(month.year, month.month, i + 1);
+      final dateId = DateFormat('yyyy-MM-dd').format(date);
+      ids.add('${classId}_$dateId');
+    }
+
+    return ids;
+  }
+
+  // --------------------------------------------------
   // MONTH PICKER
   // --------------------------------------------------
   Future<void> _pickMonth() async {
@@ -73,7 +96,6 @@ class _MonthlyAttendanceSummaryPageState
       firstDate: DateTime(2022),
       lastDate: DateTime.now(),
       helpText: "Select Month",
-      fieldHintText: "MM/YYYY",
     );
 
     if (picked != null) {

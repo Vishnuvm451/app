@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 
 class TeacherApprovalPage extends StatelessWidget {
   const TeacherApprovalPage({super.key});
@@ -10,6 +9,19 @@ class TeacherApprovalPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 🔐 HARD AUTH GUARD (CRITICAL FIX)
+    final adminUser = FirebaseAuth.instance.currentUser;
+    if (adminUser == null) {
+      return const Scaffold(
+        body: Center(
+          child: Text(
+            "Admin not authenticated.\nPlease login again.",
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
@@ -64,7 +76,7 @@ class TeacherApprovalPage extends StatelessWidget {
   }
 
   // ==================================================
-  // CARD (UI UNCHANGED)
+  // CARD UI (UNCHANGED)
   // ==================================================
   Widget _buildRequestCard(
     BuildContext context,
@@ -104,7 +116,6 @@ class TeacherApprovalPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // INFO
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -130,6 +141,7 @@ class TeacherApprovalPage extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
+                              color: Colors.black87,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -155,6 +167,7 @@ class TeacherApprovalPage extends StatelessWidget {
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
+                                color: Colors.black54,
                               ),
                             ),
                           ),
@@ -231,58 +244,31 @@ class TeacherApprovalPage extends StatelessWidget {
   }
 
   // ==================================================
-  // APPROVE (LOGIC FIXED)
+  // APPROVE TEACHER (FIXED)
   // ==================================================
   Future<void> _approveTeacher({
     required BuildContext context,
     required String requestId,
     required Map<String, dynamic> requestData,
   }) async {
-    // ❗ BLOCK approval if email not verified
-    if (requestData['emailVerified'] != true) {
-      _showSnack(context, "Teacher email is not verified yet");
+    // 🔐 AUTH CHECK
+    final adminUser = FirebaseAuth.instance.currentUser;
+    if (adminUser == null) {
+      _showSnack(context, "Admin session expired. Login again.");
       return;
     }
 
-    FirebaseApp? tempApp;
+    final String? authUid = requestData['authUid'];
+    if (authUid == null) {
+      _showSnack(context, "Error: Request missing Auth UID");
+      return;
+    }
 
     try {
       final db = FirebaseFirestore.instance;
 
-      final reqSnap = await db
-          .collection('teacher_request')
-          .doc(requestId)
-          .get();
-
-      if (!reqSnap.exists || reqSnap['status'] != 'pending') {
-        _showSnack(context, "Request already processed");
-        return;
-      }
-
-      tempApp = await Firebase.initializeApp(
-        name: 'TempTeacherCreate',
-        options: Firebase.app().options,
-      );
-
-      final auth = FirebaseAuth.instanceFor(app: tempApp);
-
-      final cred = await auth.createUserWithEmailAndPassword(
-        email: requestData['email'],
-        password: requestData['password'],
-      );
-
-      final uid = cred.user!.uid;
-
-      await db.collection('users').doc(uid).set({
-        'uid': uid,
-        'name': requestData['name'],
-        'email': requestData['email'],
-        'role': 'teacher',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      await db.collection('teacher').doc(uid).set({
-        'uid': uid,
+      await db.collection('teacher').doc(authUid).set({
+        'uid': authUid,
         'name': requestData['name'],
         'email': requestData['email'],
         'departmentId': requestData['departmentId'],
@@ -292,24 +278,21 @@ class TeacherApprovalPage extends StatelessWidget {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
+      await db.collection('users').doc(authUid).set({
+        'uid': authUid,
+        'email': requestData['email'],
+        'role': 'teacher',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
       await db.collection('teacher_request').doc(requestId).update({
         'status': 'approved',
-        'authUid': uid,
         'approvedAt': FieldValue.serverTimestamp(),
-        'password': FieldValue.delete(),
       });
 
       _showSnack(context, "Teacher approved successfully", success: true);
-    } on FirebaseAuthException catch (e) {
-      String msg = "Approval failed";
-      if (e.code == 'email-already-in-use') {
-        msg = "This email is already registered";
-      }
-      _showSnack(context, msg);
-    } catch (_) {
-      _showSnack(context, "Unexpected error during approval");
-    } finally {
-      await tempApp?.delete();
+    } catch (e) {
+      _showSnack(context, "Error: $e");
     }
   }
 
@@ -317,6 +300,12 @@ class TeacherApprovalPage extends StatelessWidget {
     required BuildContext context,
     required String requestId,
   }) async {
+    final adminUser = FirebaseAuth.instance.currentUser;
+    if (adminUser == null) {
+      _showSnack(context, "Admin session expired");
+      return;
+    }
+
     await FirebaseFirestore.instance
         .collection('teacher_request')
         .doc(requestId)

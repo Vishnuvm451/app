@@ -34,10 +34,9 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // TEACHER REGISTER -> REQUEST ONLY (SECURE)
+  // TEACHER REGISTER -> REQUEST ONLY (NO EMAIL VERIFICATION)
   // ======================================================
   Future<void> registerTeacher() async {
-    // 1. Validation
     if (nameController.text.trim().isEmpty ||
         emailController.text.trim().isEmpty ||
         passwordController.text.isEmpty ||
@@ -57,8 +56,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     UserCredential? cred;
 
     try {
-      // 2. CREATE AUTH USER
-      // 🔥 Firebase Auth automatically handles "Email Already Exists" check here.
+      // 1. CREATE AUTH USER
       cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
         password: passwordController.text,
@@ -66,52 +64,46 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
 
       final uid = cred.user!.uid;
 
-      // 3. SEND VERIFICATION
-      await cred.user!.sendEmailVerification();
-
-      // 4. CREATE REQUEST IN FIRESTORE
-      // Note: We do NOT write to 'users' collection yet.
-      // The Admin will do that when they Approve the request.
+      // 2. CREATE TEACHER REQUEST (ADMIN APPROVAL ONLY)
       await FirebaseFirestore.instance.collection('teacher_request').add({
         'authUid': uid,
         'name': nameController.text.trim(),
         'email': email,
-        // We store password securely in Auth, but for approval flow,
-        // usually, we don't store raw password in Firestore.
-        // If you need it for admin creation later, handle with care.
         'departmentId': selectedDeptId,
         'departmentName': selectedDeptName,
         'status': 'pending',
-        'emailVerified': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
 
       _showSnack(
-        "Request Sent! Verify your email and wait for Admin approval.",
+        "Request submitted successfully.\nWait for admin approval.",
         success: true,
       );
 
-      // 5. SIGN OUT (Prevent auto-login as "pending" user)
+      // 3. SIGN OUT (PREVENT LOGIN BEFORE APPROVAL)
       await FirebaseAuth.instance.signOut();
 
       await Future.delayed(const Duration(seconds: 2));
-
       if (!mounted) return;
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
     } on FirebaseAuthException catch (e) {
       String msg = "Registration failed";
-      if (e.code == 'email-already-in-use')
+      if (e.code == 'email-already-in-use') {
         msg = "Email is already registered.";
-      if (e.code == 'weak-password') msg = "Password is too weak.";
-      if (e.code == 'invalid-email') msg = "Invalid email format.";
+      } else if (e.code == 'weak-password') {
+        msg = "Password is too weak.";
+      } else if (e.code == 'invalid-email') {
+        msg = "Invalid email format.";
+      }
       _showSnack(msg);
     } catch (e) {
-      // Rollback: Delete user if Firestore write fails
+      // Rollback auth user if Firestore fails
       if (cred?.user != null) {
         await cred!.user!.delete();
       }
@@ -132,7 +124,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // UI
+  // UI (UNCHANGED)
   // ======================================================
   @override
   Widget build(BuildContext context) {
@@ -207,12 +199,10 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       ),
                       const SizedBox(height: 15),
 
-                      // DEPARTMENT DROPDOWN (SINGULAR 'department')
+                      // DEPARTMENT DROPDOWN
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
-                            .collection(
-                              'department',
-                            ) // Matches Rules (Singular)
+                            .collection('department')
                             .orderBy('name')
                             .snapshots(),
                         builder: (context, snapshot) {
