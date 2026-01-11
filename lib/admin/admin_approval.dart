@@ -83,7 +83,7 @@ class TeacherApprovalPage extends StatelessWidget {
     String requestId,
     Map<String, dynamic> data,
   ) {
-    final bool emailVerified = data['emailVerified'] == true;
+    // final bool emailVerified = data['emailVerified'] == true;
 
     final String name = data['name'] ?? 'No Name';
     final String email = data['email'] ?? '';
