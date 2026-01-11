@@ -31,40 +31,45 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // LOAD TEACHER PROFILE (UNCHANGED)
+  // LOAD TEACHER PROFILE
   // --------------------------------------------------
   Future<void> _loadTeacherProfile() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final snap = await _db.collection('teacher').doc(user.uid).get();
-    if (!snap.exists) return;
+    try {
+      final snap = await _db.collection('teacher').doc(user.uid).get();
+      if (!snap.exists) return;
 
-    final data = snap.data()!;
+      final data = snap.data()!;
 
-    isApproved = data['isApproved'] == true;
-    setupCompleted = data['setupCompleted'] == true;
+      isApproved = data['isApproved'] == true;
+      setupCompleted = data['setupCompleted'] == true;
 
-    if (!isApproved) {
-      _showSnack("Your account is not approved");
-      if (mounted) Navigator.pop(context);
-      return;
+      if (!isApproved) {
+        _showSnack("Your account is not approved");
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+
+      if (!setupCompleted) {
+        _showSnack("Complete setup before starting attendance");
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          classId = data['classId']; // 🔒 locked class
+        });
+      }
+    } catch (e) {
+      print("Profile Load Error: $e");
     }
-
-    if (!setupCompleted) {
-      _showSnack("Complete setup before starting attendance");
-      if (mounted) Navigator.pop(context);
-      return;
-    }
-
-    if (!mounted) return;
-    setState(() {
-      classId = data['classId']; // 🔒 locked class
-    });
   }
 
   // --------------------------------------------------
-  // START SESSION (UNCHANGED)
+  // START SESSION (FIXED WITH BATCH)
   // --------------------------------------------------
   Future<void> _startSession() async {
     if (classId == null) {
@@ -78,31 +83,42 @@ class _TeacherAttendanceSessionPageState
     setState(() => isLoading = true);
 
     final today = _todayId();
-    final sessionId = "${classId}_$today\_$sessionType";
+    final sessionId = "${classId}_${today}_$sessionType";
 
     try {
-      final ref = _db.collection('attendance_session').doc(sessionId);
+      final sessionRef = _db.collection('attendance_session').doc(sessionId);
+      final attendanceRef = _db.collection('attendance').doc(sessionId);
 
-      final snap = await ref.get();
-      if (snap.exists && snap['isActive'] == true) {
+      // 1. Check if session exists using a Fresh Transaction or Get
+      final sessionSnap = await sessionRef.get();
+
+      if (sessionSnap.exists && sessionSnap.data()!['isActive'] == true) {
         _showSnack("Session already active");
         return;
       }
 
+      // 2. Check for ANY other active session for this class today
+      // (Prevent Morning and Afternoon running at same time)
       final activeQuery = await _db
           .collection('attendance_session')
           .where('classId', isEqualTo: classId)
           .where('date', isEqualTo: today)
           .where('isActive', isEqualTo: true)
-          .limit(1)
           .get();
 
       if (activeQuery.docs.isNotEmpty) {
-        _showSnack("Another session is already active");
-        return;
+        // If the found active session is NOT the one we are trying to start
+        if (activeQuery.docs.first.id != sessionId) {
+          _showSnack("Another session is already active");
+          return;
+        }
       }
 
-      await ref.set({
+      // 3. USE BATCH WRITE (Fixes "Failed but started" bug)
+      // This ensures both docs are created, or neither is.
+      WriteBatch batch = _db.batch();
+
+      batch.set(sessionRef, {
         'classId': classId,
         'date': today,
         'sessionType': sessionType,
@@ -111,16 +127,24 @@ class _TeacherAttendanceSessionPageState
         'startedAt': FieldValue.serverTimestamp(),
       });
 
+      batch.set(attendanceRef, {
+        'classId': classId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
       _showSnack("Attendance session started", success: true);
     } catch (e) {
-      _showSnack("Failed to start session");
+      print("Start Session Error: $e"); // Check Console for red errors
+      _showSnack("Failed to start session: ${e.toString()}");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
   // --------------------------------------------------
-  // STOP SESSION + FINALIZE (UNCHANGED)
+  // STOP SESSION (FIXED LOGIC ORDER)
   // --------------------------------------------------
   Future<void> _stopSession() async {
     if (classId == null) {
@@ -128,33 +152,40 @@ class _TeacherAttendanceSessionPageState
       return;
     }
 
+    setState(() => isLoading = true);
+
     final today = _todayId();
-    final sessionId = "${classId}_$today\_$sessionType";
+    final sessionId = "${classId}_${today}_$sessionType";
 
     try {
       final ref = _db.collection('attendance_session').doc(sessionId);
       final snap = await ref.get();
 
-      if (!snap.exists || snap['isActive'] != true) {
+      if (!snap.exists || snap.data()!['isActive'] != true) {
         _showSnack("No active session to stop");
         return;
       }
 
+      // 1. Finalize Attendance FIRST (Calculate presence)
+      await _finalizeAttendance(classId!);
+
+      // 2. THEN Close the Session
       await ref.update({
         'isActive': false,
         'endedAt': FieldValue.serverTimestamp(),
       });
 
-      await _finalizeAttendance(classId!);
-
       _showSnack("Attendance finalized", success: true);
     } catch (e) {
-      _showSnack("Failed to stop session");
+      print("Stop Session Error: $e");
+      _showSnack("Failed to stop session: ${e.toString()}");
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
   // --------------------------------------------------
-  // FINALIZE ATTENDANCE (UNCHANGED)
+  // FINALIZE ATTENDANCE
   // --------------------------------------------------
   Future<void> _finalizeAttendance(String classId) async {
     final today = _todayId();
@@ -162,12 +193,14 @@ class _TeacherAttendanceSessionPageState
 
     final finalRef = _db.collection('attendance_final').doc(finalDocId);
 
+    // Create the daily report doc
     await finalRef.set({
       'classId': classId,
       'date': today,
       'finalizedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
+    // Get all students in this class
     final studentsSnap = await _db
         .collection('student')
         .where('classId', isEqualTo: classId)
@@ -178,21 +211,26 @@ class _TeacherAttendanceSessionPageState
     final morningId = '${classId}_${today}_morning';
     final afternoonId = '${classId}_${today}_afternoon';
 
+    // Fetch Morning Data
     final morningSnap = await _db
         .collection('attendance')
         .doc(morningId)
         .collection('student')
         .get();
 
+    // Fetch Afternoon Data
     final afternoonSnap = await _db
         .collection('attendance')
         .doc(afternoonId)
         .collection('student')
         .get();
 
+    // Map for fast lookup
     final morningMap = {for (var d in morningSnap.docs) d.id: true};
     final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
 
+    // Prepare Batch for Student Status Updates
+    // Note: Firestore batch limit is 500. If class > 500, needs chunking.
     final batch = _db.batch();
 
     for (final stu in studentsSnap.docs) {
@@ -203,11 +241,11 @@ class _TeacherAttendanceSessionPageState
 
       String status;
       if (m && a) {
-        status = 'present';
+        status = 'present'; // Both sessions present
       } else if (m || a) {
-        status = 'half-day';
+        status = 'half-day'; // One session present
       } else {
-        status = 'absent';
+        status = 'absent'; // Neither
       }
 
       batch.set(finalRef.collection('student').doc(studentId), {
@@ -221,7 +259,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // UI (REDESIGNED THEME)
+  // UI (UNCHANGED)
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -230,7 +268,7 @@ class _TeacherAttendanceSessionPageState
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA), // Light modern background
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text(
           "Attendance Session",
@@ -259,9 +297,6 @@ class _TeacherAttendanceSessionPageState
     );
   }
 
-  // --------------------------------------------------
-  // CLASS INFO CARD
-  // --------------------------------------------------
   Widget _classInfoCard() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -310,9 +345,6 @@ class _TeacherAttendanceSessionPageState
     );
   }
 
-  // --------------------------------------------------
-  // SESSION TYPE CARD
-  // --------------------------------------------------
   Widget _sessionTypeCard() {
     return Container(
       decoration: BoxDecoration(
@@ -373,9 +405,6 @@ class _TeacherAttendanceSessionPageState
     );
   }
 
-  // --------------------------------------------------
-  // BUTTONS
-  // --------------------------------------------------
   Widget _actionButtons() {
     return Column(
       children: [
@@ -430,32 +459,39 @@ class _TeacherAttendanceSessionPageState
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-            onPressed: _stopSession,
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.stop_circle_outlined, size: 28),
-                SizedBox(width: 10),
-                Text(
-                  "STOP ATTENDANCE",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
+            onPressed: isLoading ? null : _stopSession,
+            child: isLoading
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.red,
+                      strokeWidth: 3,
+                    ),
+                  )
+                : const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.stop_circle_outlined, size: 28),
+                      SizedBox(width: 10),
+                      Text(
+                        "STOP ATTENDANCE",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
           ),
         ),
       ],
     );
   }
 
-  // --------------------------------------------------
-  // SNACK
-  // --------------------------------------------------
   void _showSnack(String msg, {bool success = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(

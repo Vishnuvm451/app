@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:darzo/auth/login.dart';
 import 'package:darzo/auth/auth_provider.dart';
 import 'package:darzo/services/firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
@@ -16,6 +17,8 @@ class StudentDashboardPage extends StatefulWidget {
 
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   bool isLoading = true;
+  bool isSessionActive = false;
+
   String classId = '';
 
   /// loading | no-session | not-marked | present | half-day | absent
@@ -24,13 +27,13 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   @override
   void initState() {
     super.initState();
-    _loadFinalAttendance();
+    _loadDashboardData();
   }
 
   // --------------------------------------------------
-  // LOAD FINAL DAY ATTENDANCE
+  // LOAD DASHBOARD DATA
   // --------------------------------------------------
-  Future<void> _loadFinalAttendance() async {
+  Future<void> _loadDashboardData() async {
     try {
       final auth = context.read<AppAuthProvider>();
       final user = auth.user;
@@ -48,25 +51,36 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       }
 
       classId = student['classId'] ?? '';
-
       if (classId.isEmpty) {
         _setNoSession();
         return;
       }
 
+      // ✅ CHECK ACTIVE ATTENDANCE SESSION
+      final sessionQuery = await FirebaseFirestore.instance
+          .collection('attendance_session')
+          .where('classId', isEqualTo: classId)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      isSessionActive = sessionQuery.docs.isNotEmpty;
+
+      // ✅ LOAD FINAL ATTENDANCE (if any)
       final finalStatus = await FirestoreService.instance
           .getTodayFinalAttendance(studentId: user.uid, classId: classId);
 
       if (!mounted) return;
 
       setState(() {
-        attendanceStatus = finalStatus ?? 'not-marked';
+        attendanceStatus =
+            finalStatus ?? (isSessionActive ? 'not-marked' : 'no-session');
         isLoading = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        attendanceStatus = 'not-marked';
+        attendanceStatus = 'no-session';
         isLoading = false;
       });
     }
@@ -183,11 +197,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       case 'not-marked':
         color = Colors.blue;
         text = "Attendance Not Marked";
-        canMark = true;
+        canMark = isSessionActive;
         break;
       case 'no-session':
         color = Colors.grey;
-        text = "No Attendance Session Today";
+        text = "Waiting for Teacher to Start Attendance";
         break;
       default:
         color = Colors.grey;
@@ -216,9 +230,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             width: double.infinity,
             child: ElevatedButton.icon(
               icon: const Icon(Icons.face),
-              label: const Text(
-                "Mark Attendance",
-                style: TextStyle(fontWeight: FontWeight.bold),
+              label: Text(
+                canMark ? "Mark Attendance" : "Waiting for Teacher",
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               onPressed: canMark
                   ? () async {
@@ -236,7 +250,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                         attendanceStatus = 'loading';
                       });
 
-                      _loadFinalAttendance();
+                      _loadDashboardData();
                     }
                   : null,
             ),
@@ -295,7 +309,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   );
                 },
               ),
-
               _actionCard(Icons.people, "Classmates", onTap: _comingSoon),
               _actionCard(Icons.settings, "Settings", onTap: _comingSoon),
             ],
