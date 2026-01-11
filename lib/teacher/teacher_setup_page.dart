@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+// ✅ IMPORT THE DASHBOARD PAGE
+import 'package:darzo/teacher/teacher_dashboard.dart';
 
 class TeacherSetupPage extends StatefulWidget {
   const TeacherSetupPage({super.key});
@@ -12,9 +14,11 @@ class TeacherSetupPage extends StatefulWidget {
 class _TeacherSetupPageState extends State<TeacherSetupPage> {
   String? selectedClassId;
   int? selectedSemester;
-  List<String> selectedSubjectIds = [];
+  final List<String> selectedSubjectIds = [];
 
   String? departmentId;
+  String? departmentName;
+
   bool isSaving = false;
   bool isApproved = false;
   bool setupCompleted = false;
@@ -41,27 +45,36 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
     isApproved = data['isApproved'] == true;
     setupCompleted = data['setupCompleted'] == true;
+    departmentId = data['departmentId'];
 
     if (!isApproved) {
       _showSnack("Your account is not approved yet");
-      if (mounted) Navigator.pop(context);
       return;
     }
 
+    // If setup is already done, go to dashboard immediately
     if (setupCompleted) {
-      _showSnack("Setup already completed");
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
+        );
+      }
       return;
     }
 
-    if (!mounted) return;
-    setState(() {
-      departmentId = data['departmentId'];
-    });
+    // Load department name
+    final deptSnap = await _db.collection('department').doc(departmentId).get();
+
+    if (deptSnap.exists) {
+      departmentName = deptSnap['name'];
+    }
+
+    if (mounted) setState(() {});
   }
 
   // --------------------------------------------------
-  // SAVE SETUP
+  // SAVE SETUP (FIXED NAVIGATION)
   // --------------------------------------------------
   Future<void> _saveSetup() async {
     if (selectedClassId == null ||
@@ -88,7 +101,12 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
       if (!mounted) return;
 
       _showSnack("Setup completed successfully");
-      Navigator.pop(context);
+
+      // ✅ FIX: Navigate to Dashboard instead of popping (Fixes Red Screen)
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
+      );
     } catch (e) {
       _showSnack("Failed to save setup");
     } finally {
@@ -97,7 +115,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
   }
 
   // --------------------------------------------------
-  // UI
+  // UI (UNCHANGED)
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -106,15 +124,18 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(title: const Text("Teacher Setup"), centerTitle: true),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _classDropdown(),
+          _infoCard(),
           const SizedBox(height: 16),
-          _semesterDropdown(),
-          const SizedBox(height: 20),
-          _subjectsSection(),
+          _classCard(),
+          const SizedBox(height: 16),
+          _semesterCard(),
+          const SizedBox(height: 16),
+          _subjectsCard(),
           const SizedBox(height: 30),
           _saveButton(),
         ],
@@ -122,122 +143,158 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     );
   }
 
-  // --------------------------------------------------
-  // CLASS DROPDOWN
-  // --------------------------------------------------
-  Widget _classDropdown() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _db
-          .collection('class')
-          .where('departmentId', isEqualTo: departmentId)
-          .orderBy('year')
-          .snapshots(),
-      builder: (_, snap) {
-        if (!snap.hasData) {
-          return const LinearProgressIndicator();
-        }
-
-        return DropdownButtonFormField<String>(
-          value: selectedClassId,
-          hint: const Text("Select Class"),
-          items: snap.data!.docs.map((d) {
-            return DropdownMenuItem(value: d.id, child: Text(d['name']));
-          }).toList(),
-          onChanged: (val) {
-            setState(() {
-              selectedClassId = val;
-              selectedSemester = null;
-              selectedSubjectIds.clear();
-            });
-          },
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.class_),
-            border: OutlineInputBorder(),
-          ),
-        );
-      },
-    );
-  }
-
-  // --------------------------------------------------
-  // SEMESTER DROPDOWN
-  // --------------------------------------------------
-  Widget _semesterDropdown() {
-    return DropdownButtonFormField<int>(
-      value: selectedSemester,
-      hint: const Text("Select Semester"),
-      items: [1, 2, 3, 4, 5, 6]
-          .map((s) => DropdownMenuItem(value: s, child: Text("Semester $s")))
-          .toList(),
-      onChanged: (val) {
-        setState(() {
-          selectedSemester = val;
-          selectedSubjectIds.clear();
-        });
-      },
-      decoration: const InputDecoration(
-        prefixIcon: Icon(Icons.calendar_month),
-        border: OutlineInputBorder(),
+  Widget _infoCard() {
+    return Card(
+      elevation: 2,
+      child: ListTile(
+        leading: const Icon(Icons.apartment),
+        title: const Text("Department"),
+        subtitle: Text(departmentName ?? "—"),
       ),
     );
   }
 
   // --------------------------------------------------
-  // SUBJECTS
+  // CLASS CARD (FIXED SORTING)
   // --------------------------------------------------
-  Widget _subjectsSection() {
+  Widget _classCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: StreamBuilder<QuerySnapshot>(
+          stream: _db
+              .collection('class')
+              .where('departmentId', isEqualTo: departmentId)
+              // ❌ REMOVED: .orderBy('year') because it breaks without a custom index
+              .snapshots(),
+          builder: (_, snap) {
+            if (snap.hasError) return const Text("Error loading classes");
+            if (!snap.hasData) return const LinearProgressIndicator();
+
+            final docs = snap.data!.docs;
+
+            // ✅ ADDED: Sort manually here (Safe and works instantly)
+            docs.sort((a, b) {
+              final yearA = (a.data() as Map)['year'] ?? 0;
+              final yearB = (b.data() as Map)['year'] ?? 0;
+              return yearA.compareTo(yearB);
+            });
+
+            if (docs.isEmpty) {
+              return const Text("No classes found for this department");
+            }
+
+            return DropdownButtonFormField<String>(
+              value: selectedClassId,
+              hint: const Text("Select Class"),
+              items: docs.map((d) {
+                return DropdownMenuItem(value: d.id, child: Text(d['name']));
+              }).toList(),
+              onChanged: (val) {
+                setState(() {
+                  selectedClassId = val;
+                  selectedSemester = null;
+                  selectedSubjectIds.clear();
+                });
+              },
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.class_),
+                border: OutlineInputBorder(),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _semesterCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: DropdownButtonFormField<int>(
+          value: selectedSemester,
+          hint: const Text("Select Semester"),
+          items: [1, 2, 3, 4, 5, 6]
+              .map(
+                (s) => DropdownMenuItem(value: s, child: Text("Semester $s")),
+              )
+              .toList(),
+          onChanged: (val) {
+            setState(() {
+              selectedSemester = val;
+              selectedSubjectIds.clear();
+            });
+          },
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.calendar_month),
+            border: OutlineInputBorder(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _subjectsCard() {
     if (selectedClassId == null || selectedSemester == null) {
       return const SizedBox();
     }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: _db
-          .collection('subject')
-          .where('classId', isEqualTo: selectedClassId)
-          .where('semester', isEqualTo: selectedSemester)
-          .snapshots(),
-      builder: (_, snap) {
-        if (!snap.hasData) {
-          return const LinearProgressIndicator();
-        }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: StreamBuilder<QuerySnapshot>(
+          stream: _db
+              .collection('subject')
+              .where('classId', isEqualTo: selectedClassId)
+              .where('semester', isEqualTo: selectedSemester)
+              .snapshots(),
+          builder: (_, snap) {
+            if (!snap.hasData) return const LinearProgressIndicator();
 
-        if (snap.data!.docs.isEmpty) {
-          return const Text(
-            "No subjects found for this class & semester",
-            style: TextStyle(color: Colors.grey),
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Select Subjects",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            ...snap.data!.docs.map((d) {
-              return CheckboxListTile(
-                title: Text(d['name']),
-                value: selectedSubjectIds.contains(d.id),
-                onChanged: (checked) {
-                  setState(() {
-                    checked == true
-                        ? selectedSubjectIds.add(d.id)
-                        : selectedSubjectIds.remove(d.id);
-                  });
-                },
+            if (snap.data!.docs.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Text(
+                  "No subjects found for this semester",
+                  style: TextStyle(color: Colors.grey),
+                ),
               );
-            }),
-          ],
-        );
-      },
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Select Subjects",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const Divider(),
+                ...snap.data!.docs.map((d) {
+                  final id = d.id;
+                  return CheckboxListTile(
+                    title: Text(d['name']),
+                    value: selectedSubjectIds.contains(id),
+                    onChanged: (checked) {
+                      setState(() {
+                        if (checked == true &&
+                            !selectedSubjectIds.contains(id)) {
+                          selectedSubjectIds.add(id);
+                        } else {
+                          selectedSubjectIds.remove(id);
+                        }
+                      });
+                    },
+                  );
+                }),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 
-  // --------------------------------------------------
-  // SAVE BUTTON
-  // --------------------------------------------------
   Widget _saveButton() {
     return SizedBox(
       height: 50,
@@ -253,9 +310,6 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     );
   }
 
-  // --------------------------------------------------
-  // SNACK
-  // --------------------------------------------------
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }

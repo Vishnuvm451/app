@@ -21,6 +21,9 @@ class _TeacherAttendanceSessionPageState
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  // Theme Color
+  final Color primaryBlue = const Color(0xFF2196F3);
+
   @override
   void initState() {
     super.initState();
@@ -28,7 +31,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // LOAD TEACHER PROFILE
+  // LOAD TEACHER PROFILE (UNCHANGED)
   // --------------------------------------------------
   Future<void> _loadTeacherProfile() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -61,7 +64,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // START SESSION
+  // START SESSION (UNCHANGED)
   // --------------------------------------------------
   Future<void> _startSession() async {
     if (classId == null) {
@@ -86,7 +89,6 @@ class _TeacherAttendanceSessionPageState
         return;
       }
 
-      // Ensure only ONE active session per class per day
       final activeQuery = await _db
           .collection('attendance_session')
           .where('classId', isEqualTo: classId)
@@ -118,7 +120,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // STOP SESSION + FINALIZE ATTENDANCE
+  // STOP SESSION + FINALIZE (UNCHANGED)
   // --------------------------------------------------
   Future<void> _stopSession() async {
     if (classId == null) {
@@ -143,7 +145,6 @@ class _TeacherAttendanceSessionPageState
         'endedAt': FieldValue.serverTimestamp(),
       });
 
-      // ✅ FINALIZE DAILY ATTENDANCE
       await _finalizeAttendance(classId!);
 
       _showSnack("Attendance finalized", success: true);
@@ -153,7 +154,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // FINALIZE DAILY ATTENDANCE
+  // FINALIZE ATTENDANCE (UNCHANGED)
   // --------------------------------------------------
   Future<void> _finalizeAttendance(String classId) async {
     final today = _todayId();
@@ -161,14 +162,12 @@ class _TeacherAttendanceSessionPageState
 
     final finalRef = _db.collection('attendance_final').doc(finalDocId);
 
-    // 1️⃣ Parent doc
     await finalRef.set({
       'classId': classId,
       'date': today,
       'finalizedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    // 2️⃣ Load students of class
     final studentsSnap = await _db
         .collection('student')
         .where('classId', isEqualTo: classId)
@@ -176,7 +175,6 @@ class _TeacherAttendanceSessionPageState
 
     if (studentsSnap.docs.isEmpty) return;
 
-    // 3️⃣ Load session attendance
     final morningId = '${classId}_${today}_morning';
     final afternoonId = '${classId}_${today}_afternoon';
 
@@ -195,7 +193,6 @@ class _TeacherAttendanceSessionPageState
     final morningMap = {for (var d in morningSnap.docs) d.id: true};
     final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
 
-    // 4️⃣ Compute final status
     final batch = _db.batch();
 
     for (final stu in studentsSnap.docs) {
@@ -224,7 +221,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // UI
+  // UI (REDESIGNED THEME)
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -233,17 +230,27 @@ class _TeacherAttendanceSessionPageState
     }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA), // Light modern background
       appBar: AppBar(
-        title: const Text("Attendance Session"),
+        title: const Text(
+          "Attendance Session",
+          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            _classInfo(),
-            const SizedBox(height: 20),
-            _sessionTypeSelector(),
+            _classInfoCard(),
+            const SizedBox(height: 24),
+            _sessionTypeCard(),
             const SizedBox(height: 40),
             _actionButtons(),
           ],
@@ -253,43 +260,116 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // CLASS INFO (LOCKED)
+  // CLASS INFO CARD
   // --------------------------------------------------
-  Widget _classInfo() {
-    return TextField(
-      enabled: false,
-      decoration: InputDecoration(
-        labelText: "Class",
-        prefixIcon: const Icon(Icons.class_),
-        border: const OutlineInputBorder(),
-        hintText: classId,
+  Widget _classInfoCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: primaryBlue.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.class_, color: primaryBlue, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Active Class",
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                classId ?? "Unknown",
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   // --------------------------------------------------
-  // SESSION TYPE
+  // SESSION TYPE CARD
   // --------------------------------------------------
-  Widget _sessionTypeSelector() {
-    return Row(
-      children: [
-        Expanded(
-          child: RadioListTile<String>(
-            value: "morning",
-            groupValue: sessionType,
-            title: const Text("Morning"),
-            onChanged: (v) => setState(() => sessionType = v!),
+  Widget _sessionTypeCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-        ),
-        Expanded(
-          child: RadioListTile<String>(
-            value: "afternoon",
-            groupValue: sessionType,
-            title: const Text("Afternoon"),
-            onChanged: (v) => setState(() => sessionType = v!),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+            child: Text(
+              "Select Session",
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade800,
+              ),
+            ),
           ),
-        ),
-      ],
+          const Divider(height: 1),
+          _radioOption("Morning", "morning", Icons.wb_sunny_rounded),
+          const Divider(height: 1, indent: 20, endIndent: 20),
+          _radioOption("Afternoon", "afternoon", Icons.wb_twilight_rounded),
+        ],
+      ),
+    );
+  }
+
+  Widget _radioOption(String title, String value, IconData icon) {
+    final bool isSelected = sessionType == value;
+    return RadioListTile<String>(
+      value: value,
+      groupValue: sessionType,
+      activeColor: primaryBlue,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      title: Row(
+        children: [
+          Icon(icon, color: isSelected ? primaryBlue : Colors.grey, size: 24),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: TextStyle(
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected ? primaryBlue : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+      onChanged: (v) => setState(() => sessionType = v!),
     );
   }
 
@@ -301,27 +381,70 @@ class _TeacherAttendanceSessionPageState
       children: [
         SizedBox(
           width: double.infinity,
-          height: 50,
+          height: 56,
           child: ElevatedButton(
             onPressed: isLoading ? null : _startSession,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryBlue,
+              elevation: 4,
+              shadowColor: primaryBlue.withOpacity(0.4),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
             child: isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text(
-                    "START ATTENDANCE",
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 3,
+                    ),
+                  )
+                : const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.play_circle_fill, size: 28),
+                      SizedBox(width: 10),
+                      Text(
+                        "START ATTENDANCE",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
                   ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
-          height: 50,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          height: 56,
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: BorderSide(color: Colors.red.shade200, width: 2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
             onPressed: _stopSession,
-            child: const Text(
-              "STOP ATTENDANCE",
-              style: TextStyle(fontWeight: FontWeight.bold),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.stop_circle_outlined, size: 28),
+                SizedBox(width: 10),
+                Text(
+                  "STOP ATTENDANCE",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -335,8 +458,20 @@ class _TeacherAttendanceSessionPageState
   void _showSnack(String msg, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg),
+        content: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle : Icons.error,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(msg)),
+          ],
+        ),
         backgroundColor: success ? Colors.green : Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }

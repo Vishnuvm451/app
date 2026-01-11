@@ -38,40 +38,44 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    final snap = await _db.collection('teacher').doc(uid).get();
+    try {
+      final snap = await _db.collection('teacher').doc(uid).get();
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    if (!snap.exists) {
-      await _logout();
-      return;
+      if (!snap.exists) {
+        await _logout();
+        return;
+      }
+
+      final data = snap.data()!;
+
+      // 🔒 Approval Check
+      if (data['isApproved'] != true) {
+        _showSnack("Your account is not approved");
+        await _logout();
+        return;
+      }
+
+      // 🔒 Force Setup
+      if (data['setupCompleted'] != true) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
+        );
+        return;
+      }
+
+      setState(() {
+        teacherName = data['name'] ?? '';
+        departmentId = data['departmentId'] ?? '';
+        classId = data['classId'] ?? '';
+        setupCompleted = true;
+        isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() => isLoading = false);
     }
-
-    final data = snap.data()!;
-
-    // 🔒 approval check
-    if (data['isApproved'] != true) {
-      _showSnack("Your account is not approved");
-      await _logout();
-      return;
-    }
-
-    // 🔒 force setup
-    if (data['setupCompleted'] != true) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
-      );
-      return;
-    }
-
-    setState(() {
-      teacherName = data['name'] ?? '';
-      departmentId = data['departmentId'] ?? '';
-      classId = data['classId'] ?? '';
-      setupCompleted = true;
-      isLoading = false;
-    });
   }
 
   // --------------------------------------------------
@@ -98,15 +102,38 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     }
 
     return Scaffold(
+      backgroundColor: Colors.blue, // Light modern background
       appBar: AppBar(
-        title: const Text("Teacher Dashboard"),
+        title: const Text(
+          "Dashboard",
+          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            onPressed: _logout,
+          ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [_header(), const SizedBox(height: 20), _quickActions()],
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        children: [
+          _header(),
+          const SizedBox(height: 24),
+          const Text(
+            "Quick Actions",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _quickActions(),
+        ],
       ),
     );
   }
@@ -115,27 +142,67 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   // HEADER
   // --------------------------------------------------
   Widget _header() {
+    // ✅ FIX: Define Color locally to prevent "Undefined" errors
+    const Color primaryBlue = Color(0xFF2196F3);
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.indigo,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Welcome, $teacherName 👋",
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
+        gradient: LinearGradient(
+          colors: [Colors.white, const Color(0xFFFFFFFF).withOpacity(0.8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: primaryBlue.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 8),
           ),
-          const SizedBox(height: 6),
-          Text(
-            "Department: $departmentId",
-            style: const TextStyle(color: Colors.white70),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: Colors.blue.withOpacity(1),
+            child: const Icon(Icons.person, color: Colors.white, size: 32),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Hello  $teacherName",
+                  style: const TextStyle(
+                    color: Color(0xFF000000),
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    departmentId.isEmpty ? "No Dept" : departmentId,
+                    style: const TextStyle(
+                      color: Color(0xFF000000),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -150,12 +217,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       crossAxisCount: 2,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: 1.1,
       children: [
         _actionCard(
-          icon: Icons.play_circle_fill,
+          icon: Icons.qr_code_scanner_rounded,
           label: "Start Attendance",
+          color: Colors.blue,
           onTap: () {
             Navigator.push(
               context,
@@ -167,8 +236,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ),
 
         _actionCard(
-          icon: Icons.check_circle_outline,
-          label: "Attendance",
+          icon: Icons.checklist_rtl_rounded,
+          label: "Attendance Marking",
+          color: Colors.orange,
           onTap: classId.isEmpty
               ? _showSetupError
               : () {
@@ -182,8 +252,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ),
 
         _actionCard(
-          icon: Icons.assignment,
-          label: "Internals",
+          icon: Icons.edit_note_rounded,
+          label: "Internal Marks",
+          color: Colors.purple,
           onTap: classId.isEmpty
               ? _showSetupError
               : () {
@@ -200,8 +271,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ),
 
         _actionCard(
-          icon: Icons.people,
-          label: "Students",
+          icon: Icons.group_rounded,
+          label: "My Students",
+          color: Colors.green,
           onTap: () {
             Navigator.push(
               context,
@@ -213,8 +285,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ),
 
         _actionCard(
-          icon: Icons.settings,
-          label: "Teaching Setup",
+          icon: Icons.settings_suggest_rounded,
+          label: "Setup Class",
+          color: Colors.teal,
           onTap: setupCompleted
               ? _showSetupCompleted
               : () {
@@ -234,28 +307,42 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   Widget _actionCard({
     required IconData icon,
     required String label,
+    required Color color,
     required VoidCallback onTap,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.indigo.shade200),
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 36, color: Colors.indigo),
-            const SizedBox(height: 10),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
+    return Material(
+      color: Colors.white,
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(1),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 30, color: color),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
