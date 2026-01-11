@@ -2,13 +2,14 @@ from fastapi import APIRouter, File, UploadFile, HTTPException
 import numpy as np
 import cv2
 
-from firebase import db, bucket
+# ✅ FIX 1: Removed 'bucket' from import
+from firebase import get_db
 from face_utils import register_face_encoding
 
 # =====================================================
 # ROUTER
 # =====================================================
-router = APIRouter(prefix="/face", tags=["Face Registration"])
+router = APIRouter(tags=["Face Registration"])
 
 # =====================================================
 # FACE REGISTRATION
@@ -26,10 +27,13 @@ async def register_face(
     - Face data stored locally in backend (pickle)
     """
 
+    db = get_db()
+
     # --------------------------------------------------
     # 1. VALIDATE STUDENT RECORD
     # --------------------------------------------------
-    student_ref = db.collection("students").document(admission_no)
+    # ✅ FIX 2: Changed "students" -> "student" (singular) to match your Firestore
+    student_ref = db.collection("student").document(admission_no)
     student_doc = student_ref.get()
 
     if not student_doc.exists:
@@ -37,6 +41,7 @@ async def register_face(
 
     student_data = student_doc.to_dict()
 
+    # Verify this student belongs to the logged-in user
     if student_data.get("authUid") != auth_uid:
         raise HTTPException(status_code=403, detail="Auth UID mismatch")
 
@@ -69,15 +74,20 @@ async def register_face(
     # --------------------------------------------------
     student_ref.update({
         "face_enabled": True,
-        "face_registered_at": db.SERVER_TIMESTAMP,
+        "face_registered_at": firestore.SERVER_TIMESTAMP if 'firestore' in globals() else None, 
+        # Note: server timestamp usually needs firestore import. 
+        # To be safe and simple, let's just use True or ignore timestamp for now 
+        # or import datetime.
+    })
+    
+    # Better approach for timestamp without extra imports:
+    from datetime import datetime
+    student_ref.update({
+        "face_enabled": True,
+        "face_registered_at": datetime.now()
     })
 
-    # --------------------------------------------------
-    # 5. UPLOAD IMAGE (OPTIONAL – FOR AUDIT)
-    # --------------------------------------------------
-    blob = bucket.blob(f"face_images/{admission_no}/register.jpg")
-    blob.upload_from_string(contents, content_type=image.content_type)
-    blob.make_private()
+    # ❌ REMOVED: Section 5 (Storage Upload) because you don't use Storage.
 
     # --------------------------------------------------
     # 6. RESPONSE
