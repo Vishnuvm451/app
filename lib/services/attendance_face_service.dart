@@ -2,8 +2,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class AttendanceFaceService {
-  // ⚠️ CHANGE THIS TO YOUR SERVER IP
-  static const String baseUrl = "http://YOUR_SERVER_IP:8000";
+  static const String baseUrl = "http://10.70.229.181";
 
   static Future<bool> markAttendance({
     required String studentUid,
@@ -11,22 +10,27 @@ class AttendanceFaceService {
     required String sessionType, // morning | afternoon
     required File imageFile,
   }) async {
-    final uri = Uri.parse("$baseUrl/attendance/mark");
+    try {
+      final uri = Uri.parse("$baseUrl/attendance/mark");
 
-    final request = http.MultipartRequest("POST", uri)
-      ..fields['student_uid'] = studentUid
-      ..fields['class_id'] = classId
-      ..fields['session_type'] = sessionType
-      ..files.add(await http.MultipartFile.fromPath('image', imageFile.path));
+      final request = http.MultipartRequest("POST", uri)
+        ..fields['student_uid'] = studentUid
+        ..fields['class_id'] = classId
+        ..fields['session_type'] = sessionType
+        ..files.add(await http.MultipartFile.fromPath('image', imageFile.path));
 
-    final response = await request.send();
-    final statusCode = response.statusCode;
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
 
-    if (statusCode == 200) {
-      return true;
-    } else {
-      final body = await response.stream.bytesToString();
-      throw Exception("Attendance failed: $body");
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        // Only show the error message from server
+        throw Exception(responseBody);
+      }
+    } catch (e) {
+      print("Attendance Error: $e");
+      rethrow;
     }
   }
 }
