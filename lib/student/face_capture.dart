@@ -29,7 +29,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   // 🔧 UPDATE THIS
   // Emulator: http://10.0.2.2:8000
   // Real device: http://<PC_IP>:8000
-  static const String _apiBaseUrl = "http://10.90.62.181";
+  static const String _apiBaseUrl = "http://10.70.229.181";
 
   @override
   void initState() {
@@ -118,10 +118,20 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
       request.files.add(await http.MultipartFile.fromPath('image', image.path));
 
-      final response = await request.send();
+      // ✅ ADD TIMEOUT HERE
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception("Connection timed out. Check your IP or Server.");
+        },
+      );
+
+      final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode != 200) {
-        throw Exception("Face registration failed");
+        // Print the actual error from backend to debug
+        print("Backend Error: ${response.body}");
+        throw Exception("Registration failed: ${response.body}");
       }
 
       // ---------- FIRESTORE ----------
@@ -169,146 +179,172 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   }
 
   // ===================================================
-  // UI (UNCHANGED)
+  // UI (UPDATED WITH BACK BUTTON LOGIC)
   // ===================================================
   @override
   Widget build(BuildContext context) {
     final bool isOk = _error == null && _isLightingGood;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF2196F3),
-      appBar: AppBar(
-        title: const Text("Face Registration"),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 26,
-          fontWeight: FontWeight.bold,
-        ),
-        centerTitle: true,
+    // ✅ WRAP SCAFFOLD IN POPSCOPE
+    return PopScope(
+      canPop: false, // 🔒 Prevent default closing
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+
+        // 🔄 Navigate explicitly to Login Page
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+          (_) => false,
+        );
+      },
+      child: Scaffold(
         backgroundColor: const Color(0xFF2196F3),
-        automaticallyImplyLeading: false,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          const SizedBox(height: 20),
-
-          Text(
-            "Welcome, ${widget.studentName}",
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
+        appBar: AppBar(
+          title: const Text("Face Registration"),
+          titleTextStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 26,
+            fontWeight: FontWeight.bold,
           ),
-
-          const SizedBox(height: 8),
-          const Text(
-            "Align your face inside the circle",
-            style: TextStyle(color: Colors.white70, fontSize: 16),
+          centerTitle: true,
+          backgroundColor: const Color(0xFF2196F3),
+          elevation: 0,
+          // ✅ Add a manual Back Button too, just in case
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (_) => false,
+              );
+            },
           ),
+        ),
+        body: Column(
+          children: [
+            const SizedBox(height: 20),
 
-          if (!_isLightingGood)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text(
-                "⚠️ Low lighting detected",
-                style: TextStyle(
-                  color: Colors.yellowAccent,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
+            Text(
+              "Welcome, ${widget.studentName}",
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
               ),
             ),
 
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _error!,
-                style: const TextStyle(color: Colors.redAccent),
-                textAlign: TextAlign.center,
-              ),
+            const SizedBox(height: 8),
+            const Text(
+              "Align your face inside the circle",
+              style: TextStyle(color: Colors.white70, fontSize: 16),
             ),
 
-          const SizedBox(height: 24),
-
-          // ================= CAMERA CIRCLE =================
-          SizedBox(
-            height: 300,
-            width: 300,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                ClipOval(
-                  child: SizedBox(
-                    height: 300,
-                    width: 300,
-                    child: _isCameraInitialized
-                        ? FittedBox(
-                            fit: BoxFit.cover,
-                            child: SizedBox(
-                              width:
-                                  _cameraController!.value.previewSize!.height,
-                              height:
-                                  _cameraController!.value.previewSize!.width,
-                              child: CameraPreview(_cameraController!),
-                            ),
-                          )
-                        : const Center(
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                            ),
-                          ),
+            if (!_isLightingGood)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  "⚠️ Low lighting detected",
+                  style: TextStyle(
+                    color: Colors.yellowAccent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
+              ),
 
-                Container(
-                  height: 300,
-                  width: 300,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isOk ? Colors.greenAccent : Colors.redAccent,
-                      width: 4,
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.redAccent),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
+            const SizedBox(height: 24),
+
+            // ================= CAMERA CIRCLE =================
+            SizedBox(
+              height: 300,
+              width: 300,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  ClipOval(
+                    child: SizedBox(
+                      height: 300,
+                      width: 300,
+                      child: _isCameraInitialized
+                          ? FittedBox(
+                              fit: BoxFit.cover,
+                              child: SizedBox(
+                                width: _cameraController!
+                                    .value
+                                    .previewSize!
+                                    .height,
+                                height:
+                                    _cameraController!.value.previewSize!.width,
+                                child: CameraPreview(_cameraController!),
+                              ),
+                            )
+                          : const Center(
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                              ),
+                            ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
 
-          const Spacer(),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                onPressed: _isCapturing ? null : _captureAndRegisterFace,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                ),
-                child: _isCapturing
-                    ? const CircularProgressIndicator()
-                    : const Text(
-                        "CAPTURE FACE",
-                        style: TextStyle(
-                          color: Color(0xFF2196F3),
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                  Container(
+                    height: 300,
+                    width: 300,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isOk ? Colors.greenAccent : Colors.redAccent,
+                        width: 4,
                       ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
 
-          const SizedBox(height: 30),
-        ],
+            const Spacer(),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 55,
+                child: ElevatedButton(
+                  onPressed: _isCapturing ? null : _captureAndRegisterFace,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  child: _isCapturing
+                      ? const CircularProgressIndicator()
+                      : const Text(
+                          "CAPTURE FACE",
+                          style: TextStyle(
+                            color: Color(0xFF2196F3),
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 30),
+          ],
+        ),
       ),
     );
   }
