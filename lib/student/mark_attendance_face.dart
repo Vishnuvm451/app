@@ -29,7 +29,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   DocumentSnapshot<Map<String, dynamic>>? activeSession;
 
   // 🔧 API URL (Must match FaceCapturePage)
-  static const String _apiBaseUrl = "http://10.70.229.181";
+  static const String _apiBaseUrl = "http://10.70.229.181:8000";
 
   @override
   void initState() {
