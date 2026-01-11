@@ -10,8 +10,8 @@ from face_utils import (
 
 router = APIRouter(tags=["Face Verification"])
 
-# Load face encodings once
-known_encodings, known_admissions = load_known_faces()
+# ❌ REMOVED: Global loading. We will load inside the function to get fresh data.
+# known_encodings, known_admissions = load_known_faces()
 
 
 @router.post("/verify")
@@ -46,7 +46,19 @@ async def verify_face(image: UploadFile = File(...)):
             }
 
         # --------------------------------------------------
-        # 3. FACE COMPARISON
+        # 3. RELOAD KNOWN FACES (Fix for New Registrations)
+        # --------------------------------------------------
+        # ✅ FIX: Load faces here so we always have the latest data
+        known_encodings, known_admissions = load_known_faces()
+
+        if not known_encodings:
+             return {
+                "success": False,
+                "message": "No registered faces found in system"
+            }
+
+        # --------------------------------------------------
+        # 4. FACE COMPARISON
         # --------------------------------------------------
         match = compare_faces(
             encoding,
@@ -61,7 +73,7 @@ async def verify_face(image: UploadFile = File(...)):
             }
 
         # --------------------------------------------------
-        # 4. SUCCESS
+        # 5. SUCCESS
         # --------------------------------------------------
         return {
             "success": True,
