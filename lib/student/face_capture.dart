@@ -51,7 +51,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
       _cameraController = CameraController(
         frontCamera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
       );
 
@@ -106,6 +106,9 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
     try {
       final image = await _cameraController!.takePicture();
+      final user = FirebaseAuth.instance.currentUser; // Get current user
+
+      if (user == null) throw Exception("User not logged in");
 
       // ---------- BACKEND ----------
       final request = http.MultipartRequest(
@@ -113,24 +116,25 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
         Uri.parse("$_apiBaseUrl/face/register"),
       );
 
-      // 🔑 MUST MATCH BACKEND
+      // ✅ FIX: Add both admission_no AND auth_uid
       request.fields['admission_no'] = widget.admissionNo;
+      request.fields['auth_uid'] = user.uid; // <--- THIS WAS MISSING
 
       request.files.add(await http.MultipartFile.fromPath('image', image.path));
 
-      // ✅ ADD TIMEOUT HERE
+      // Add timeout to prevent infinite loading
       final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 10),
+        const Duration(seconds: 15),
         onTimeout: () {
-          throw Exception("Connection timed out. Check your IP or Server.");
+          throw Exception("Connection timed out. Check IP/Server.");
         },
       );
 
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode != 200) {
-        // Print the actual error from backend to debug
-        print("Backend Error: ${response.body}");
+        // Print detailed error for debugging
+        print("Server Error: ${response.body}");
         throw Exception("Registration failed: ${response.body}");
       }
 

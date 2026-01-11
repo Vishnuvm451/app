@@ -1,6 +1,7 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, File, UploadFile, HTTPException, Form # <--- Import Form
 import numpy as np
 import cv2
+from datetime import datetime
 
 # ✅ FIX 1: Removed 'bucket' from import
 from firebase import get_db
@@ -16,15 +17,13 @@ router = APIRouter(tags=["Face Registration"])
 # =====================================================
 @router.post("/register")
 async def register_face(
-    admission_no: str,
-    auth_uid: str,
+    # ✅ FIX 2: Use Form(...) to read from body, not query URL
+    admission_no: str = Form(...), 
+    auth_uid: str = Form(...),
     image: UploadFile = File(...)
 ):
     """
     Registers student's face (Admission-based)
-    - admission_no = Firestore document ID
-    - auth_uid = Firebase Auth UID
-    - Face data stored locally in backend (pickle)
     """
 
     db = get_db()
@@ -32,7 +31,6 @@ async def register_face(
     # --------------------------------------------------
     # 1. VALIDATE STUDENT RECORD
     # --------------------------------------------------
-    # ✅ FIX 2: Changed "students" -> "student" (singular) to match your Firestore
     student_ref = db.collection("student").document(admission_no)
     student_doc = student_ref.get()
 
@@ -74,20 +72,8 @@ async def register_face(
     # --------------------------------------------------
     student_ref.update({
         "face_enabled": True,
-        "face_registered_at": firestore.SERVER_TIMESTAMP if 'firestore' in globals() else None, 
-        # Note: server timestamp usually needs firestore import. 
-        # To be safe and simple, let's just use True or ignore timestamp for now 
-        # or import datetime.
-    })
-    
-    # Better approach for timestamp without extra imports:
-    from datetime import datetime
-    student_ref.update({
-        "face_enabled": True,
         "face_registered_at": datetime.now()
     })
-
-    # ❌ REMOVED: Section 5 (Storage Upload) because you don't use Storage.
 
     # --------------------------------------------------
     # 6. RESPONSE

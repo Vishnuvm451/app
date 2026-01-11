@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert'; // For JSON decoding
+import 'dart:convert';
 
 class MarkAttendancePage extends StatefulWidget {
   const MarkAttendancePage({super.key});
@@ -16,11 +16,13 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   // ---------------- STATE ----------------
   bool isLoading = true;
   bool isVerifying = false;
+  bool isSessionActive = false;
+
   String? error;
   String? statusMessage;
 
   String? studentId;
-  String? admissionNo; // We need this to verify identity
+  String? admissionNo;
   String? classId;
 
   CameraController? _cameraController;
@@ -28,7 +30,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
   DocumentSnapshot<Map<String, dynamic>>? activeSession;
 
-  // 🔧 API URL (Must match FaceCapturePage)
+  // 🔧 Backend API
   static const String _apiBaseUrl = "http://10.70.229.181:8000";
 
   @override
@@ -44,38 +46,37 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 1. LOAD DATA & INIT CAMERA
+  // 1. LOAD STUDENT + CHECK SESSION + INIT CAMERA
   // ===================================================
   Future<void> _loadDataAndCamera() async {
     try {
       studentId = FirebaseAuth.instance.currentUser?.uid;
       if (studentId == null) throw "User not logged in";
 
-      // 1. Get Student Details (Need Admission No)
+      // ---------------- STUDENT DATA ----------------
       final studentSnap = await FirebaseFirestore.instance
           .collection('student')
-          .doc(
-            studentId,
-          ) // This might be AuthUID or AdmissionNo depending on your schema
+          .doc(studentId)
           .get();
 
-      // If doc ID is not AuthUID, we query by field
       DocumentSnapshot studentDoc = studentSnap;
+
       if (!studentDoc.exists) {
         final q = await FirebaseFirestore.instance
             .collection('student')
             .where('authUid', isEqualTo: studentId)
             .limit(1)
             .get();
+
         if (q.docs.isEmpty) throw "Student profile not found";
         studentDoc = q.docs.first;
       }
 
       final data = studentDoc.data() as Map<String, dynamic>;
       classId = data['classId'];
-      admissionNo = data['admissionNo'] ?? studentDoc.id; // Fallback to ID
+      admissionNo = data['admissionNo'] ?? studentDoc.id;
 
-      // 2. Get Active Session
+      // ---------------- ATTENDANCE SESSION ----------------
       final sessionQuery = await FirebaseFirestore.instance
           .collection('attendance_session')
           .where('classId', isEqualTo: classId)
@@ -83,10 +84,14 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
           .limit(1)
           .get();
 
-      if (sessionQuery.docs.isEmpty) throw "No active attendance session";
-      activeSession = sessionQuery.docs.first;
+      if (sessionQuery.docs.isNotEmpty) {
+        activeSession = sessionQuery.docs.first;
+        isSessionActive = true;
+      } else {
+        isSessionActive = false;
+      }
 
-      // 3. Init Camera
+      // ---------------- CAMERA ----------------
       final cameras = await availableCameras();
       final frontCamera = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
@@ -100,7 +105,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       );
 
       await _cameraController!.initialize();
-      if (mounted) setState(() => _isCameraInitialized = true);
+
+      if (mounted) {
+        setState(() => _isCameraInitialized = true);
+      }
     } catch (e) {
       error = e.toString().replaceAll("Exception:", "").trim();
     } finally {
@@ -109,9 +117,21 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 2. VERIFY FACE (PYTHON API)
+  // 2. FACE SCAN + VERIFY
   // ===================================================
   Future<void> _scanAndVerify() async {
+    if (!isSessionActive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "⏳ Please wait for the teacher to start attendance session",
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     if (isVerifying || !_isCameraInitialized) return;
 
     setState(() {
@@ -120,10 +140,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     });
 
     try {
-      // 1. Capture Image
+      // Capture image
       final image = await _cameraController!.takePicture();
 
-      // 2. Send to Python Backend
+      // Send to backend
       final request = http.MultipartRequest(
         'POST',
         Uri.parse("$_apiBaseUrl/face/verify"),
@@ -133,23 +153,19 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
-
       final result = jsonDecode(response.body);
 
       if (response.statusCode != 200 || result['success'] != true) {
-        throw result['message'] ?? "Verification failed";
+        throw result['message'] ?? "Face verification failed";
       }
 
-      // 3. Check Identity Match
-      // Python returns the "Admission Number" of the face it found.
-      // We must check if that matches THIS student's admission number.
-      final String matchedAdmission = result['admissionNo'].toString();
+      final matchedAdmission = result['admissionNo'].toString();
 
       if (matchedAdmission != admissionNo) {
-        throw "Face mismatch! You are not $admissionNo";
+        throw "Face mismatch! This face does not belong to you.";
       }
 
-      // 4. Mark Attendance
+      // Mark attendance
       await _markAttendanceInFirestore();
     } catch (e) {
       if (!mounted) return;
@@ -167,13 +183,11 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 3. MARK IN FIRESTORE
+  // 3. FIRESTORE WRITE
   // ===================================================
   Future<void> _markAttendanceInFirestore() async {
     final sessionId = activeSession!.id;
-    final now = DateTime.now();
 
-    // Check if already marked (Optimization)
     final existing = await FirebaseFirestore.instance
         .collection('attendance')
         .doc(sessionId)
@@ -201,12 +215,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
           'status': 'present',
           'method': 'face',
           'markedAt': FieldValue.serverTimestamp(),
-          'deviceTime': now.toIso8601String(),
         });
 
     if (!mounted) return;
 
-    // Success UI
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -225,8 +237,8 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context); // Close Dialog
-              Navigator.pop(context); // Close Page
+              Navigator.pop(context);
+              Navigator.pop(context);
             },
             child: const Text("OK"),
           ),
@@ -248,21 +260,18 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       return Scaffold(
         appBar: AppBar(title: const Text("Error")),
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                const SizedBox(height: 20),
-                Text(error!, textAlign: TextAlign.center),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Go Back"),
-                ),
-              ],
-            ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error, size: 60, color: Colors.red),
+              const SizedBox(height: 20),
+              Text(error!, textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Go Back"),
+              ),
+            ],
           ),
         ),
       );
@@ -271,17 +280,15 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text("Scan Face"),
+        title: const Text("Face Attendance"),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
       ),
       body: Stack(
         children: [
-          // 1. Camera Preview
           if (_isCameraInitialized)
             Center(child: CameraPreview(_cameraController!)),
 
-          // 2. Overlay (Scanning Frame)
           Center(
             child: Container(
               height: 300,
@@ -301,13 +308,30 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
             ),
           ),
 
-          // 3. Scan Button
+          if (!isSessionActive)
+            const Positioned(
+              top: 120,
+              left: 0,
+              right: 0,
+              child: Text(
+                "Waiting for teacher to start attendance session",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.orange,
+                  fontSize: 16,
+                  backgroundColor: Colors.black54,
+                ),
+              ),
+            ),
+
           Positioned(
             bottom: 40,
             left: 20,
             right: 20,
             child: ElevatedButton(
-              onPressed: isVerifying ? null : _scanAndVerify,
+              onPressed: (!isSessionActive || isVerifying)
+                  ? null
+                  : _scanAndVerify,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -316,7 +340,9 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                 ),
               ),
               child: Text(
-                isVerifying ? "VERIFYING..." : "SCAN & MARK ATTENDANCE",
+                !isSessionActive
+                    ? "WAITING FOR TEACHER"
+                    : (isVerifying ? "VERIFYING..." : "SCAN & MARK ATTENDANCE"),
                 style: const TextStyle(
                   color: Colors.black,
                   fontSize: 16,
@@ -326,10 +352,9 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
             ),
           ),
 
-          // 4. Status Text
           if (statusMessage != null)
             Positioned(
-              top: 100,
+              top: 90,
               left: 0,
               right: 0,
               child: Text(

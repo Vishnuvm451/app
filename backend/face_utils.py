@@ -1,6 +1,7 @@
 import os
 import pickle
 import face_recognition
+import cv2
 import numpy as np
 
 # -------------------------------------------------
@@ -32,14 +33,29 @@ def register_face_encoding(image, admission_no):
     """
     Extract and store face encoding for a student
     """
-    rgb = image[:, :, ::-1]
+
+    # 🛑 Safety check
+    if image is None:
+        return False, "Invalid image"
+
+    # Convert BGR → RGB (safe for dlib)
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    # Detect face locations
     locations = face_recognition.face_locations(rgb)
 
     if len(locations) != 1:
         return False, "Exactly one face must be visible"
 
-    encoding = face_recognition.face_encodings(rgb, locations)[0]
+    # Extract encoding
+    encodings = face_recognition.face_encodings(rgb, locations)
 
+    if not encodings:
+        return False, "Face encoding failed"
+
+    encoding = np.array(encodings[0])
+
+    # Load or create DB
     if os.path.exists(FACES_DB):
         with open(FACES_DB, "rb") as f:
             data = pickle.load(f)
@@ -50,6 +66,7 @@ def register_face_encoding(image, admission_no):
     if admission_no in data["admissions"]:
         return False, "Face already registered"
 
+    # Save encoding
     data["encodings"].append(encoding)
     data["admissions"].append(admission_no)
 
@@ -66,14 +83,18 @@ def extract_face_encoding(image):
     """
     Extract face encoding from image
     """
-    rgb = image[:, :, ::-1]
+
+    if image is None:
+        return None
+
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     locations = face_recognition.face_locations(rgb)
 
     if len(locations) != 1:
         return None
 
     encodings = face_recognition.face_encodings(rgb, locations)
-    return encodings[0] if encodings else None
+    return np.array(encodings[0]) if encodings else None
 
 
 # -------------------------------------------------
@@ -89,7 +110,8 @@ def compare_faces(
     Compare unknown face with known faces
     Returns admission number if matched
     """
-    if not known_encodings:
+
+    if unknown_encoding is None or not known_encodings:
         return None
 
     results = face_recognition.compare_faces(
