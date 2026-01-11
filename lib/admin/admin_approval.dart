@@ -172,32 +172,6 @@ class TeacherApprovalPage extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(
-                                emailVerified
-                                    ? Icons.verified
-                                    : Icons.warning_amber_rounded,
-                                size: 16,
-                                color: emailVerified
-                                    ? Colors.green
-                                    : Colors.orange,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                emailVerified
-                                    ? "Email Verified"
-                                    : "Email Not Verified",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: emailVerified
-                                      ? Colors.green
-                                      : Colors.orange,
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
                       ),
                     ),
