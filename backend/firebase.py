@@ -1,18 +1,18 @@
 import firebase_admin
-from firebase_admin import credentials, firestore, storage
+from firebase_admin import credentials, firestore
+# ❌ REMOVED: from firebase_admin import storage
 
 # -------------------------------------------------
 # GLOBAL OBJECTS
 # -------------------------------------------------
 db = None
-bucket = None
-
+# ❌ REMOVED: bucket = None
 
 # -------------------------------------------------
 # INIT FIREBASE (RUN ONCE)
 # -------------------------------------------------
 def init_firebase():
-    global db, bucket
+    global db
 
     if firebase_admin._apps:
         return  # Already initialized
@@ -20,31 +20,22 @@ def init_firebase():
     # 🔐 Service account key (same folder as app.py)
     cred = credentials.Certificate("serviceAccountKey.json")
 
-    firebase_admin.initialize_app(
-        cred,
-        {
-            # 🔥 MUST MATCH YOUR FIREBASE PROJECT
-            # Example: darzo-attendance.appspot.com
-            "storageBucket": "darzo-attendance.appspot.com"
-        }
-    )
+    # ✅ Initialize ONLY with Credential (No Storage Bucket)
+    firebase_admin.initialize_app(cred)
 
     db = firestore.client()
-    bucket = storage.bucket()
+    
+    # ❌ REMOVED: bucket = storage.bucket()
 
-    print("✅ Firebase initialized successfully")
+    print("✅ Firebase initialized successfully (Firestore Only)")
 
 
 # -------------------------------------------------
-# SAFE ACCESSORS (OPTIONAL BUT GOOD PRACTICE)
+# SAFE ACCESSORS
 # -------------------------------------------------
 def get_db():
     if db is None:
         raise RuntimeError("❌ Firestore not initialized. Call init_firebase() first.")
     return db
 
-
-def get_bucket():
-    if bucket is None:
-        raise RuntimeError("❌ Storage not initialized. Call init_firebase() first.")
-    return bucket
+# ❌ REMOVED: get_bucket() function
