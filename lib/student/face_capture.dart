@@ -124,7 +124,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
       // Add timeout to prevent infinite loading
       final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 15),
+        const Duration(seconds: 30),
         onTimeout: () {
           throw Exception("Connection timed out. Check IP/Server.");
         },
