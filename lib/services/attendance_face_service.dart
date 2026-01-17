@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class AttendanceFaceService {
-  static const String baseUrl = "http://10.70.229.181:8000";
+  static const String baseUrl = "https://darzo-api.onrender.com/";
 
   static Future<bool> markAttendance({
     required String studentUid,

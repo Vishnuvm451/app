@@ -29,7 +29,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   // 🔧 UPDATE THIS
   // Emulator: http://10.0.2.2:8000
   // Real device: http://<PC_IP>:8000
-  static const String _apiBaseUrl = "http://10.70.229.181:8000";
+  static const String _apiBaseUrl = "https://darzo-api.onrender.com/";
 
   @override
   void initState() {

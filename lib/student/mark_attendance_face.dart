@@ -31,7 +31,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   DocumentSnapshot<Map<String, dynamic>>? activeSession;
 
   // 🔧 Backend API
-  static const String _apiBaseUrl = "http://10.70.229.181:8000";
+  static const String _apiBaseUrl = "https://darzo-api.onrender.com/";
 
   @override
   void initState() {
