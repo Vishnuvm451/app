@@ -27,14 +27,28 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
   // LOAD STUDENT CLASS
   // --------------------------------------------------
   Future<void> _loadStudentClass() async {
-    final snap = await _db.collection('student').doc(uid).get();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw "User not logged in";
+    }
 
-    if (!snap.exists) return;
+    final q = await FirebaseFirestore.instance
+        .collection('student')
+        .where('authUid', isEqualTo: user.uid)
+        .limit(1)
+        .get();
 
-    setState(() {
-      classId = snap['classId'];
-      isLoading = false;
-    });
+    if (q.docs.isEmpty) {
+      throw "Student profile not found";
+    }
+
+    final studentDoc = q.docs.first;
+    final data = studentDoc.data();
+
+    // ✅ USE the variable (this removes the warning)
+    classId = data['classId'];
+
+    setState(() {});
   }
 
   // --------------------------------------------------
