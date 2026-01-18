@@ -29,7 +29,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   // 🔧 UPDATE THIS
   // Emulator: http://10.0.2.2:8000
   // Real device: http://<PC_IP>:8000
-  static const String _apiBaseUrl = "https://darzo-api.onrender.com/";
+  static const String _apiBaseUrl = "https://darzo-api.onrender.com";
 
   @override
   void initState() {
@@ -124,7 +124,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
 
       // Add timeout to prevent infinite loading
       final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 60),
         onTimeout: () {
           throw Exception("Connection timed out. Check IP/Server.");
         },

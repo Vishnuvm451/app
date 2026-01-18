@@ -43,14 +43,31 @@ class AppAuthProvider extends ChangeNotifier {
   // INIT (AUTO LOGIN)
   // ===================================================
   Future<void> init() async {
-    _user = FirebaseAuth.instance.currentUser;
-
-    if (_user != null) {
-      await _loadUserProfile(_user!.uid);
+    try {
+      _user = FirebaseAuth.instance.currentUser;
+      
+      if (_user != null) {
+        // Reload user to ensure fresh state
+        await _user!.reload();
+        _user = FirebaseAuth.instance.currentUser;
+        
+        if (_user != null) {
+          await _loadUserProfile(_user!.uid);
+        }
+      }
+    } catch (e) {
+      print("Init error: $e");
+      // If there's an error, clear the user state
+      _user = null;
+      _role = null;
+      _departmentId = null;
+      _name = null;
+      _teacherApproved = false;
+      _teacherSetupCompleted = false;
+    } finally {
+      _initialized = true;
+      notifyListeners();
     }
-
-    _initialized = true;
-    notifyListeners();
   }
 
   // ===================================================
@@ -72,7 +89,7 @@ class AppAuthProvider extends ChangeNotifier {
       await user.reload();
       _user = FirebaseAuth.instance.currentUser;
 
-      // 🔐 LOAD ROLE + PROFILE ONLY
+      // 🔹 LOAD ROLE + PROFILE ONLY
       await _loadUserProfile(_user!.uid);
     } finally {
       _setLoading(false);
@@ -99,55 +116,60 @@ class AppAuthProvider extends ChangeNotifier {
   // LOAD USER PROFILE
   // ===================================================
   Future<void> _loadUserProfile(String uid) async {
-    final userData = await FirestoreService.instance.getUser(uid);
+    try {
+      final userData = await FirestoreService.instance.getUser(uid);
 
-    if (userData == null) {
-      throw Exception("User document missing");
-    }
-
-    _role = userData['role'];
-
-    // ---------- ADMIN ----------
-    if (_role == 'admin') {
-      _name = userData['name'];
-      notifyListeners();
-      return;
-    }
-
-    // ---------- STUDENT ----------
-    if (_role == 'student') {
-      final studentData = await FirestoreService.instance.getStudent(uid);
-
-      if (studentData == null) {
-        throw Exception("Student profile missing");
+      if (userData == null) {
+        throw Exception("User document missing");
       }
 
-      _departmentId = studentData['departmentId'];
-      _name = studentData['name'];
+      _role = userData['role'];
 
-      notifyListeners();
-      return;
-    }
-
-    // ---------- TEACHER ----------
-    if (_role == 'teacher') {
-      final teacherData = await FirestoreService.instance.getTeacher(uid);
-
-      if (teacherData == null) {
-        throw Exception("Teacher profile missing");
+      // ---------- ADMIN ----------
+      if (_role == 'admin') {
+        _name = userData['name'] ?? 'Admin';
+        notifyListeners();
+        return;
       }
 
-      _teacherApproved = teacherData['isApproved'] ?? false;
-      _teacherSetupCompleted = teacherData['setupCompleted'] ?? false;
-      _departmentId = teacherData['departmentId'];
-      _name = teacherData['name'];
+      // ---------- STUDENT ----------
+      if (_role == 'student') {
+        final studentData = await FirestoreService.instance.getStudent(uid);
 
-      // ❌ DO NOT THROW — LOGIN PAGE HANDLES THIS
-      notifyListeners();
-      return;
+        if (studentData == null) {
+          throw Exception("Student profile missing");
+        }
+
+        _departmentId = studentData['departmentId'];
+        _name = studentData['name'];
+
+        notifyListeners();
+        return;
+      }
+
+      // ---------- TEACHER ----------
+      if (_role == 'teacher') {
+        final teacherData = await FirestoreService.instance.getTeacher(uid);
+
+        if (teacherData == null) {
+          throw Exception("Teacher profile missing");
+        }
+
+        _teacherApproved = teacherData['isApproved'] ?? false;
+        _teacherSetupCompleted = teacherData['setupCompleted'] ?? false;
+        _departmentId = teacherData['departmentId'];
+        _name = teacherData['name'];
+
+        // ✅ DO NOT THROW — LOGIN PAGE HANDLES THIS
+        notifyListeners();
+        return;
+      }
+
+      throw Exception("Invalid user role");
+    } catch (e) {
+      print("Load user profile error: $e");
+      rethrow;
     }
-
-    throw Exception("Invalid user role");
   }
 
   // ===================================================
