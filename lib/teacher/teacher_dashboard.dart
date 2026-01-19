@@ -1,4 +1,5 @@
 import 'package:darzo/attendance/attendance_daily.dart';
+import 'package:darzo/settings.dart';
 import 'package:darzo/teacher/internal.dart';
 import 'package:darzo/attendance/start_attendance.dart';
 import 'package:darzo/teacher/teacher_student.dart';
@@ -232,7 +233,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                 "Hello, $teacherName",
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 18,
+                  fontSize: 25,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -250,9 +251,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   departmentId.isEmpty ? "No Dept" : departmentId.toUpperCase(),
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
+                    letterSpacing: 0.9,
                   ),
                 ),
               ),
@@ -346,12 +347,23 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             );
           },
         ),
+
+        // Inside _quickActionsGrid in TeacherDashboardPage.dart
         _actionCard(
           icon: Icons.settings,
           label: "Settings",
           color: Colors.blueGrey,
           onTap: () {
-            _comingSoon();
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SettingsPage(
+                  userRole: 'teacher',
+                  initialName: teacherName,
+                  initialSubTitle: "Dept: ${departmentId.toUpperCase()}",
+                ),
+              ),
+            );
           },
         ),
       ],
@@ -424,11 +436,5 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
 
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  void _comingSoon() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Coming soon 🚧")));
   }
 }
