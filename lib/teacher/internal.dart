@@ -12,6 +12,7 @@ class AddInternalMarksPage extends StatefulWidget {
   State<AddInternalMarksPage> createState() => _AddInternalMarksPageState();
 }
 
+// Helper class to hold controllers for each student row
 class StudentControllers {
   final TextEditingController internal = TextEditingController();
   final TextEditingController attendance = TextEditingController();
@@ -44,12 +45,27 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
     text: '5',
   );
 
+  // Map to store controllers for each student ID
   final Map<String, StudentControllers> _studentControllers = {};
 
   @override
   void initState() {
     super.initState();
     _loadTeacherProfile();
+  }
+
+  @override
+  void dispose() {
+    _testNameCtrl.dispose();
+    _maxInternalCtrl.dispose();
+    _maxAttendanceCtrl.dispose();
+    _maxAssignmentCtrl.dispose();
+    for (var ctrl in _studentControllers.values) {
+      ctrl.internal.dispose();
+      ctrl.attendance.dispose();
+      ctrl.assignment.dispose();
+    }
+    super.dispose();
   }
 
   // ===================================================
@@ -67,6 +83,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       if (mounted) {
         setState(() {
           departmentId = data['departmentId'];
+          // If widget passed a classId, use it, otherwise use teacher's default
           selectedClassId = widget.classId ?? data['classId'];
           isLoadingProfile = false;
         });
@@ -77,7 +94,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
   }
 
   // ===================================================
-  // 2. LOAD EXISTING MARKS
+  // 2. LOAD EXISTING MARKS (For Editing)
   // ===================================================
   Future<void> _loadExistingMarks(String testName) async {
     if (testName.trim().isEmpty ||
@@ -87,32 +104,49 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
 
     setState(() => isLoadingExisting = true);
 
-    final docId = '${selectedClassId}_${selectedSubjectId}_$testName';
+    // Unique ID for this test session
+    final docId = '${selectedClassId}_${selectedSubjectId}_${testName.trim()}';
 
     try {
       final ref = _db.collection('internal_mark').doc(docId);
       final snap = await ref.get();
 
       if (!snap.exists) {
-        _clearAllFields();
+        _clearAllFields(); // New test, clear inputs
       } else {
+        // Load Config
+        final data = snap.data()!;
+        _maxInternalCtrl.text = (data['maxMarks']['internal'] ?? 50).toString();
+        _maxAttendanceCtrl.text = (data['maxMarks']['attendance'] ?? 5)
+            .toString();
+        _maxAssignmentCtrl.text = (data['maxMarks']['assignment'] ?? 5)
+            .toString();
+
+        // Load Student Marks
         final studentsSnap = await ref.collection('student').get();
         for (var doc in studentsSnap.docs) {
           final sid = doc.id;
-          final data = doc.data();
+          final sData = doc.data();
+
+          // Ensure controller exists
           _studentControllers.putIfAbsent(sid, () => StudentControllers());
-          _studentControllers[sid]!.internal.text = (data['internal'] ?? '')
+
+          _studentControllers[sid]!.internal.text = (sData['internal'] ?? '')
               .toString();
-          _studentControllers[sid]!.attendance.text = (data['attendance'] ?? '')
-              .toString();
-          _studentControllers[sid]!.assignment.text = (data['assignment'] ?? '')
-              .toString();
+          _studentControllers[sid]!.attendance.text =
+              (sData['attendance'] ?? '').toString();
+          _studentControllers[sid]!.assignment.text =
+              (sData['assignment'] ?? '').toString();
         }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Loaded existing marks for $testName")),
+        );
       }
     } catch (e) {
       debugPrint("Error loading marks: $e");
     } finally {
-      setState(() => isLoadingExisting = false);
+      if (mounted) setState(() => isLoadingExisting = false);
     }
   }
 
@@ -125,7 +159,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
   }
 
   // ===================================================
-  // 3. SAVE MARKS
+  // 3. SAVE MARKS LOGIC
   // ===================================================
   Future<void> _saveMarks() async {
     final testName = _testNameCtrl.text.trim();
@@ -149,7 +183,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
     final batch = _db.batch();
     final mainRef = _db.collection('internal_mark').doc(docId);
 
-    // Save Parent Doc
+    // 1. Save Parent Document (Test Metadata)
     batch.set(mainRef, {
       'classId': selectedClassId,
       'subjectId': selectedSubjectId,
@@ -164,24 +198,26 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    // Save Students
+    // 2. Loop through students and save their marks
     _studentControllers.forEach((studentId, ctrls) {
-      final internal = double.tryParse(ctrls.internal.text.trim()) ?? 0;
-      final attendance = double.tryParse(ctrls.attendance.text.trim()) ?? 0;
-      final assignment = double.tryParse(ctrls.assignment.text.trim()) ?? 0;
+      final internalStr = ctrls.internal.text.trim();
+      final attendanceStr = ctrls.attendance.text.trim();
+      final assignmentStr = ctrls.assignment.text.trim();
 
-      bool hasInput =
-          ctrls.internal.text.isNotEmpty ||
-          ctrls.attendance.text.isNotEmpty ||
-          ctrls.assignment.text.isNotEmpty;
+      // Only save if at least one field is filled
+      if (internalStr.isNotEmpty ||
+          attendanceStr.isNotEmpty ||
+          assignmentStr.isNotEmpty) {
+        final internal = double.tryParse(internalStr) ?? 0;
+        final attendance = double.tryParse(attendanceStr) ?? 0;
+        final assignment = double.tryParse(assignmentStr) ?? 0;
 
-      if (hasInput) {
         batch.set(mainRef.collection('student').doc(studentId), {
           'studentId': studentId,
           'internal': internal,
           'attendance': attendance,
           'assignment': assignment,
-          'total': internal + attendance + assignment,
+          'total': internal + attendance + assignment, // Auto calculate total
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
@@ -191,7 +227,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       await batch.commit();
       _showSnack("Marks saved successfully!", success: true);
     } catch (e) {
-      _showSnack("Failed to save marks");
+      _showSnack("Failed to save marks: $e");
     } finally {
       if (mounted) setState(() => isSaving = false);
     }
@@ -223,16 +259,30 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       ),
       body: Column(
         children: [
-          // 1. SELECTION CARD (Updated Logic)
+          // 1. SELECTION CARD (Class -> Sem -> Subject)
           _selectionCard(),
 
           // 2. MARKING AREA
           Expanded(
             child: selectedSubjectId == null
                 ? Center(
-                    child: Text(
-                      "Select Class & Subject to continue",
-                      style: TextStyle(color: Colors.grey.shade500),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.class_outlined,
+                          size: 60,
+                          color: Colors.grey.shade300,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          "Select Class, Sem & Subject",
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
                     ),
                   )
                 : Column(
@@ -249,7 +299,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
   }
 
   // --------------------------------------------------
-  // SELECTION CARD (FIXED SEMESTER LOGIC)
+  // SELECTION CARD
   // --------------------------------------------------
   Widget _selectionCard() {
     return Container(
@@ -258,11 +308,10 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
         ],
       ),
-      // Move StreamBuilder to TOP to access class data for semesters
       child: StreamBuilder<QuerySnapshot>(
         stream: _db
             .collection('class')
@@ -273,29 +322,23 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
 
           final classes = snapshot.data!.docs;
 
-          // 1. Find Year of Selected Class
-          int classYear = 1;
+          // Calculate available semesters based on selected class year
+          List<int> availableSemesters = [];
           if (selectedClassId != null) {
             try {
               final selectedDoc = classes.firstWhere(
                 (d) => d.id == selectedClassId,
               );
-              classYear = (selectedDoc.data() as Map)['year'] ?? 1;
+              final classYear = (selectedDoc.data() as Map)['year'] ?? 1;
+              availableSemesters = [(classYear * 2) - 1, (classYear * 2)];
             } catch (e) {
-              classYear = 1;
+              availableSemesters = [1, 2]; // Fallback
             }
           }
-
-          // 2. Calculate Semesters (e.g., Year 3 => Sem 5, 6)
-          final List<int> availableSemesters = [
-            (classYear * 2) - 1, // e.g. 3*2 - 1 = 5
-            (classYear * 2), // e.g. 3*2 = 6
-          ];
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Row 1: Class & Semester
               Row(
                 children: [
                   // Class Dropdown
@@ -304,14 +347,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
                     child: DropdownButtonFormField<String>(
                       value: selectedClassId,
                       isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: "Class",
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: _inputDecoration("Class"),
                       items: classes
                           .map(
                             (d) => DropdownMenuItem(
@@ -322,28 +358,20 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
                           .toList(),
                       onChanged: (val) => setState(() {
                         selectedClassId = val;
-                        selectedSemester = null; // Reset sem on class change
+                        selectedSemester = null;
                         selectedSubjectId = null;
                       }),
                     ),
                   ),
                   const SizedBox(width: 12),
-
-                  // Semester Dropdown (Dynamic)
+                  // Semester Dropdown
                   Expanded(
                     flex: 1,
                     child: DropdownButtonFormField<int>(
                       value: availableSemesters.contains(selectedSemester)
                           ? selectedSemester
                           : null,
-                      decoration: const InputDecoration(
-                        labelText: "Sem",
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: _inputDecoration("Sem"),
                       items: availableSemesters
                           .map(
                             (s) => DropdownMenuItem(
@@ -362,7 +390,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
               ),
               const SizedBox(height: 12),
 
-              // Row 2: Subjects (Horizontal Scroll)
+              // Subject Selection (Chips)
               if (selectedClassId != null && selectedSemester != null)
                 SizedBox(
                   height: 40,
@@ -373,9 +401,9 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
                         .where('semester', isEqualTo: selectedSemester)
                         .snapshots(),
                     builder: (context, snapshot) {
-                      if (!snapshot.hasData)
-                        return const Text("Loading subjects...");
+                      if (!snapshot.hasData) return const Text("Loading...");
                       final subjects = snapshot.data!.docs;
+
                       if (subjects.isEmpty)
                         return const Text(
                           "No subjects found",
@@ -394,11 +422,21 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
                               label: Text(sub['name']),
                               selected: isSelected,
                               selectedColor: primaryBlue.withOpacity(0.2),
+                              labelStyle: TextStyle(
+                                color: isSelected
+                                    ? primaryBlue
+                                    : Colors.black87,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
                               onSelected: (bool selected) {
-                                setState(() {
-                                  selectedSubjectId = selected ? sub.id : null;
-                                });
-                                // Reload marks if test name is already typed
+                                setState(
+                                  () => selectedSubjectId = selected
+                                      ? sub.id
+                                      : null,
+                                );
+                                // Try loading marks if test name exists
                                 if (selected && _testNameCtrl.text.isNotEmpty) {
                                   _loadExistingMarks(_testNameCtrl.text);
                                 }
@@ -418,7 +456,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
   }
 
   // --------------------------------------------------
-  // CONFIG CARD
+  // CONFIG CARD (Test Name & Max Marks)
   // --------------------------------------------------
   Widget _configCard() {
     return Container(
@@ -449,10 +487,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
-              contentPadding: const EdgeInsets.symmetric(
-                vertical: 0,
-                horizontal: 10,
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 10),
             ),
           ),
           const SizedBox(height: 8),
@@ -480,6 +515,10 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
           labelText: label,
           border: const OutlineInputBorder(),
           isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 8,
+          ),
         ),
       ),
     );
@@ -509,6 +548,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
             final id = stu.id;
             final name = stu['name'] ?? 'Unknown';
 
+            // Ensure controller exists for this student
             _studentControllers.putIfAbsent(id, () => StudentControllers());
             final ctrls = _studentControllers[id]!;
 
@@ -529,6 +569,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
                           name,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
+                        // Dynamic Total Calculator
                         AnimatedBuilder(
                           animation: Listenable.merge([
                             ctrls.internal,
@@ -575,7 +616,7 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
     return Expanded(
       child: TextField(
         controller: ctrl,
-        keyboardType: TextInputType.numberWithOptions(decimal: true),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
         textAlign: TextAlign.center,
         decoration: InputDecoration(
           labelText: label,
@@ -623,11 +664,21 @@ class _AddInternalMarksPageState extends State<AddInternalMarksPage> {
     );
   }
 
+  InputDecoration _inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      border: const OutlineInputBorder(),
+    );
+  }
+
   void _showSnack(String msg, {bool success = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
         backgroundColor: success ? Colors.green : Colors.red,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
