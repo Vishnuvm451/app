@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/admin/admin_login.dart';
-import 'package:darzo/student/face_capture.dart';
 import 'package:darzo/auth/auth_provider.dart';
+import 'package:darzo/student/face_liveness_page.dart';
 import 'package:darzo/student/student_register.dart';
 import 'package:darzo/student/student_dashboard.dart';
 import 'package:darzo/teacher/teacher_dashboard.dart';
@@ -96,7 +96,7 @@ class _LoginPageState extends State<LoginPage> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => FaceCapturePage(
+              builder: (_) => FaceLivenessPage(
                 admissionNo: admissionNo,
                 studentName: studentDoc['name'],
               ),
