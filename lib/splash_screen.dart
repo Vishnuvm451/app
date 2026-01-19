@@ -1,3 +1,4 @@
+import 'package:darzo/student/face_liveness_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:darzo/auth/auth_provider.dart';
@@ -5,7 +6,6 @@ import 'package:darzo/auth/login.dart';
 import 'package:darzo/student/student_dashboard.dart';
 import 'package:darzo/teacher/teacher_dashboard.dart';
 import 'package:darzo/teacher/teacher_setup_page.dart';
-import 'package:darzo/student/face_capture.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -29,12 +29,12 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     final authProvider = context.read<AppAuthProvider>();
-    
+
     // Initialize auth provider (checks if user is already logged in)
     await authProvider.init();
-    
+
     if (!mounted) return;
-    
+
     // If no user is logged in, go to login page
     if (!authProvider.isLoggedIn) {
       Navigator.pushReplacement(
@@ -43,7 +43,7 @@ class _SplashScreenState extends State<SplashScreen> {
       );
       return;
     }
-    
+
     // User is logged in - route based on role
     await _routeBasedOnRole(authProvider);
   }
@@ -90,7 +90,7 @@ class _SplashScreenState extends State<SplashScreen> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => FaceCapturePage(
+              builder: (_) => FaceLivenessPage(
                 admissionNo: admissionNo,
                 studentName: studentDoc['name'],
               ),
@@ -134,7 +134,6 @@ class _SplashScreenState extends State<SplashScreen> {
       // Invalid role - logout and go to login
       await authProvider.logout();
       _navigateToLogin("Invalid account type");
-      
     } catch (e) {
       print("Splash screen error: $e");
       await authProvider.logout();
@@ -144,20 +143,17 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void _navigateToLogin(String message) {
     if (!mounted) return;
-    
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginPage()),
     );
-    
+
     // Show message after navigation
     Future.delayed(const Duration(milliseconds: 500), () {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     });
   }
