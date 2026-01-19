@@ -1,6 +1,7 @@
 import 'package:darzo/attendance/attendance_summary.dart';
 import 'package:darzo/student/mark_attendance_face.dart';
 import 'package:darzo/student/student_internal_marks_page.dart';
+import 'package:darzo/student/view_classmates_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:darzo/auth/login.dart';
@@ -309,7 +310,18 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   );
                 },
               ),
-              _actionCard(Icons.people, "Classmates", onTap: _comingSoon),
+              _actionCard(
+                Icons.people,
+                "Classmates",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ViewClassmatesPage(),
+                    ),
+                  );
+                },
+              ),
               _actionCard(Icons.settings, "Settings", onTap: _comingSoon),
             ],
           ),
