@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 class MarkAttendancePage extends StatefulWidget {
   const MarkAttendancePage({super.key});
@@ -22,12 +23,12 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   static const String _apiBaseUrl = "https://darzo-api.onrender.com";
   static const int _apiTimeoutSeconds = 15;
 
-  // 🚀 OPTIMIZED THRESHOLDS (3X FASTER)
-  static const int _frameThrottleMs = 50; // Reduced from 300ms
-  static const double _minFaceSize = 0.05; // Reduced from 0.15
-  static const double _faceSizeThreshold = 0.05; // Reduced from 0.15
-  static const double _faceMargin = 25.0; // Increased from 15.0
-  static const double _headAngleTolerance = 30.0; // Increased from 15.0
+  // 🚀 OPTIMIZED THRESHOLDS
+  static const int _frameThrottleMs = 50;
+  static const double _minFaceSize = 0.05;
+  static const double _faceSizeThreshold = 0.05;
+  static const double _faceMargin = 25.0;
+  static const double _headAngleTolerance = 30.0;
 
   // STATE
   bool isLoading = true;
@@ -38,7 +39,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   String? studentId;
   String? admissionNo;
   String? classId;
+
+  // ✅ NEW: Session Details
   DocumentSnapshot? activeSession;
+  String? sessionType; // 'morning' or 'afternoon'
 
   // Camera & ML
   CameraController? _controller;
@@ -88,22 +92,25 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       // Load student profile
       DocumentSnapshot doc = await FirebaseFirestore.instance
           .collection('student')
-          .doc(studentId)
-          .get();
-
-      if (!doc.exists) {
-        final q = await FirebaseFirestore.instance
-            .collection('student')
-            .where('authUid', isEqualTo: studentId)
-            .limit(1)
-            .get();
-        if (q.docs.isEmpty) throw "Student profile not found";
-        doc = q.docs.first;
-      }
+          .where('authUid', isEqualTo: studentId)
+          .limit(1)
+          .get()
+          .then(
+            (q) => q.docs.isNotEmpty
+                ? q.docs.first
+                : throw "Student profile not found",
+          );
 
       final data = doc.data() as Map<String, dynamic>;
       classId = data['classId'];
       admissionNo = data['admissionNo'] ?? doc.id;
+
+      // We use the Document ID as the primary key if admissionNo is missing
+      // But typically for attendance logic, we rely on `studentId` (Auth UID) or the Doc ID.
+      // Let's assume student doc ID matches what we need for marking.
+      // If your student doc ID is the admission number, we need to be careful.
+      // Best practice: Use Auth UID for writes. Here we use `studentId` (Auth UID).
+
       if (classId == null) throw "Class ID not assigned";
 
       // Check for active session
@@ -117,6 +124,8 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       if (sessionQuery.docs.isNotEmpty) {
         activeSession = sessionQuery.docs.first;
         isSessionActive = true;
+        // ✅ READ SESSION TYPE
+        sessionType = activeSession!['sessionType'] ?? 'morning';
       } else {
         _instruction = "No Active Session";
         _statusColor = Colors.orangeAccent;
@@ -166,7 +175,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         !isSessionActive)
       return;
 
-    // Frame throttling - 50ms for faster detection
+    // Frame throttling
     final now = DateTime.now();
     if (_lastFrameTime != null &&
         now.difference(_lastFrameTime!) <
@@ -220,7 +229,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 3. FACE ALIGNMENT CHECK (NO BLINK DETECTION)
+  // 3. FACE ALIGNMENT CHECK
   // ===================================================
   void _checkFaceAlignment(Face face, double imgWidth, double imgHeight) {
     final box = face.boundingBox;
@@ -251,12 +260,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       return;
     }
 
-    // Face is properly aligned
     _faceProperlyAligned = true;
     _updateStatus("✓ Face detected - Ready to mark", Colors.greenAccent);
   }
 
-  // Face size check with movement detection
   bool _checkFaceSize(double faceWidth, double imgWidth) {
     final threshold = imgWidth * _faceSizeThreshold;
 
@@ -265,7 +272,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       return false;
     }
 
-    // Check for sudden movement
     if (_previousFaceWidth != null) {
       final change = (faceWidth - _previousFaceWidth!).abs();
       final changePercent = change / _previousFaceWidth!;
@@ -281,7 +287,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 4. MANUAL CAPTURE (BUTTON TRIGGERED)
+  // 4. MANUAL CAPTURE
   // ===================================================
   Future<void> _manualCapture() async {
     if (_isVerifying) return;
@@ -318,11 +324,9 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       setState(() => _instruction = "Scanning face...");
 
-      // Capture high-res image
       final XFile imageFile = await _controller!.takePicture();
       final imageBytes = await imageFile.readAsBytes();
 
-      // Verify face against registered face
       await _verifyAndMarkAttendance(imageBytes);
     } catch (e) {
       print("Capture error: $e");
@@ -377,7 +381,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         http.MultipartFile.fromBytes('image', imageBytes, filename: 'face.jpg'),
       );
 
-      // Verify with timeout
       late http.StreamedResponse streamedResponse;
       try {
         streamedResponse = await request.send().timeout(
@@ -403,16 +406,14 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         throw Exception(errorMessage);
       }
 
-      // Parse response to get matched admission number
       final result = jsonDecode(response.body);
       final matchedAdmission = result['admissionNo'].toString();
 
-      // Verify this is the correct student
+      // Check match
       if (matchedAdmission != admissionNo) {
         throw "Face mismatch! Expected: $admissionNo, Got: $matchedAdmission";
       }
 
-      // Mark attendance if face matches
       await _markAttendanceFirestore();
     } catch (e) {
       print("Verification error: $e");
@@ -430,7 +431,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 6. MARK ATTENDANCE (WITH TRANSACTION & VALIDATION)
+  // 6. MARK ATTENDANCE (2-SESSION LOGIC)
   // ===================================================
   Future<void> _markAttendanceFirestore() async {
     try {
@@ -438,26 +439,40 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         throw "Session is no longer available";
       }
 
-      final sessionId = activeSession!.id;
+      final sessionId = activeSession!.id; // This is the generic session ID
+
+      // ✅ Generate Specific ID based on session type
+      // Example: CSE-A_2024-01-20_morning
+      // This MUST match how the Teacher creates it!
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final specificSessionId = "${classId}_${today}_$sessionType";
 
       // Verify session is still active
       final sessionDoc = await FirebaseFirestore.instance
           .collection('attendance_session')
-          .doc(sessionId)
+          .doc(specificSessionId) // Check the specific one
           .get();
 
       if (!sessionDoc.exists || sessionDoc['isActive'] != true) {
-        throw "Attendance session has ended";
+        // Fallback check on the generic ID if specific fails (just in case)
+        final genericDoc = await FirebaseFirestore.instance
+            .collection('attendance_session')
+            .doc(sessionId)
+            .get();
+        if (!genericDoc.exists || genericDoc['isActive'] != true) {
+          throw "Attendance session has ended";
+        }
       }
 
       // Use transaction to prevent race conditions
       bool alreadyMarked = false;
       await FirebaseFirestore.instance.runTransaction((transaction) async {
+        // Path: attendance/{class_date_sessionType}/student/{studentId}
         final docRef = FirebaseFirestore.instance
             .collection('attendance')
-            .doc(sessionId)
+            .doc(specificSessionId)
             .collection('student')
-            .doc(studentId);
+            .doc(studentId); // Using Auth UID as Doc ID
 
         final snap = await transaction.get(docRef);
         alreadyMarked = snap.exists;
@@ -467,6 +482,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
             'studentId': studentId,
             'admissionNo': admissionNo,
             'status': 'present',
+            'sessionType': sessionType, // morning or afternoon
             'method': 'face_scan',
             'markedAt': FieldValue.serverTimestamp(),
           });
@@ -511,8 +527,8 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         ),
         content: Text(
           alreadyMarked
-              ? "Your attendance for this session is already recorded."
-              : "Your attendance has been marked successfully.",
+              ? "You have already marked attendance for the $sessionType session."
+              : "Attendance marked for $sessionType session.",
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 16),
         ),
@@ -520,7 +536,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
           TextButton(
             onPressed: () {
               Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back
+              Navigator.pop(context); // Go back to dashboard
             },
             child: const Text("OK", style: TextStyle(fontSize: 16)),
           ),
@@ -530,7 +546,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 7. IMAGE CONVERSION (PLATFORM-AWARE)
+  // 7. IMAGE CONVERSION
   // ===================================================
   InputImage? _inputImageFromCameraImage(CameraImage image) {
     if (_controller == null) return null;
@@ -577,11 +593,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 8. BUILD UI (NEW DESIGN WITH CAPTURE BUTTON)
+  // 8. BUILD UI
   // ===================================================
   @override
   Widget build(BuildContext context) {
-    // Loading state
     if (isLoading) {
       return const Scaffold(
         backgroundColor: Color(0xFF2196F3),
@@ -589,12 +604,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       );
     }
 
-    // Error state
     if (errorMessage != null) {
       return Scaffold(
         backgroundColor: const Color(0xFF2196F3),
         appBar: AppBar(
-          title: const Text("Error"),
           backgroundColor: Colors.transparent,
           elevation: 0,
           leading: BackButton(
@@ -613,14 +626,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                 Text(
                   errorMessage!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    height: 1.5,
-                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
                 ),
                 const SizedBox(height: 40),
-                ElevatedButton.icon(
+                ElevatedButton(
                   onPressed: () {
                     setState(() {
                       isLoading = true;
@@ -628,16 +637,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                     });
                     _loadDataAndCamera();
                   },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text("Retry"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF2196F3),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 40,
-                      vertical: 16,
-                    ),
-                  ),
+                  child: const Text("Retry"),
                 ),
               ],
             ),
@@ -646,7 +646,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       );
     }
 
-    // Main camera UI
     return Scaffold(
       backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
@@ -667,7 +666,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Header Section
             Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -680,10 +678,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.3),
-                        width: 1,
-                      ),
+                      border: Border.all(color: Colors.white.withOpacity(0.3)),
                     ),
                     child: Text(
                       _instruction,
@@ -697,33 +692,20 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                       textAlign: TextAlign.center,
                     ),
                   ),
-                  if (!isSessionActive)
+                  if (isSessionActive && sessionType != null)
                     Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.orangeAccent.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          "⏳ No active session",
-                          style: TextStyle(
-                            color: Colors.orangeAccent,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        "Session: ${sessionType!.toUpperCase()}",
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                 ],
               ),
             ),
-
-            // Camera Circle with Face Detection Border
             Expanded(
               child: Center(
                 child: SizedBox(
@@ -732,7 +714,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Camera Preview
                       ClipOval(
                         child: SizedBox(
                           height: 340,
@@ -755,8 +736,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                                 ),
                         ),
                       ),
-
-                      // Dynamic Border
                       Container(
                         height: 340,
                         width: 340,
@@ -768,47 +747,19 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                                 : Colors.white,
                             width: 6,
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color:
-                                  (_faceProperlyAligned
-                                          ? Colors.greenAccent
-                                          : Colors.white)
-                                      .withOpacity(0.4),
-                              blurRadius: 25,
-                              spreadRadius: 8,
-                            ),
-                          ],
                         ),
                       ),
-
-                      // Verifying Overlay
                       if (_isVerifying)
                         Container(
                           height: 340,
                           width: 340,
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.black54,
                             shape: BoxShape.circle,
                           ),
                           child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 3,
-                                ),
-                                SizedBox(height: 16),
-                                Text(
-                                  "Marking attendance...",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -817,57 +768,35 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                 ),
               ),
             ),
-
-            // Mark Attendance Button Section
             Padding(
               padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  // Capture Button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton.icon(
-                      onPressed: _isVerifying ? null : _manualCapture,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _faceProperlyAligned
-                            ? Colors.white
-                            : Colors.white.withOpacity(0.5),
-                        foregroundColor: const Color(0xFF2196F3),
-                        disabledBackgroundColor: Colors.white.withOpacity(0.3),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                        elevation: 8,
-                      ),
-                      icon: Icon(
-                        _isVerifying ? Icons.hourglass_top : Icons.check_circle,
-                        size: 24,
-                      ),
-                      label: Text(
-                        _isVerifying ? "Marking..." : "MARK ATTENDANCE",
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: _isVerifying ? null : _manualCapture,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _faceProperlyAligned
+                        ? Colors.white
+                        : Colors.white.withOpacity(0.5),
+                    foregroundColor: const Color(0xFF2196F3),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    elevation: 8,
+                  ),
+                  icon: Icon(
+                    _isVerifying ? Icons.hourglass_top : Icons.check_circle,
+                    size: 24,
+                  ),
+                  label: Text(
+                    _isVerifying ? "Marking..." : "MARK ATTENDANCE",
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  // Helper Text
-                  Text(
-                    _faceProperlyAligned
-                        ? "✓ Face aligned - Ready to mark"
-                        : "Align face in circle to enable marking",
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+                ),
               ),
             ),
           ],
