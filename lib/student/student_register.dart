@@ -1,9 +1,9 @@
-import 'package:darzo/student/face_capture.dart';
 import 'package:darzo/auth/login.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
+import 'package:darzo/student/face_liveness_page.dart';
 
 class StudentRegisterPage extends StatefulWidget {
   const StudentRegisterPage({super.key});
@@ -114,7 +114,7 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => FaceCapturePage(
+          builder: (_) => FaceLivenessPage(
             admissionNo: admissionNo,
             studentName: _nameCtrl.text.trim(),
           ),
