@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// ✅ IMPORT THE DASHBOARD PAGE
 import 'package:darzo/teacher/teacher_dashboard.dart';
 
 class TeacherSetupPage extends StatefulWidget {
@@ -32,7 +31,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
   }
 
   // --------------------------------------------------
-  // LOAD TEACHER PROFILE
+  // LOAD TEACHER PROFILE (Updated for Edit Mode)
   // --------------------------------------------------
   Future<void> _loadTeacherProfile() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -52,29 +51,36 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
       return;
     }
 
-    // If setup is already done, go to dashboard immediately
+    // ❌ REMOVED: The block that auto-redirected you to Dashboard.
+
+    // ✅ ADDED: Pre-fill data if editing
     if (setupCompleted) {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
-        );
-      }
-      return;
+      setState(() {
+        selectedClassId = data['classId'];
+        selectedSemester = data['semester'];
+        if (data['subjectIds'] != null) {
+          selectedSubjectIds.clear();
+          selectedSubjectIds.addAll(List<String>.from(data['subjectIds']));
+        }
+      });
     }
 
     // Load department name
-    final deptSnap = await _db.collection('department').doc(departmentId).get();
-
-    if (deptSnap.exists) {
-      departmentName = deptSnap['name'];
+    if (departmentId != null) {
+      final deptSnap = await _db
+          .collection('department')
+          .doc(departmentId)
+          .get();
+      if (deptSnap.exists) {
+        setState(() {
+          departmentName = deptSnap['name'];
+        });
+      }
     }
-
-    if (mounted) setState(() {});
   }
 
   // --------------------------------------------------
-  // SAVE SETUP (FIXED NAVIGATION)
+  // SAVE SETUP
   // --------------------------------------------------
   Future<void> _saveSetup() async {
     if (selectedClassId == null ||
@@ -94,15 +100,15 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
         'classId': selectedClassId,
         'semester': selectedSemester,
         'subjectIds': selectedSubjectIds,
-        'setupCompleted': true,
+        'setupCompleted': true, // Ensure this stays true
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
 
-      _showSnack("Setup completed successfully");
+      _showSnack("Setup updated successfully");
 
-      // ✅ FIX: Navigate to Dashboard instead of popping (Fixes Red Screen)
+      // Navigate back to Dashboard (Using pushReplacement to refresh dashboard state)
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
@@ -115,7 +121,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
   }
 
   // --------------------------------------------------
-  // UI (UNCHANGED)
+  // UI
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -125,7 +131,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
-      appBar: AppBar(title: const Text("Teacher Setup"), centerTitle: true),
+      appBar: AppBar(title: const Text("Edit Setup"), centerTitle: true),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -154,9 +160,6 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     );
   }
 
-  // --------------------------------------------------
-  // CLASS CARD (FIXED SORTING)
-  // --------------------------------------------------
   Widget _classCard() {
     return Card(
       child: Padding(
@@ -165,15 +168,13 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
           stream: _db
               .collection('class')
               .where('departmentId', isEqualTo: departmentId)
-              // ❌ REMOVED: .orderBy('year') because it breaks without a custom index
               .snapshots(),
           builder: (_, snap) {
             if (snap.hasError) return const Text("Error loading classes");
             if (!snap.hasData) return const LinearProgressIndicator();
 
             final docs = snap.data!.docs;
-
-            // ✅ ADDED: Sort manually here (Safe and works instantly)
+            // Sort locally to avoid index errors
             docs.sort((a, b) {
               final yearA = (a.data() as Map)['year'] ?? 0;
               final yearB = (b.data() as Map)['year'] ?? 0;
@@ -182,6 +183,12 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
             if (docs.isEmpty) {
               return const Text("No classes found for this department");
+            }
+
+            // Ensure selectedClassId is valid (if class was deleted)
+            if (selectedClassId != null &&
+                !docs.any((d) => d.id == selectedClassId)) {
+              selectedClassId = null;
             }
 
             return DropdownButtonFormField<String>(
@@ -193,7 +200,8 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
               onChanged: (val) {
                 setState(() {
                   selectedClassId = val;
-                  selectedSemester = null;
+                  // If class changes, we might want to clear subjects,
+                  // but for "Edit" we often keep semester.
                   selectedSubjectIds.clear();
                 });
               },
@@ -223,7 +231,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
           onChanged: (val) {
             setState(() {
               selectedSemester = val;
-              selectedSubjectIds.clear();
+              selectedSubjectIds.clear(); // Clear subjects if semester changes
             });
           },
           decoration: const InputDecoration(
@@ -277,9 +285,10 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
                     value: selectedSubjectIds.contains(id),
                     onChanged: (checked) {
                       setState(() {
-                        if (checked == true &&
-                            !selectedSubjectIds.contains(id)) {
-                          selectedSubjectIds.add(id);
+                        if (checked == true) {
+                          if (!selectedSubjectIds.contains(id)) {
+                            selectedSubjectIds.add(id);
+                          }
                         } else {
                           selectedSubjectIds.remove(id);
                         }
@@ -303,7 +312,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
         child: isSaving
             ? const CircularProgressIndicator(color: Colors.white)
             : const Text(
-                "Save Setup",
+                "Save Changes",
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
       ),
