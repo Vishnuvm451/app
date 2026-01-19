@@ -1,7 +1,9 @@
 import 'package:darzo/attendance/attendance_summary.dart';
+import 'package:darzo/settings.dart';
 import 'package:darzo/student/mark_attendance_face.dart';
 import 'package:darzo/student/student_internal_marks_page.dart';
 import 'package:darzo/student/view_classmates_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:darzo/auth/login.dart';
@@ -25,13 +27,55 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   /// loading | no-session | not-marked | present | half-day | absent
   String attendanceStatus = 'loading';
 
+  // 1. DECLARE VARIABLES HERE 👇
+  String studentName = "Loading...";
+  String admissionNo = "";
+  String departmentId = "";
+
   @override
   void initState() {
     super.initState();
     _loadDashboardData();
+    _loadStudentProfile(); // <--- Call the function to load data
   }
 
-  // --------------------------------------------------
+  // ==================================================
+  // LOAD PROFILE DATA (CORRECTED LOGIC)
+  // ==================================================
+  Future<void> _loadStudentProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        // 🔍 CORRECTED SEARCH LOGIC: Find document where authUid matches
+        final querySnapshot = await FirebaseFirestore.instance
+            .collection('student')
+            .where('authUid', isEqualTo: user.uid)
+            .limit(1)
+            .get();
+
+        if (querySnapshot.docs.isNotEmpty) {
+          final data = querySnapshot.docs.first.data();
+          if (mounted) {
+            setState(() {
+              // Get name, defaulting to "Student" if missing
+              studentName = data['name'] ?? "Student";
+
+              // Get admission no, defaulting to Document ID if missing
+              admissionNo = data['admissionNo'] ?? querySnapshot.docs.first.id;
+
+              departmentId = data['departmentId'] ?? "";
+            });
+          }
+        } else {
+          print("❌ No student profile found for this user!");
+        }
+      } catch (e) {
+        print("❌ Error loading profile: $e");
+      }
+    }
+  }
+
+  // -------------------------------
   // LOAD DASHBOARD DATA
   // --------------------------------------------------
   Future<void> _loadDashboardData() async {
@@ -112,7 +156,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AppAuthProvider>();
+    // We rely on our local `studentName` variable now, which comes from Firestore
+    // instead of just the Auth Provider, ensuring accuracy.
 
     return Scaffold(
       backgroundColor: const Color(0xFF2196F3),
@@ -122,8 +167,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         title: const Text("Student Dashboard", style: TextStyle(fontSize: 26)),
         centerTitle: true,
         actions: [
+          // Settings Shortcut in AppBar (Optional, since you have it in Quick Actions)
           IconButton(
-            icon: const Icon(Icons.logout, size: 34),
+            icon: const Icon(Icons.logout, size: 28),
             onPressed: _logout,
           ),
         ],
@@ -135,7 +181,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    _header(auth),
+                    _header(),
                     const SizedBox(height: 24),
                     _attendanceCard(),
                     const SizedBox(height: 20),
@@ -150,13 +196,13 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   // --------------------------------------------------
   // HEADER
   // --------------------------------------------------
-  Widget _header(AppAuthProvider auth) {
+  Widget _header() {
     return Column(
       children: [
         const Icon(Icons.school, size: 70, color: Colors.white),
         const SizedBox(height: 12),
         Text(
-          "Welcome, ${auth.name ?? 'Student'} 👋",
+          "Welcome, $studentName 👋", // ✅ Using fetched variable
           textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 22,
@@ -220,6 +266,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         children: [
           Text(
             text,
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -322,7 +369,22 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   );
                 },
               ),
-              _actionCard(Icons.settings, "Settings", onTap: _comingSoon),
+              _actionCard(
+                Icons.settings,
+                "Settings",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => SettingsPage(
+                        userRole: 'student',
+                        initialName: studentName,
+                        initialSubTitle: "Adm No: $admissionNo",
+                      ),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ],
@@ -358,11 +420,5 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         ),
       ),
     );
-  }
-
-  void _comingSoon() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Coming soon 🚧")));
   }
 }
