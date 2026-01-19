@@ -4,7 +4,10 @@
         android:name="${applicationName}"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher">
-        <activity
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="face" />
+            <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
