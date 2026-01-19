@@ -36,7 +36,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // LOAD TEACHER PROFILE (Logic Unchanged)
+  // LOAD TEACHER PROFILE
   // --------------------------------------------------
   Future<void> _loadTeacher() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -162,7 +162,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                     ],
                   ),
                   const SizedBox(height: 30),
-                  // Profile Card (Now integrated cleanly)
+                  // Profile Card
                   _buildProfileRow(),
                 ],
               ),
@@ -336,16 +336,23 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ),
         _actionCard(
           icon: Icons.settings_suggest_rounded,
-          label: "Class\nSetup",
+          label: "Edit\nSetup",
           color: const Color(0xFF009688),
-          onTap: setupCompleted
-              ? _showSetupCompleted
-              : () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
-                  );
-                },
+
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
+            );
+          },
+        ),
+        _actionCard(
+          icon: Icons.settings,
+          label: "Settings",
+          color: Colors.blueGrey,
+          onTap: () {
+            _comingSoon();
+          },
         ),
       ],
     );
@@ -415,13 +422,13 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  void _showSetupCompleted() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Setup already completed")));
-  }
-
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _comingSoon() {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Coming soon 🚧")));
   }
 }
