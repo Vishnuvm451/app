@@ -1,9 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 
 class MarkAttendancePage extends StatefulWidget {
   const MarkAttendancePage({super.key});
@@ -13,25 +18,50 @@ class MarkAttendancePage extends StatefulWidget {
 }
 
 class _MarkAttendancePageState extends State<MarkAttendancePage> {
-  // ---------------- STATE ----------------
+  // 🔧 CONFIG
+  static const String _apiBaseUrl = "https://darzo-api.onrender.com";
+  static const int _apiTimeoutSeconds = 15;
+
+  // 🚀 OPTIMIZED THRESHOLDS (3X FASTER)
+  static const int _frameThrottleMs = 50; // Reduced from 300ms
+  static const double _minFaceSize = 0.05; // Reduced from 0.15
+  static const double _faceSizeThreshold = 0.05; // Reduced from 0.15
+  static const double _faceMargin = 25.0; // Increased from 15.0
+  static const double _headAngleTolerance = 30.0; // Increased from 15.0
+
+  // STATE
   bool isLoading = true;
-  bool isVerifying = false;
   bool isSessionActive = false;
+  String? errorMessage;
 
-  String? error;
-  String? statusMessage;
-
+  // Student Data
   String? studentId;
   String? admissionNo;
   String? classId;
+  DocumentSnapshot? activeSession;
 
-  CameraController? _cameraController;
+  // Camera & ML
+  CameraController? _controller;
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      enableClassification: true,
+      enableLandmarks: true,
+      performanceMode: FaceDetectorMode.accurate,
+      minFaceSize: _minFaceSize,
+    ),
+  );
+
   bool _isCameraInitialized = false;
+  bool _isProcessingFrame = false;
+  bool _isVerifying = false;
+  bool _isCameraStopping = false;
+  DateTime? _lastFrameTime;
 
-  DocumentSnapshot<Map<String, dynamic>>? activeSession;
-
-  // 🔧 Backend API
-  static const String _apiBaseUrl = "https://darzo-api.onrender.com";
+  // Face Detection State
+  String _instruction = "Position your face in the circle";
+  Color _statusColor = Colors.white;
+  bool _faceProperlyAligned = false;
+  double? _previousFaceWidth;
 
   @override
   void initState() {
@@ -41,42 +71,42 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
   @override
   void dispose() {
-    _cameraController?.dispose();
+    _faceDetector.close();
+    _controller?.dispose();
     super.dispose();
   }
 
   // ===================================================
-  // 1. LOAD STUDENT + CHECK SESSION + INIT CAMERA
+  // 1. LOAD DATA + CAMERA
   // ===================================================
   Future<void> _loadDataAndCamera() async {
     try {
+      // Get current user
       studentId = FirebaseAuth.instance.currentUser?.uid;
       if (studentId == null) throw "User not logged in";
 
-      // ---------------- STUDENT DATA ----------------
-      final studentSnap = await FirebaseFirestore.instance
+      // Load student profile
+      DocumentSnapshot doc = await FirebaseFirestore.instance
           .collection('student')
           .doc(studentId)
           .get();
 
-      DocumentSnapshot studentDoc = studentSnap;
-
-      if (!studentDoc.exists) {
+      if (!doc.exists) {
         final q = await FirebaseFirestore.instance
             .collection('student')
             .where('authUid', isEqualTo: studentId)
             .limit(1)
             .get();
-
         if (q.docs.isEmpty) throw "Student profile not found";
-        studentDoc = q.docs.first;
+        doc = q.docs.first;
       }
 
-      final data = studentDoc.data() as Map<String, dynamic>;
+      final data = doc.data() as Map<String, dynamic>;
       classId = data['classId'];
-      admissionNo = data['admissionNo'] ?? studentDoc.id;
+      admissionNo = data['admissionNo'] ?? doc.id;
+      if (classId == null) throw "Class ID not assigned";
 
-      // ---------------- ATTENDANCE SESSION ----------------
+      // Check for active session
       final sessionQuery = await FirebaseFirestore.instance
           .collection('attendance_session')
           .where('classId', isEqualTo: classId)
@@ -88,159 +118,411 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         activeSession = sessionQuery.docs.first;
         isSessionActive = true;
       } else {
-        isSessionActive = false;
+        _instruction = "No Active Session";
+        _statusColor = Colors.orangeAccent;
       }
 
-      // ---------------- CAMERA ----------------
+      // Initialize camera
       final cameras = await availableCameras();
       final frontCamera = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
-      _cameraController = CameraController(
+      _controller = CameraController(
         frontCamera,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
+        imageFormatGroup: Platform.isAndroid
+            ? ImageFormatGroup.nv21
+            : ImageFormatGroup.bgra8888,
       );
 
-      await _cameraController!.initialize();
+      await _controller!.initialize();
+      if (!mounted) return;
 
-      if (mounted) {
-        setState(() => _isCameraInitialized = true);
+      setState(() => _isCameraInitialized = true);
+
+      if (isSessionActive) {
+        await _controller!.startImageStream(_processCameraImage);
       }
     } catch (e) {
-      error = e.toString().replaceAll("Exception:", "").trim();
+      if (mounted) {
+        setState(() => errorMessage = e.toString());
+      }
+      print("Init Error: $e");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
   // ===================================================
-  // 2. FACE SCAN + VERIFY
+  // 2. CAMERA FRAME PROCESSING (FACE DETECTION ONLY)
   // ===================================================
-  Future<void> _scanAndVerify() async {
-    if (!isSessionActive) {
+  Future<void> _processCameraImage(CameraImage image) async {
+    if (_isCameraStopping ||
+        _isProcessingFrame ||
+        _isVerifying ||
+        !isSessionActive)
+      return;
+
+    // Frame throttling - 50ms for faster detection
+    final now = DateTime.now();
+    if (_lastFrameTime != null &&
+        now.difference(_lastFrameTime!) <
+            Duration(milliseconds: _frameThrottleMs)) {
+      return;
+    }
+    _lastFrameTime = now;
+
+    _isProcessingFrame = true;
+
+    InputImage? inputImage;
+    try {
+      inputImage = _inputImageFromCameraImage(image);
+      if (inputImage == null) {
+        _isProcessingFrame = false;
+        return;
+      }
+
+      final faces = await _faceDetector.processImage(inputImage);
+      if (!mounted) {
+        _isProcessingFrame = false;
+        return;
+      }
+
+      if (faces.isEmpty) {
+        _updateStatus("📷 No face detected", Colors.redAccent);
+        _faceProperlyAligned = false;
+      } else if (faces.length > 1) {
+        _updateStatus("⚠️ Only one person at a time", Colors.redAccent);
+        _faceProperlyAligned = false;
+      } else {
+        _checkFaceAlignment(
+          faces.first,
+          image.width.toDouble(),
+          image.height.toDouble(),
+        );
+      }
+    } catch (e) {
+      print("Face detection error: $e");
+    } finally {
+      _isProcessingFrame = false;
+    }
+  }
+
+  void _updateStatus(String msg, Color color) {
+    if (!mounted || _instruction == msg) return;
+    setState(() {
+      _instruction = msg;
+      _statusColor = color;
+    });
+  }
+
+  // ===================================================
+  // 3. FACE ALIGNMENT CHECK (NO BLINK DETECTION)
+  // ===================================================
+  void _checkFaceAlignment(Face face, double imgWidth, double imgHeight) {
+    final box = face.boundingBox;
+
+    // Check alignment
+    if (box.left < _faceMargin ||
+        box.top < _faceMargin ||
+        box.right > imgWidth - _faceMargin ||
+        box.bottom > imgHeight - _faceMargin) {
+      _updateStatus("📍 Keep face in view", Colors.orangeAccent);
+      _faceProperlyAligned = false;
+      return;
+    }
+
+    // Check face size
+    if (!_checkFaceSize(box.width, imgWidth)) {
+      _faceProperlyAligned = false;
+      return;
+    }
+
+    // Check head pose
+    final headYaw = (face.headEulerAngleY ?? 0).abs();
+    final headRoll = (face.headEulerAngleZ ?? 0).abs();
+
+    if (headYaw > _headAngleTolerance || headRoll > _headAngleTolerance) {
+      _updateStatus("🧠 Look straight ahead", Colors.orangeAccent);
+      _faceProperlyAligned = false;
+      return;
+    }
+
+    // Face is properly aligned
+    _faceProperlyAligned = true;
+    _updateStatus("✓ Face detected - Ready to mark", Colors.greenAccent);
+  }
+
+  // Face size check with movement detection
+  bool _checkFaceSize(double faceWidth, double imgWidth) {
+    final threshold = imgWidth * _faceSizeThreshold;
+
+    if (faceWidth < threshold) {
+      _updateStatus("📏 Move closer", Colors.orangeAccent);
+      return false;
+    }
+
+    // Check for sudden movement
+    if (_previousFaceWidth != null) {
+      final change = (faceWidth - _previousFaceWidth!).abs();
+      final changePercent = change / _previousFaceWidth!;
+
+      if (changePercent > 0.35) {
+        _updateStatus("📸 Hold still", Colors.orangeAccent);
+        return false;
+      }
+    }
+
+    _previousFaceWidth = faceWidth;
+    return true;
+  }
+
+  // ===================================================
+  // 4. MANUAL CAPTURE (BUTTON TRIGGERED)
+  // ===================================================
+  Future<void> _manualCapture() async {
+    if (_isVerifying) return;
+    if (!_faceProperlyAligned) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            "⏳ Please wait for the teacher to start attendance session",
-          ),
+          content: Text("⚠️ Please align your face first"),
           backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
         ),
       );
       return;
     }
 
-    if (isVerifying || !_isCameraInitialized) return;
-
-    setState(() {
-      isVerifying = true;
-      statusMessage = "Scanning face...";
-    });
+    _isVerifying = true;
+    _isCameraStopping = true;
 
     try {
-      // Capture image
-      final image = await _cameraController!.takePicture();
-
-      // Send to backend
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse("$_apiBaseUrl/face/verify"),
-      );
-
-      request.files.add(await http.MultipartFile.fromPath('image', image.path));
-
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      final result = jsonDecode(response.body);
-
-      if (response.statusCode != 200 || result['success'] != true) {
-        throw result['message'] ?? "Face verification failed";
+      if (_controller == null || !_controller!.value.isInitialized) {
+        throw "Camera not initialized";
       }
 
-      final matchedAdmission = result['admissionNo'].toString();
-
-      if (matchedAdmission != admissionNo) {
-        throw "Face mismatch! This face does not belong to you.";
+      if (_controller!.value.isStreamingImages) {
+        await _controller!.stopImageStream();
       }
 
-      // Mark attendance
-      await _markAttendanceInFirestore();
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      if (!mounted) {
+        _isVerifying = false;
+        _isCameraStopping = false;
+        return;
+      }
+
+      setState(() => _instruction = "Scanning face...");
+
+      // Capture high-res image
+      final XFile imageFile = await _controller!.takePicture();
+      final imageBytes = await imageFile.readAsBytes();
+
+      // Verify face against registered face
+      await _verifyAndMarkAttendance(imageBytes);
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("❌ $e"), backgroundColor: Colors.red),
-      );
-    } finally {
+      print("Capture error: $e");
       if (mounted) {
-        setState(() {
-          isVerifying = false;
-          statusMessage = null;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Capture failed: ${e.toString()}"),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        _resetCamera();
+      }
+    }
+  }
+
+  Future<void> _resetCamera() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isVerifying = false;
+      _isCameraStopping = false;
+      _instruction = "Position your face in the circle";
+      _statusColor = Colors.white;
+      _faceProperlyAligned = false;
+      _previousFaceWidth = null;
+    });
+
+    if (_controller != null && _controller!.value.isInitialized) {
+      try {
+        await _controller!.startImageStream(_processCameraImage);
+      } catch (e) {
+        print("Stream restart error: $e");
       }
     }
   }
 
   // ===================================================
-  // 3. FIRESTORE WRITE
+  // 5. VERIFY FACE & MARK ATTENDANCE
   // ===================================================
-  Future<void> _markAttendanceInFirestore() async {
-    final sessionId = activeSession!.id;
-
-    final existing = await FirebaseFirestore.instance
-        .collection('attendance')
-        .doc(sessionId)
-        .collection('student')
-        .doc(studentId)
-        .get();
-
-    if (existing.exists) {
+  Future<void> _verifyAndMarkAttendance(Uint8List imageBytes) async {
+    try {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("You have already marked attendance!")),
+      setState(() => _instruction = "Verifying face...");
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse("$_apiBaseUrl/face/verify"),
       );
-      Navigator.pop(context);
-      return;
+
+      request.files.add(
+        http.MultipartFile.fromBytes('image', imageBytes, filename: 'face.jpg'),
+      );
+
+      // Verify with timeout
+      late http.StreamedResponse streamedResponse;
+      try {
+        streamedResponse = await request.send().timeout(
+          Duration(seconds: _apiTimeoutSeconds),
+          onTimeout: () {
+            throw TimeoutException(
+              "Verification timed out after ${_apiTimeoutSeconds}s",
+            );
+          },
+        );
+      } on TimeoutException catch (e) {
+        throw Exception("Connection timeout: ${e.message}");
+      }
+
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode != 200) {
+        String errorMessage = "Verification failed: ${response.statusCode}";
+        try {
+          final errorBody = jsonDecode(response.body);
+          errorMessage = errorBody['message'] ?? errorMessage;
+        } catch (_) {}
+        throw Exception(errorMessage);
+      }
+
+      // Parse response to get matched admission number
+      final result = jsonDecode(response.body);
+      final matchedAdmission = result['admissionNo'].toString();
+
+      // Verify this is the correct student
+      if (matchedAdmission != admissionNo) {
+        throw "Face mismatch! Expected: $admissionNo, Got: $matchedAdmission";
+      }
+
+      // Mark attendance if face matches
+      await _markAttendanceFirestore();
+    } catch (e) {
+      print("Verification error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("❌ Error: $e"),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      await _resetCamera();
     }
+  }
 
-    await FirebaseFirestore.instance
-        .collection('attendance')
-        .doc(sessionId)
-        .collection('student')
-        .doc(studentId)
-        .set({
-          'studentId': studentId,
-          'admissionNo': admissionNo,
-          'status': 'present',
-          'method': 'face',
-          'markedAt': FieldValue.serverTimestamp(),
-        });
+  // ===================================================
+  // 6. MARK ATTENDANCE (WITH TRANSACTION & VALIDATION)
+  // ===================================================
+  Future<void> _markAttendanceFirestore() async {
+    try {
+      if (activeSession == null) {
+        throw "Session is no longer available";
+      }
 
-    if (!mounted) return;
+      final sessionId = activeSession!.id;
 
+      // Verify session is still active
+      final sessionDoc = await FirebaseFirestore.instance
+          .collection('attendance_session')
+          .doc(sessionId)
+          .get();
+
+      if (!sessionDoc.exists || sessionDoc['isActive'] != true) {
+        throw "Attendance session has ended";
+      }
+
+      // Use transaction to prevent race conditions
+      bool alreadyMarked = false;
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final docRef = FirebaseFirestore.instance
+            .collection('attendance')
+            .doc(sessionId)
+            .collection('student')
+            .doc(studentId);
+
+        final snap = await transaction.get(docRef);
+        alreadyMarked = snap.exists;
+
+        if (!snap.exists) {
+          transaction.set(docRef, {
+            'studentId': studentId,
+            'admissionNo': admissionNo,
+            'status': 'present',
+            'method': 'face_scan',
+            'markedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      });
+
+      if (!mounted) return;
+      _showSuccessDialog(alreadyMarked: alreadyMarked);
+    } catch (e) {
+      print("Attendance error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to mark attendance: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      await _resetCamera();
+    }
+  }
+
+  void _showSuccessDialog({required bool alreadyMarked}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        title: const Column(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Column(
           children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 60),
-            SizedBox(height: 10),
-            Text("Present!"),
+            Icon(
+              alreadyMarked ? Icons.info_outline : Icons.check_circle,
+              color: alreadyMarked ? Colors.orange : Colors.green,
+              size: 64,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              alreadyMarked ? "Already Marked" : "Success! ✓",
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
-        content: const Text(
-          "Your attendance has been marked successfully.",
+        content: Text(
+          alreadyMarked
+              ? "Your attendance for this session is already recorded."
+              : "Your attendance has been marked successfully.",
           textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 16),
         ),
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back
             },
-            child: const Text("OK"),
+            child: const Text("OK", style: TextStyle(fontSize: 16)),
           ),
         ],
       ),
@@ -248,126 +530,348 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // UI
+  // 7. IMAGE CONVERSION (PLATFORM-AWARE)
+  // ===================================================
+  InputImage? _inputImageFromCameraImage(CameraImage image) {
+    if (_controller == null) return null;
+
+    final camera = _controller!.description;
+    final sensorOrientation = camera.sensorOrientation;
+
+    InputImageRotation rotation = InputImageRotation.rotation0deg;
+    if (Platform.isAndroid) {
+      final rotationCompensation = (sensorOrientation + 270) % 360;
+      rotation =
+          InputImageRotationValue.fromRawValue(rotationCompensation) ??
+          InputImageRotation.rotation0deg;
+    } else {
+      final rotationCompensation = (sensorOrientation + 90) % 360;
+      rotation =
+          InputImageRotationValue.fromRawValue(rotationCompensation) ??
+          InputImageRotation.rotation0deg;
+    }
+
+    final format = Platform.isAndroid
+        ? InputImageFormat.nv21
+        : InputImageFormat.bgra8888;
+
+    if (image.planes.isEmpty) return null;
+
+    return InputImage.fromBytes(
+      bytes: _concatenatePlanes(image.planes),
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation,
+        format: format,
+        bytesPerRow: image.planes.first.bytesPerRow,
+      ),
+    );
+  }
+
+  Uint8List _concatenatePlanes(List<Plane> planes) {
+    final buffer = WriteBuffer();
+    for (final plane in planes) {
+      buffer.putUint8List(plane.bytes);
+    }
+    return buffer.done().buffer.asUint8List();
+  }
+
+  // ===================================================
+  // 8. BUILD UI (NEW DESIGN WITH CAPTURE BUTTON)
   // ===================================================
   @override
   Widget build(BuildContext context) {
+    // Loading state
     if (isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: Color(0xFF2196F3),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
     }
 
-    if (error != null) {
+    // Error state
+    if (errorMessage != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text("Error")),
+        backgroundColor: const Color(0xFF2196F3),
+        appBar: AppBar(
+          title: const Text("Error"),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: BackButton(
+            onPressed: () => Navigator.pop(context),
+            color: Colors.white,
+          ),
+        ),
         body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error, size: 60, color: Colors.red),
-              const SizedBox(height: 20),
-              Text(error!, textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Go Back"),
-              ),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 80, color: Colors.white),
+                const SizedBox(height: 24),
+                Text(
+                  errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 40),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      isLoading = true;
+                      errorMessage = null;
+                    });
+                    _loadDataAndCamera();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Retry"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF2196F3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 40,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
+    // Main camera UI
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
-        title: const Text("Face Attendance"),
+        title: const Text("Mark Attendance"),
+        centerTitle: true,
         backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
+        elevation: 0,
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
-      body: Stack(
-        children: [
-          if (_isCameraInitialized)
-            Center(child: CameraPreview(_cameraController!)),
-
-          Center(
-            child: Container(
-              height: 300,
-              width: 300,
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: isVerifying ? Colors.orange : Colors.greenAccent,
-                  width: 4,
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: isVerifying
-                  ? const Center(
-                      child: CircularProgressIndicator(color: Colors.white),
-                    )
-                  : null,
-            ),
-          ),
-
-          if (!isSessionActive)
-            const Positioned(
-              top: 120,
-              left: 0,
-              right: 0,
-              child: Text(
-                "Waiting for teacher to start attendance session",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.orange,
-                  fontSize: 16,
-                  backgroundColor: Colors.black54,
-                ),
-              ),
-            ),
-
-          Positioned(
-            bottom: 40,
-            left: 20,
-            right: 20,
-            child: ElevatedButton(
-              onPressed: (!isSessionActive || isVerifying)
-                  ? null
-                  : _scanAndVerify,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              child: Text(
-                !isSessionActive
-                    ? "WAITING FOR TEACHER"
-                    : (isVerifying ? "VERIFYING..." : "SCAN & MARK ATTENDANCE"),
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header Section
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      _instruction,
+                      style: TextStyle(
+                        color: _statusColor == Colors.white
+                            ? Colors.white
+                            : _statusColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  if (!isSessionActive)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orangeAccent.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          "⏳ No active session",
+                          style: TextStyle(
+                            color: Colors.orangeAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
 
-          if (statusMessage != null)
-            Positioned(
-              top: 90,
-              left: 0,
-              right: 0,
-              child: Text(
-                statusMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  backgroundColor: Colors.black54,
+            // Camera Circle with Face Detection Border
+            Expanded(
+              child: Center(
+                child: SizedBox(
+                  height: 340,
+                  width: 340,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Camera Preview
+                      ClipOval(
+                        child: SizedBox(
+                          height: 340,
+                          width: 340,
+                          child: _isCameraInitialized
+                              ? FittedBox(
+                                  fit: BoxFit.cover,
+                                  child: SizedBox(
+                                    width:
+                                        _controller!.value.previewSize!.height,
+                                    height:
+                                        _controller!.value.previewSize!.width,
+                                    child: CameraPreview(_controller!),
+                                  ),
+                                )
+                              : const Center(
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                  ),
+                                ),
+                        ),
+                      ),
+
+                      // Dynamic Border
+                      Container(
+                        height: 340,
+                        width: 340,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: _faceProperlyAligned
+                                ? Colors.greenAccent
+                                : Colors.white,
+                            width: 6,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color:
+                                  (_faceProperlyAligned
+                                          ? Colors.greenAccent
+                                          : Colors.white)
+                                      .withOpacity(0.4),
+                              blurRadius: 25,
+                              spreadRadius: 8,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Verifying Overlay
+                      if (_isVerifying)
+                        Container(
+                          height: 340,
+                          width: 340,
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 3,
+                                ),
+                                SizedBox(height: 16),
+                                Text(
+                                  "Marking attendance...",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
-        ],
+
+            // Mark Attendance Button Section
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  // Capture Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      onPressed: _isVerifying ? null : _manualCapture,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _faceProperlyAligned
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.5),
+                        foregroundColor: const Color(0xFF2196F3),
+                        disabledBackgroundColor: Colors.white.withOpacity(0.3),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
+                        ),
+                        elevation: 8,
+                      ),
+                      icon: Icon(
+                        _isVerifying ? Icons.hourglass_top : Icons.check_circle,
+                        size: 24,
+                      ),
+                      label: Text(
+                        _isVerifying ? "Marking..." : "MARK ATTENDANCE",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Helper Text
+                  Text(
+                    _faceProperlyAligned
+                        ? "✓ Face aligned - Ready to mark"
+                        : "Align face in circle to enable marking",
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
