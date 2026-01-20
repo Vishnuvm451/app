@@ -60,7 +60,7 @@ class _TeacherAttendanceSessionPageState
 
       if (mounted) {
         setState(() {
-          classId = data['classId']; // 🔒 locked class
+          classId = data['classId'];
         });
       }
     } catch (e) {
@@ -69,7 +69,7 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // START SESSION (FIXED WITH BATCH)
+  // START SESSION
   // --------------------------------------------------
   Future<void> _startSession() async {
     if (classId == null) {
@@ -89,62 +89,59 @@ class _TeacherAttendanceSessionPageState
       final sessionRef = _db.collection('attendance_session').doc(sessionId);
       final attendanceRef = _db.collection('attendance').doc(sessionId);
 
-      // 1. Check if session exists using a Fresh Transaction or Get
-      final sessionSnap = await sessionRef.get();
+      await _db.runTransaction((transaction) async {
+        final sessionSnap = await transaction.get(sessionRef);
 
-      if (sessionSnap.exists && sessionSnap.data()!['isActive'] == true) {
-        _showSnack("Session already active");
-        return;
-      }
-
-      // 2. Check for ANY other active session for this class today
-      // (Prevent Morning and Afternoon running at same time)
-      final activeQuery = await _db
-          .collection('attendance_session')
-          .where('classId', isEqualTo: classId)
-          .where('date', isEqualTo: today)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      if (activeQuery.docs.isNotEmpty) {
-        // If the found active session is NOT the one we are trying to start
-        if (activeQuery.docs.first.id != sessionId) {
-          _showSnack("Another session is already active");
-          return;
+        if (sessionSnap.exists && sessionSnap.data()!['isActive'] == true) {
+          throw Exception("Session already active");
         }
-      }
 
-      // 3. USE BATCH WRITE (Fixes "Failed but started" bug)
-      // This ensures both docs are created, or neither is.
-      WriteBatch batch = _db.batch();
+        final activeQuery = await _db
+            .collection('attendance_session')
+            .where('classId', isEqualTo: classId)
+            .where('date', isEqualTo: today)
+            .where('isActive', isEqualTo: true)
+            .get();
 
-      batch.set(sessionRef, {
-        'classId': classId,
-        'date': today,
-        'sessionType': sessionType,
-        'isActive': true,
-        'startedBy': user.uid,
-        'startedAt': FieldValue.serverTimestamp(),
+        if (activeQuery.docs.isNotEmpty) {
+          if (activeQuery.docs.first.id != sessionId) {
+            throw Exception(
+              "Another session is already active. Please stop it first.",
+            );
+          }
+        }
+
+        transaction.set(sessionRef, {
+          'classId': classId,
+          'date': today,
+          'sessionType': sessionType,
+          'isActive': true,
+          'startedBy': user.uid,
+          'startedAt': FieldValue.serverTimestamp(),
+        });
+
+        transaction.set(attendanceRef, {
+          'classId': classId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       });
-
-      batch.set(attendanceRef, {
-        'classId': classId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
 
       _showSnack("Attendance session started", success: true);
     } catch (e) {
-      print("Start Session Error: $e"); // Check Console for red errors
-      _showSnack("Failed to start session: ${e.toString()}");
+      print("Start Session Error: $e");
+      String errorMsg = e.toString();
+      if (errorMsg.contains("Another session is already active")) {
+        _showSnack("Another session is already active. Please stop it first.");
+      } else {
+        _showSnack("Failed to start session: $errorMsg");
+      }
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
   // --------------------------------------------------
-  // STOP SESSION (FIXED LOGIC ORDER)
+  // STOP SESSION
   // --------------------------------------------------
   Future<void> _stopSession() async {
     if (classId == null) {
@@ -166,10 +163,10 @@ class _TeacherAttendanceSessionPageState
         return;
       }
 
-      // 1. Finalize Attendance FIRST (Calculate presence)
+      // 1. Finalize Attendance (Calculates & Protects Manual Entries)
       await _finalizeAttendance(classId!);
 
-      // 2. THEN Close the Session
+      // 2. Stop the session
       await ref.update({
         'isActive': false,
         'endedAt': FieldValue.serverTimestamp(),
@@ -185,81 +182,114 @@ class _TeacherAttendanceSessionPageState
   }
 
   // --------------------------------------------------
-  // FINALIZE ATTENDANCE
+  // FINALIZE ATTENDANCE (FIXED: PROTECTS MANUAL ENTRIES)
   // --------------------------------------------------
   Future<void> _finalizeAttendance(String classId) async {
     final today = _todayId();
     final finalDocId = '${classId}_$today';
-
     final finalRef = _db.collection('attendance_final').doc(finalDocId);
 
-    // Create the daily report doc
+    // Ensure Master Document Exists
     await finalRef.set({
       'classId': classId,
       'date': today,
       'finalizedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    // Get all students in this class
+    // 1. Get List of All Students
     final studentsSnap = await _db
         .collection('student')
         .where('classId', isEqualTo: classId)
         .get();
 
-    if (studentsSnap.docs.isEmpty) return;
+    if (studentsSnap.docs.isEmpty) {
+      print("⚠️ No students found in class $classId");
+      return;
+    }
 
+    // 2. Fetch Face Scan Data (Morning & Afternoon)
     final morningId = '${classId}_${today}_morning';
     final afternoonId = '${classId}_${today}_afternoon';
 
-    // Fetch Morning Data
     final morningSnap = await _db
         .collection('attendance')
         .doc(morningId)
         .collection('student')
         .get();
 
-    // Fetch Afternoon Data
     final afternoonSnap = await _db
         .collection('attendance')
         .doc(afternoonId)
         .collection('student')
         .get();
 
-    // Map for fast lookup
+    // Map for fast lookup of scans
     final morningMap = {for (var d in morningSnap.docs) d.id: true};
     final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
 
-    // Prepare Batch for Student Status Updates
-    // Note: Firestore batch limit is 500. If class > 500, needs chunking.
-    final batch = _db.batch();
+    // 3. Fetch EXISTING Final Records (To check for Manual Overrides)
+    final existingFinalSnap = await finalRef.collection('student').get();
+    final existingDataMap = {
+      for (var d in existingFinalSnap.docs) d.id: d.data(),
+    };
+
+    // 4. Batch Write Logic
+    const int batchLimit = 400; // Safe limit
+    int batchCount = 0;
+    var batch = _db.batch();
 
     for (final stu in studentsSnap.docs) {
       final studentId = stu.id;
 
+      // 🛑 PROTECTION CHECK:
+      // If this student was manually marked, SKIP overwriting them.
+      if (existingDataMap.containsKey(studentId)) {
+        final existingData = existingDataMap[studentId]!;
+        if (existingData['method'] == 'manual_override') {
+          print("Skipping auto-calc for $studentId (Manual Override active)");
+          continue;
+        }
+      }
+
+      // --- Normal Calculation Logic ---
       final bool m = morningMap[studentId] == true;
       final bool a = afternoonMap[studentId] == true;
 
       String status;
       if (m && a) {
-        status = 'present'; // Both sessions present
+        status = 'present';
       } else if (m || a) {
-        status = 'half-day'; // One session present
+        status = 'half-day';
       } else {
-        status = 'absent'; // Neither
+        status = 'absent';
+      }
+
+      // Add to batch
+      if (batchCount >= batchLimit) {
+        await batch.commit();
+        batch = _db.batch();
+        batchCount = 0;
       }
 
       batch.set(finalRef.collection('student').doc(studentId), {
         'studentId': studentId,
         'status': status,
         'computedAt': FieldValue.serverTimestamp(),
+        'method': 'auto_calc', // Mark as auto-calculated
       });
+
+      batchCount++;
     }
 
-    await batch.commit();
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+
+    print("✅ Finalized attendance for $classId. Protected manual entries.");
   }
 
   // --------------------------------------------------
-  // UI (UNCHANGED)
+  // UI
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -514,9 +544,12 @@ class _TeacherAttendanceSessionPageState
 }
 
 // --------------------------------------------------
-// DATE HELPER
+// DATE HELPER (Match with Manual Attendance)
 // --------------------------------------------------
 String _todayId() {
+  // Use .toUtc() if your manual attendance page also uses UTC normalization
+  // If not, remove .toUtc() to ensure IDs match.
+  // Standard practice for dates is to keep them consistent.
   final now = DateTime.now();
   return '${now.year}-'
       '${now.month.toString().padLeft(2, '0')}-'
