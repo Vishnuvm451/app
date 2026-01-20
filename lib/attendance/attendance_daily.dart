@@ -9,7 +9,6 @@ class ManualAttendancePage extends StatefulWidget {
   const ManualAttendancePage({super.key, required this.classId});
 
   @override
-  // ✅ FIXED: State<ManualAttendancePage>, NOT State<ManualAttendancePageState>
   State<ManualAttendancePage> createState() => _ManualAttendancePageState();
 }
 
@@ -376,7 +375,7 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   }
 
   // ===================================================
-  // DATE PICKER
+  // DATE PICKER (FIXED: DISABLE FUTURE DATES)
   // ===================================================
   Future<void> _pickDate() async {
     DateTime currentSelection;
@@ -386,11 +385,19 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
       currentSelection = DateTime.now();
     }
 
+    // Limit selection to Today
+    final now = DateTime.now();
+
+    // Ensure initial date is not in the future
+    if (currentSelection.isAfter(now)) {
+      currentSelection = now;
+    }
+
     final picked = await showDatePicker(
       context: context,
       initialDate: currentSelection,
       firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      lastDate: now, // ✅ RESTRICT: Max date is Today
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
