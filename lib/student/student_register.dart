@@ -72,11 +72,19 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
         password: _passwordCtrl.text.trim(),
       );
 
-      final String authUid = cred.user!.uid;
+      final user = cred.user;
+      final String authUid = user!.uid;
+
+      // ---------------------------------------------------------
+      // 🆕 SEND VERIFICATION EMAIL (FORMALITY ONLY)
+      // We catch errors so it doesn't stop the registration flow.
+      // ---------------------------------------------------------
+      user.sendEmailVerification().catchError((e) {
+        print("Email verification failed to send: $e");
+      });
 
       // 2. ✅ WRITE TO FIRESTORE
       // If admissionNo already exists, the Security Rules will REJECT this write
-      // because 'allow update' is restricted to the owner of the existing doc.
       final batch = _db.batch();
 
       final userRef = _db.collection('users').doc(authUid);
@@ -105,12 +113,13 @@ class _StudentRegisterPageState extends State<StudentRegisterPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("User added – enable face"),
+          content: Text("User added – Please enable face setup"),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
       );
 
+      // ✅ Continue directly to Face Liveness (No Logout)
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
