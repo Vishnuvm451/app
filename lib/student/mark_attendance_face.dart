@@ -37,12 +37,13 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
   // Student Data
   String? studentId;
+  String? studentDocId;
   String? admissionNo;
   String? classId;
 
-  // ✅ NEW: Session Details
+  // Session Details
   DocumentSnapshot? activeSession;
-  String? sessionType; // 'morning' or 'afternoon'
+  String? sessionType;
 
   // Camera & ML
   CameraController? _controller;
@@ -85,7 +86,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   // ===================================================
   Future<void> _loadDataAndCamera() async {
     try {
-      // Get current user
       studentId = FirebaseAuth.instance.currentUser?.uid;
       if (studentId == null) throw "User not logged in";
 
@@ -104,12 +104,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       final data = doc.data() as Map<String, dynamic>;
       classId = data['classId'];
       admissionNo = data['admissionNo'] ?? doc.id;
-
-      // We use the Document ID as the primary key if admissionNo is missing
-      // But typically for attendance logic, we rely on `studentId` (Auth UID) or the Doc ID.
-      // Let's assume student doc ID matches what we need for marking.
-      // If your student doc ID is the admission number, we need to be careful.
-      // Best practice: Use Auth UID for writes. Here we use `studentId` (Auth UID).
+      studentDocId = doc.id;
 
       if (classId == null) throw "Class ID not assigned";
 
@@ -123,9 +118,14 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       if (sessionQuery.docs.isNotEmpty) {
         activeSession = sessionQuery.docs.first;
+        sessionType = activeSession!['sessionType'];
+
+        if (sessionType == null ||
+            (sessionType != 'morning' && sessionType != 'afternoon')) {
+          throw "Invalid session type received: $sessionType";
+        }
+
         isSessionActive = true;
-        // ✅ READ SESSION TYPE
-        sessionType = activeSession!['sessionType'] ?? 'morning';
       } else {
         _instruction = "No Active Session";
         _statusColor = Colors.orangeAccent;
@@ -166,7 +166,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 2. CAMERA FRAME PROCESSING (FACE DETECTION ONLY)
+  // 2. CAMERA FRAME PROCESSING
   // ===================================================
   Future<void> _processCameraImage(CameraImage image) async {
     if (_isCameraStopping ||
@@ -175,7 +175,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         !isSessionActive)
       return;
 
-    // Frame throttling
     final now = DateTime.now();
     if (_lastFrameTime != null &&
         now.difference(_lastFrameTime!) <
@@ -234,7 +233,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   void _checkFaceAlignment(Face face, double imgWidth, double imgHeight) {
     final box = face.boundingBox;
 
-    // Check alignment
     if (box.left < _faceMargin ||
         box.top < _faceMargin ||
         box.right > imgWidth - _faceMargin ||
@@ -244,13 +242,11 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       return;
     }
 
-    // Check face size
     if (!_checkFaceSize(box.width, imgWidth)) {
       _faceProperlyAligned = false;
       return;
     }
 
-    // Check head pose
     final headYaw = (face.headEulerAngleY ?? 0).abs();
     final headRoll = (face.headEulerAngleZ ?? 0).abs();
 
@@ -355,7 +351,9 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       _previousFaceWidth = null;
     });
 
-    if (_controller != null && _controller!.value.isInitialized) {
+    if (_controller != null &&
+        _controller!.value.isInitialized &&
+        !_controller!.value.isStreamingImages) {
       try {
         await _controller!.startImageStream(_processCameraImage);
       } catch (e) {
@@ -365,7 +363,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 5. VERIFY FACE & MARK ATTENDANCE
+  // 5. VERIFY FACE
   // ===================================================
   Future<void> _verifyAndMarkAttendance(Uint8List imageBytes) async {
     try {
@@ -406,12 +404,19 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         throw Exception(errorMessage);
       }
 
-      final result = jsonDecode(response.body);
+      late final Map<String, dynamic> result;
+      try {
+        result = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (e) {
+        throw Exception("Invalid API response format");
+      }
+
       final matchedAdmission = result['admissionNo'].toString();
 
-      // Check match
       if (matchedAdmission != admissionNo) {
-        throw "Face mismatch! Expected: $admissionNo, Got: $matchedAdmission";
+        throw Exception(
+          "Face mismatch! Expected: $admissionNo, Got: $matchedAdmission",
+        );
       }
 
       await _markAttendanceFirestore();
@@ -431,7 +436,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   // ===================================================
-  // 6. MARK ATTENDANCE (2-SESSION LOGIC)
+  // 6. MARK ATTENDANCE (FIXED DATE MATCHING)
   // ===================================================
   Future<void> _markAttendanceFirestore() async {
     try {
@@ -439,40 +444,31 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         throw "Session is no longer available";
       }
 
-      final sessionId = activeSession!.id; // This is the generic session ID
+      if (sessionType == null) {
+        throw "Session type is not available";
+      }
 
-      // ✅ Generate Specific ID based on session type
-      // Example: CSE-A_2024-01-20_morning
-      // This MUST match how the Teacher creates it!
+      // ✅ FIXED: Removed .toUtc() to match Teacher's Local Date ID
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final specificSessionId = "${classId}_${today}_$sessionType";
 
       // Verify session is still active
       final sessionDoc = await FirebaseFirestore.instance
           .collection('attendance_session')
-          .doc(specificSessionId) // Check the specific one
+          .doc(specificSessionId)
           .get();
 
       if (!sessionDoc.exists || sessionDoc['isActive'] != true) {
-        // Fallback check on the generic ID if specific fails (just in case)
-        final genericDoc = await FirebaseFirestore.instance
-            .collection('attendance_session')
-            .doc(sessionId)
-            .get();
-        if (!genericDoc.exists || genericDoc['isActive'] != true) {
-          throw "Attendance session has ended";
-        }
+        throw "Attendance session has ended";
       }
 
-      // Use transaction to prevent race conditions
       bool alreadyMarked = false;
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        // Path: attendance/{class_date_sessionType}/student/{studentId}
         final docRef = FirebaseFirestore.instance
             .collection('attendance')
             .doc(specificSessionId)
             .collection('student')
-            .doc(studentId); // Using Auth UID as Doc ID
+            .doc(studentDocId);
 
         final snap = await transaction.get(docRef);
         alreadyMarked = snap.exists;
@@ -482,7 +478,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
             'studentId': studentId,
             'admissionNo': admissionNo,
             'status': 'present',
-            'sessionType': sessionType, // morning or afternoon
+            'sessionType': sessionType,
             'method': 'face_scan',
             'markedAt': FieldValue.serverTimestamp(),
           });
@@ -494,14 +490,31 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     } catch (e) {
       print("Attendance error: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Failed to mark attendance: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
+        String errorMsg = e.toString();
+
+        if (errorMsg.contains("session has ended") ||
+            errorMsg.contains("no longer available")) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("⚠️ Attendance session has ended by teacher"),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) Navigator.pop(context);
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Failed to mark attendance: $errorMsg"),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          _resetCamera();
+        }
       }
-      await _resetCamera();
     }
   }
 
@@ -535,8 +548,8 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back to dashboard
+              Navigator.pop(context);
+              Navigator.pop(context);
             },
             child: const Text("OK", style: TextStyle(fontSize: 16)),
           ),
