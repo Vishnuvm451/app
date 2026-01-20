@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
-import 'package:darzo/auth/auth_provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MonthlyAttendanceSummaryPage extends StatefulWidget {
@@ -23,31 +22,35 @@ class _MonthlyAttendanceSummaryPageState
 
   DateTime selectedMonth = DateTime.now();
   String? classId;
-  String? admissionNo; // Added to store Admission Number
+  String? admissionNo;
   String? errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadMonthlySummary();
+    // Safe way to trigger initial load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMonthlySummary();
+    });
   }
 
   // --------------------------------------------------
-  // LOAD MONTHLY SUMMARY
+  // LOAD MONTHLY SUMMARY (OPTIMIZED)
   // --------------------------------------------------
   Future<void> _loadMonthlySummary() async {
+    if (!mounted) return;
+
     setState(() {
       isLoading = true;
       errorMessage = null;
     });
 
     try {
-      final auth = context.read<AppAuthProvider>();
-      final user = auth.user;
-
+      // ✅ FIX 1: Use FirebaseAuth directly (Safer than context.read in async)
+      final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("User not logged in");
 
-      // 1. GET CLASS ID & ADMISSION NUMBER (If not already loaded)
+      // 1. GET CLASS ID & ADMISSION NUMBER
       if (classId == null || admissionNo == null) {
         final studentQuery = await FirebaseFirestore.instance
             .collection('student')
@@ -63,10 +66,10 @@ class _MonthlyAttendanceSummaryPageState
         final studentData = studentDoc.data();
 
         classId = studentData['classId'];
-        admissionNo = studentDoc.id; // Admission Number (e.g., 50806)
+        admissionNo = studentDoc.id; // Using Doc ID as Admission No
 
         if (classId == null || classId!.isEmpty) {
-          throw Exception("Class ID not found");
+          throw Exception("Class ID not found in profile");
         }
       }
 
@@ -74,12 +77,13 @@ class _MonthlyAttendanceSummaryPageState
       final firstDay = DateTime(selectedMonth.year, selectedMonth.month, 1);
       final lastDay = DateTime(selectedMonth.year, selectedMonth.month + 1, 0);
 
-      // Start/End Doc IDs for Range Query (e.g., "CSE_A_2024-01-01")
+      // Start/End Doc IDs for Range Query
       final startDocId =
           '${classId}_${DateFormat('yyyy-MM-dd').format(firstDay)}';
-      // Add 1 day to end range to ensure the last day is included
+
+      final nextMonthFirstDay = lastDay.add(const Duration(days: 1));
       final endDocId =
-          '${classId}_${DateFormat('yyyy-MM-dd').format(lastDay.add(const Duration(days: 1)))}';
+          '${classId}_${DateFormat('yyyy-MM-dd').format(nextMonthFirstDay)}';
 
       final attendanceSnapshot = await FirebaseFirestore.instance
           .collection('attendance_final')
@@ -87,28 +91,33 @@ class _MonthlyAttendanceSummaryPageState
           .where(FieldPath.documentId, isLessThan: endDocId)
           .get();
 
-      // 3. COUNT ATTENDANCE
+      // 3. 🚀 OPTIMIZATION: PARALLEL FETCHING
+      // Instead of waiting one-by-one, fetch all student statuses in parallel
+      List<Future<DocumentSnapshot>> futures = [];
+
+      for (var doc in attendanceSnapshot.docs) {
+        futures.add(doc.reference.collection('student').doc(admissionNo).get());
+      }
+
+      final studentStatusDocs = await Future.wait(futures);
+
+      // 4. COUNT ATTENDANCE
       int presentCount = 0;
       int halfDayCount = 0;
       int absentCount = 0;
       int totalDaysCount = 0;
 
-      for (var doc in attendanceSnapshot.docs) {
-        // Use 'admissionNo' to check the specific student's status
-        final studentStatusDoc = await doc.reference
-            .collection('student')
-            .doc(admissionNo)
-            .get();
-
-        if (studentStatusDoc.exists) {
+      for (var doc in studentStatusDocs) {
+        if (doc.exists) {
           totalDaysCount++;
-          final status = studentStatusDoc.data()?['status'] ?? '';
+          final data = doc.data() as Map<String, dynamic>?;
+          final status = data?['status'] ?? 'absent';
 
           if (status == 'present') {
             presentCount++;
           } else if (status == 'half-day' || status == 'halfday') {
             halfDayCount++;
-          } else if (status == 'absent') {
+          } else {
             absentCount++;
           }
         }
@@ -142,9 +151,16 @@ class _MonthlyAttendanceSummaryPageState
       context: context,
       initialDate: selectedMonth,
       firstDate: DateTime(2022),
-      // ✅ This limits the calendar to Today's date (Cannot pick future)
       lastDate: DateTime.now(),
       helpText: "Select Month",
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(primary: Color(0xFF2196F3)),
+          ),
+          child: child!,
+        );
+      },
     );
 
     if (picked != null) {
@@ -165,7 +181,7 @@ class _MonthlyAttendanceSummaryPageState
         : ((present + (halfDay * 0.5)) / totalDays) * 100;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA), // Light background
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text(
           "Attendance Summary",
@@ -179,111 +195,87 @@ class _MonthlyAttendanceSummaryPageState
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : errorMessage != null
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text(errorMessage!, textAlign: TextAlign.center),
-                  TextButton(
-                    onPressed: _loadMonthlySummary,
-                    child: const Text("Retry"),
-                  ),
-                ],
-              ),
-            )
+          ? _buildErrorView()
           : totalDays == 0
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // ✅ FIXED: Changed 'calendar_off' to 'event_busy'
-                  Icon(Icons.event_busy, size: 60, color: Colors.grey.shade400),
-                  const SizedBox(height: 16),
-                  Text(
-                    "No records for ${DateFormat('MMMM').format(selectedMonth)}",
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _pickMonth,
-                    icon: const Icon(Icons.calendar_month),
-                    label: const Text("Change Month"),
-                  ),
-                ],
-              ),
-            )
+          ? _buildEmptyView()
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
                   _monthSelector(),
                   const SizedBox(height: 20),
-
-                  // Percentage Card
                   _percentageCard(percentage),
                   const SizedBox(height: 20),
-
-                  // Stats Grid
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _statCard(
-                          "Present",
-                          present,
-                          Colors.green,
-                          Icons.check_circle,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _statCard(
-                          "Absent",
-                          absent,
-                          Colors.red,
-                          Icons.cancel,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _statCard(
-                          "Half Day",
-                          halfDay,
-                          Colors.orange,
-                          Icons.access_time_filled,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _statCard(
-                          "Total Days",
-                          totalDays,
-                          Colors.blue,
-                          Icons.calendar_today,
-                        ),
-                      ),
-                    ],
-                  ),
+                  _buildStatsGrid(),
                 ],
               ),
             ),
     );
   }
 
-  // --------------------------------------------------
-  // WIDGETS
-  // --------------------------------------------------
+  Widget _buildErrorView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 60, color: Colors.red),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(errorMessage!, textAlign: TextAlign.center),
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _loadMonthlySummary,
+            child: const Text("Retry"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.event_busy, size: 80, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          Text(
+            "No records for ${DateFormat('MMMM').format(selectedMonth)}",
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: _pickMonth,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.blue,
+              elevation: 0,
+              side: const BorderSide(color: Colors.blue),
+            ),
+            icon: const Icon(Icons.calendar_month),
+            label: const Text("Change Month"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _monthSelector() {
     return Card(
       elevation: 0,
+      color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        leading: const Icon(Icons.calendar_month, color: Colors.blue),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.calendar_month, color: Colors.blue),
+        ),
         title: Text(
           DateFormat('MMMM yyyy').format(selectedMonth),
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -298,44 +290,100 @@ class _MonthlyAttendanceSummaryPageState
     Color color = percentage >= 75
         ? Colors.green
         : (percentage >= 50 ? Colors.orange : Colors.red);
+
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
             const Text(
               "Attendance Score",
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 20),
             Stack(
               alignment: Alignment.center,
               children: [
                 SizedBox(
-                  width: 120,
-                  height: 120,
+                  width: 140,
+                  height: 140,
                   child: CircularProgressIndicator(
                     value: percentage / 100,
-                    strokeWidth: 10,
+                    strokeWidth: 12,
                     backgroundColor: Colors.grey.shade100,
                     color: color,
+                    strokeCap: StrokeCap.round,
                   ),
                 ),
-                Text(
-                  "${percentage.toStringAsFixed(1)}%",
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "${percentage.toStringAsFixed(1)}%",
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildStatsGrid() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _statCard(
+                "Present",
+                present,
+                Colors.green,
+                Icons.check_circle,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _statCard("Absent", absent, Colors.red, Icons.cancel),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _statCard(
+                "Half Day",
+                halfDay,
+                Colors.orange,
+                Icons.access_time_filled,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _statCard(
+                "Total Days",
+                totalDays,
+                Colors.blue,
+                Icons.calendar_today,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -356,16 +404,27 @@ class _MonthlyAttendanceSummaryPageState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 12),
-          Text(
-            value.toString(),
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(icon, color: color, size: 24),
+              Text(
+                value.toString(),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             title,
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
