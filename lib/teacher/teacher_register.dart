@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import '../auth/login.dart';
 
 class TeacherRegisterPage extends StatefulWidget {
@@ -34,7 +33,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // TEACHER REGISTER -> REQUEST ONLY (NO EMAIL VERIFICATION)
+  // TEACHER REGISTER
   // ======================================================
   Future<void> registerTeacher() async {
     if (nameController.text.trim().isEmpty ||
@@ -62,9 +61,15 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         password: passwordController.text,
       );
 
-      final uid = cred.user!.uid;
+      final user = cred.user!;
+      final uid = user.uid;
 
-      // 2. CREATE TEACHER REQUEST (ADMIN APPROVAL ONLY)
+      // 2. SEND VERIFICATION EMAIL (OPTIONAL)
+      user.sendEmailVerification().catchError((e) {
+        print("Failed to send verification email: $e");
+      });
+
+      // 3. CREATE TEACHER REQUEST
       await FirebaseFirestore.instance.collection('teacher_request').add({
         'authUid': uid,
         'name': nameController.text.trim(),
@@ -75,22 +80,53 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
+      // This ensures the dashboard doesn't crash if they try to login
+      await FirebaseFirestore.instance.collection('teacher').doc(uid).set({
+        'authUid': uid,
+        'name': nameController.text.trim(),
+        'email': email,
+        'departmentId': selectedDeptId,
+        'isApproved': false, // Admin must approve this
+        'setupCompleted': false,
+        'role': 'teacher',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
       if (!mounted) return;
 
-      _showSnack(
-        "Request submitted successfully.\nWait for admin approval.",
-        success: true,
-      );
+      _showSnack("Registration successful!", success: true);
 
-      // 3. SIGN OUT (PREVENT LOGIN BEFORE APPROVAL)
+      // 5. NAVIGATE TO LOGIN (OR DASHBOARD)
+      // Since your app requires Admin Approval first, we usually send them to Login
+      // so they can try logging in and see the "Pending" message.
+
+      // OPTION A: Logout and go to Login
       await FirebaseAuth.instance.signOut();
 
-      await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
+      // Show success dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Request Submitted"),
+          content: const Text(
+            "Your account has been created.\nPlease wait for Admin Approval before logging in.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                );
+              },
+              child: const Text("OK"),
+            ),
+          ],
+        ),
       );
     } on FirebaseAuthException catch (e) {
       String msg = "Registration failed";
@@ -103,7 +139,6 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       }
       _showSnack(msg);
     } catch (e) {
-      // Rollback auth user if Firestore fails
       if (cred?.user != null) {
         await cred!.user!.delete();
       }
