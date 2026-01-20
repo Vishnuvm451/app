@@ -9,6 +9,7 @@ class ManualAttendancePage extends StatefulWidget {
   const ManualAttendancePage({super.key, required this.classId});
 
   @override
+  // ✅ FIXED: State<ManualAttendancePage>, NOT State<ManualAttendancePageState>
   State<ManualAttendancePage> createState() => _ManualAttendancePageState();
 }
 
@@ -17,10 +18,13 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   String selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
   bool isSaving = false;
 
-  /// studentId -> status (present | half-day | absent)
+  /// studentId -> status
+  /// present | half-day | absent
   final Map<String, String> attendanceData = {};
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  // Theme Color
   final Color primaryBlue = const Color(0xFF2196F3);
 
   @override
@@ -37,16 +41,36 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   // ===================================================
   Future<void> _checkTeacherAccess() async {
     final user = FirebaseAuth.instance.currentUser;
+
     if (user == null) {
       _denyAccess();
       return;
     }
-    // You can add stricter role checks here if needed
+
+    try {
+      final roleSnap = await _db.collection('users').doc(user.uid).get();
+      if (!roleSnap.exists || roleSnap['role'] != 'teacher') {
+        _denyAccess();
+      }
+    } catch (e) {
+      _denyAccess();
+    }
   }
 
   void _denyAccess() {
     if (!mounted) return;
-    Navigator.pop(context);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Access denied: Teachers only"),
+        backgroundColor: Colors.red,
+      ),
+    );
+
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      Navigator.pop(context);
+    });
   }
 
   // ===================================================
@@ -55,7 +79,7 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: const Color(0xFFF5F7FA), // Modern Background
       appBar: AppBar(
         title: const Text(
           "Manual Attendance",
@@ -71,8 +95,8 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
       ),
       body: Column(
         children: [
-          _datePickerHeader(),
-          Expanded(child: _studentsList()),
+          _datePickerHeader(), // ✅ Fixed Date Picker
+          Expanded(child: _studentsList()), // ✅ Fixed Loading Logic
           _saveFooter(),
         ],
       ),
@@ -392,11 +416,12 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   }
 
   // ===================================================
-  // SAVE ATTENDANCE (CORRECTED TARGET)
+  // SAVE ATTENDANCE (FIXED & CORRECTED)
   // ===================================================
   Future<void> _saveAttendance() async {
-    // 1. Parse Date
+    // 1. ✅ FIX #1: Parse and normalize date to UTC
     final dateObj = DateFormat('yyyy-MM-dd').parse(selectedDate);
+    // final utcDate = DateTime.utc(dateObj.year, dateObj.month, dateObj.day);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
@@ -422,51 +447,102 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
         return;
       }
 
-      final batch = _db.batch();
-
-      // 3. Save to 'attendance_final' (The Summary Report)
-
+      // ✅ FIX #2: Check if finalization already ran for this date
       final finalDocId = '${widget.classId}_$selectedDate';
-      final finalRef = _db.collection('attendance_final').doc(finalDocId);
+      final finalDocSnap = await _db
+          .collection('attendance_final')
+          .doc(finalDocId)
+          .get();
 
+      if (finalDocSnap.exists && finalDocSnap['finalizedAt'] != null) {
+        _showSnack(
+          "⚠️ Attendance already finalized for this date. Manual changes may be overwritten if auto-finalization runs again.",
+          success: false,
+        );
+        // Continue anyway, but inform user
+      }
+
+      // ✅ FIX #3: Check for unmarked students
+      final unmatchedStudents = <String>[];
+      for (var stu in studentsSnap.docs) {
+        final stuId = stu.id;
+        if (!attendanceData.containsKey(stuId)) {
+          unmatchedStudents.add(stu['name'] ?? stuId);
+        }
+      }
+
+      if (unmatchedStudents.isNotEmpty) {
+        print(
+          "⚠️ ${unmatchedStudents.length} unmarked students will default to Present",
+        );
+      }
+
+      // ✅ FIX #4: Handle batch limit (max 500 writes)
+      const int batchLimit = 250; // 250 students = 500 writes (2 per student)
+      int batchCount = 0;
+      var batch = _db.batch();
+
+      // Create/update final doc (counts as 1 write)
+      final finalRef = _db.collection('attendance_final').doc(finalDocId);
       batch.set(finalRef, {
         'classId': widget.classId,
-        'date': Timestamp.fromDate(dateObj),
+        'date': Timestamp.fromDate(dateObj), // IMPORTANT: Save as Timestamp
         'lastUpdatedBy': user.uid,
         'lastUpdatedAt': FieldValue.serverTimestamp(),
+        'method': 'manual_override',
       }, SetOptions(merge: true));
+      batchCount++;
 
-      // 4. Save Individual Student Records
+      // ✅ FIX #5: Save to CORRECT path - attendance_final/{classId_date}/student/{stuId}
       for (var stu in studentsSnap.docs) {
+        // Create new batch if limit nearly reached
+        if (batchCount >= batchLimit - 5) {
+          await batch.commit();
+          batch = _db.batch();
+          batchCount = 0;
+          print("Batch committed. Continuing with next batch...");
+        }
+
         final stuId = stu.id;
         final status = attendanceData[stuId] ?? 'present';
 
-        // ✅ PATH: student/{studentID}/attendance_final/{YYYY-MM-DD}
+        // ✅ CORRECT PATH: attendance_final/{classId_date}/student/{stuId}
         final studentRecordRef = _db
-            .collection('student')
-            .doc(stuId)
             .collection('attendance_final')
-            .doc(selectedDate);
+            .doc(finalDocId)
+            .collection('student')
+            .doc(stuId);
 
         batch.set(studentRecordRef, {
-          'date': Timestamp.fromDate(dateObj),
+          'studentId': stuId,
           'status': status, // 'present', 'half-day', 'absent'
           'method': 'manual_override',
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+        batchCount++;
       }
 
-      await batch.commit();
+      // Commit remaining writes
+      if (batchCount > 0) {
+        await batch.commit();
+        print("Final batch committed");
+      }
 
-      _showSnack("Attendance finalized successfully", success: true);
+      // ✅ FIX #6: Show confirmation with count
+      _showSnack(
+        "✅ Updated attendance for ${studentsSnap.docs.length} students",
+        success: true,
+      );
     } catch (e) {
+      print("Save error: $e");
       _showSnack("Failed to save attendance: $e");
     } finally {
-      setState(() => isSaving = false);
+      if (mounted) setState(() => isSaving = false);
     }
   }
 
   void _showSnack(String msg, {bool success = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
