@@ -16,7 +16,6 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
   // 1. DELETE DEPARTMENT LOGIC
   // ---------------------------------------------------
   Future<void> _deleteDepartment(String docId, String name) async {
-    // Confirmation Dialog
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -39,10 +38,11 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
 
     if (confirm == true) {
       await _db.collection('department').doc(docId).delete();
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text("Department Deleted")));
+      }
     }
   }
 
@@ -124,7 +124,7 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
                   leading: CircleAvatar(
                     backgroundColor: Colors.blue.shade50,
                     child: Text(
-                      name[0],
+                      name.isNotEmpty ? name[0] : '?',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.blue,
@@ -138,19 +138,17 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
                       fontSize: 16,
                     ),
                   ),
-                  subtitle: Text(
+                  subtitle: const Text(
                     "Click to view Classes & Subjects",
-                    style: const TextStyle(fontSize: 10),
+                    style: TextStyle(fontSize: 10),
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Edit Button
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.orange),
                         onPressed: () => _editDepartment(id, name),
                       ),
-                      // Delete Button
                       IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),
                         onPressed: () => _deleteDepartment(id, name),
@@ -158,7 +156,6 @@ class _AdminManageAcademicPageState extends State<AdminManageAcademicPage> {
                     ],
                   ),
                   onTap: () {
-                    // Navigate to Details Page (Classes & Subjects)
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -254,7 +251,8 @@ class _ClassesList extends StatelessWidget {
                 subtitle: Text("Year ${data['year']} • ${data['courseType']}"),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.redAccent),
-                  onPressed: () => _deleteItem(context, 'classes', doc.id),
+                  // ✅ FIXED COLLECTION NAME: 'class' instead of 'classes'
+                  onPressed: () => _deleteItem(context, 'class', doc.id),
                 ),
               ),
             );
@@ -269,7 +267,6 @@ class _ClassesList extends StatelessWidget {
     String collection,
     String docId,
   ) async {
-    // Simple delete confirmation
     await FirebaseFirestore.instance.collection(collection).doc(docId).delete();
     if (context.mounted) {
       ScaffoldMessenger.of(
@@ -314,10 +311,11 @@ class _SubjectsList extends StatelessWidget {
               child: ListTile(
                 leading: const Icon(Icons.book, color: Colors.teal),
                 title: Text(data['name']),
-                subtitle: Text("${data['semester']}"),
+                subtitle: Text("Sem ${data['semester']}"),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.redAccent),
-                  onPressed: () => _deleteItem(context, 'subjects', doc.id),
+                  // ✅ FIXED COLLECTION NAME: 'subject' instead of 'subjects'
+                  onPressed: () => _deleteItem(context, 'subject', doc.id),
                 ),
               ),
             );
