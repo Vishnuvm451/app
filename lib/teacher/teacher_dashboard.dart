@@ -21,14 +21,18 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
 
   String teacherName = '';
   String departmentId = '';
-  String classId = '';
+
+  // 🆕 MULTI-SELECT SUPPORT
+  List<String> classIds = [];
+  List<String> subjectIds = [];
+
   bool setupCompleted = false;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   // Theme Colors
-  final Color primaryBlue = const Color(0xFF1E88E5); // Richer Blue
-  final Color bgWhite = const Color(0xFFF5F7FA); // Clean Off-White
+  final Color primaryBlue = const Color(0xFF1E88E5);
+  final Color bgWhite = const Color(0xFFF5F7FA);
 
   @override
   void initState() {
@@ -72,22 +76,23 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       setState(() {
         teacherName = data['name'] ?? '';
         departmentId = data['departmentId'] ?? '';
-        classId = data['classId'] ?? '';
+
+        // 🆕 Load Lists safely
+        classIds = List<String>.from(data['classIds'] ?? []);
+        subjectIds = List<String>.from(data['subjectIds'] ?? []);
+
         setupCompleted = true;
         isLoading = false;
       });
     } catch (e) {
+      debugPrint("Error loading dashboard: $e");
       if (mounted) setState(() => isLoading = false);
     }
   }
 
-  // --------------------------------------------------
-  // LOGOUT
-  // --------------------------------------------------
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     if (!mounted) return;
-
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -108,20 +113,17 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     }
 
     return Scaffold(
-      backgroundColor: primaryBlue, // Top background is Blue
+      backgroundColor: primaryBlue,
       body: SafeArea(
         bottom: false,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // -------------------------
-            // 1. TOP HEADER SECTION
-            // -------------------------
+            // 1. HEADER
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 30),
               child: Column(
                 children: [
-                  // App Bar Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -163,15 +165,12 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                     ],
                   ),
                   const SizedBox(height: 30),
-                  // Profile Card
                   _buildProfileRow(),
                 ],
               ),
             ),
 
-            // -------------------------
-            // 2. WHITE BODY SECTION
-            // -------------------------
+            // 2. BODY
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -206,9 +205,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // --------------------------------------------------
-  // PROFILE ROW WIDGET
-  // --------------------------------------------------
   Widget _buildProfileRow() {
     return Row(
       children: [
@@ -238,24 +234,17 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                 ),
               ),
               const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  departmentId.isEmpty ? "No Dept" : departmentId.toUpperCase(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.9,
+              Row(
+                children: [
+                  _infoBadge(
+                    departmentId.isEmpty
+                        ? "No Dept"
+                        : departmentId.toUpperCase(),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  // Show Count instead of ID
+                  _infoBadge("${classIds.length} Classes"),
+                ],
               ),
             ],
           ),
@@ -264,9 +253,25 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
-  // --------------------------------------------------
-  // GRID ACTIONS
-  // --------------------------------------------------
+  Widget _infoBadge(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
   Widget _quickActionsGrid() {
     return GridView.count(
       shrinkWrap: true,
@@ -274,105 +279,78 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       crossAxisCount: 2,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
-      childAspectRatio: 1.0, // Square cards look cleaner
+      childAspectRatio: 1.0,
       children: [
         _actionCard(
           icon: Icons.qr_code_scanner_rounded,
           label: "Start\nAttendance",
           color: const Color(0xFF2196F3),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const TeacherAttendanceSessionPage(),
-              ),
-            );
-          },
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const TeacherAttendanceSessionPage(),
+            ),
+          ),
         ),
+
+        // 🆕 NEW LOGIC: Pick Class before Marking
         _actionCard(
           icon: Icons.checklist_rtl_rounded,
           label: "Mark\nAttendance",
           color: const Color(0xFFFF9800),
-          onTap: classId.isEmpty
-              ? _showSetupError
-              : () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ManualAttendancePage(classId: classId),
-                    ),
-                  );
-                },
+          onTap: () => _pickClassAndNavigate(
+            (selectedId) => ManualAttendancePage(classId: selectedId),
+          ),
         ),
+
+        // 🆕 NEW LOGIC: Pick Class before Internal Marks
         _actionCard(
           icon: Icons.edit_note_rounded,
           label: "Internal\nMarks",
           color: const Color(0xFF9C27B0),
-          onTap: classId.isEmpty
-              ? _showSetupError
-              : () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => AddInternalMarksPage(
-                        classId: classId,
-                        subjectId: 'default',
-                      ),
-                    ),
-                  );
-                },
+          onTap: () => _pickClassAndNavigate(
+            (selectedId) =>
+                AddInternalMarksPage(classId: selectedId, subjectId: 'default'),
+          ),
         ),
+
         _actionCard(
           icon: Icons.group_rounded,
           label: "My\nStudents",
           color: const Color(0xFF4CAF50),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const TeacherStudentsListPage(),
-              ),
-            );
-          },
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherStudentsListPage()),
+          ),
         ),
         _actionCard(
           icon: Icons.settings_suggest_rounded,
           label: "Edit\nSetup",
           color: const Color(0xFF009688),
-
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
-            );
-          },
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
+          ),
         ),
-
-        // Inside _quickActionsGrid in TeacherDashboardPage.dart
         _actionCard(
           icon: Icons.settings,
           label: "Settings",
           color: Colors.blueGrey,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => SettingsPage(
-                  userRole: 'teacher',
-                  initialName: teacherName,
-                  initialSubTitle: "Dept: ${departmentId.toUpperCase()}",
-                ),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SettingsPage(
+                userRole: 'teacher',
+                initialName: teacherName,
+                initialSubTitle: "Dept: ${departmentId.toUpperCase()}",
               ),
-            );
-          },
+            ),
+          ),
         ),
       ],
     );
   }
 
-  // --------------------------------------------------
-  // INDIVIDUAL ACTION CARD
-  // --------------------------------------------------
   Widget _actionCard({
     required IconData icon,
     required String label,
@@ -426,11 +404,68 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // HELPERS
+  // 🆕 MULTI-CLASS SELECTION HELPER
   // --------------------------------------------------
-  void _showSetupError() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Complete teaching setup first")),
+  void _pickClassAndNavigate(Widget Function(String) pageBuilder) {
+    if (classIds.isEmpty) {
+      _showSnack("No classes assigned. Edit Setup.");
+      return;
+    }
+
+    // If only 1 class, go directly
+    if (classIds.length == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => pageBuilder(classIds.first)),
+      );
+      return;
+    }
+
+    // If multiple classes, show Bottom Sheet
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Select Class",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              ...classIds.map(
+                (id) => FutureBuilder<DocumentSnapshot>(
+                  future: _db.collection('class').doc(id).get(),
+                  builder: (context, snap) {
+                    final name = snap.data?['name'] ?? "Loading...";
+                    return ListTile(
+                      leading: const Icon(
+                        Icons.class_outlined,
+                        color: Colors.blue,
+                      ),
+                      title: Text(name),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.pop(context); // Close sheet
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => pageBuilder(id)),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
