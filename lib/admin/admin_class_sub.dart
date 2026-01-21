@@ -102,7 +102,7 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
   }
 
   // ======================================================
-  // 3. ADD SUBJECT
+  // 3. ADD SUBJECT (FIXED)
   // ======================================================
   Future<void> addSubject() async {
     if (selectedClassIdForSubject == null ||
@@ -119,6 +119,7 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
         RegExp(r'\s+'),
         '_',
       );
+      // Construct ID
       final subjectId =
           "${selectedClassIdForSubject}_SEM${semesterForSubject}_$cleanSubName";
 
@@ -127,7 +128,11 @@ class _AdminAcademicSetupPageState extends State<AdminAcademicSetupPage> {
         'name': subjectName,
         'classId': selectedClassIdForSubject,
         'departmentId': selectedDeptIdForSubject,
-        'semester': "Semester $semesterForSubject",
+
+        // ✅ CRITICAL FIX: Save semester as INT, not String
+        // Before: 'semester': "Semester $semesterForSubject" (WRONG)
+        'semester': semesterForSubject,
+
         'type': selectedClassCourseType,
         'created_at': FieldValue.serverTimestamp(),
       });
