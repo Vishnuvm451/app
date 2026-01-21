@@ -12,19 +12,16 @@ class TeacherSetupPage extends StatefulWidget {
 }
 
 class _TeacherSetupPageState extends State<TeacherSetupPage> {
-  // --- STATE ---
-  // Department is single select (root filter)
+  // ---------------- STATE ----------------
+  String? teacherDocId;
+
   String? departmentId;
   String? departmentName;
 
-  // Classes are MULTI-select
   final List<String> selectedClassIds = [];
-
-  // Semester is used to FILTER the subject list (single select for viewing)
-  int? currentSemesterFilter;
-
-  // Subjects are MULTI-select
   final List<String> selectedSubjectIds = [];
+
+  int? currentSemesterFilter;
 
   bool isSaving = false;
   bool isApproved = false;
@@ -32,7 +29,6 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // Theme Colors
   final Color primaryBlue = const Color(0xFF2196F3);
   final Color bgLight = const Color(0xFFF5F7FB);
 
@@ -42,50 +38,66 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     _loadTeacherProfile();
   }
 
-  // ---------------- LOAD PROFILE ----------------
+  // ---------------- LOAD TEACHER ----------------
   Future<void> _loadTeacherProfile() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final snap = await _db.collection('teacher').doc(user.uid).get();
-    if (!snap.exists) return;
+    try {
+      final query = await _db
+          .collection('teacher')
+          .where('authUid', isEqualTo: user.uid)
+          .limit(1)
+          .get();
 
-    final data = snap.data()!;
-    isApproved = data['isApproved'] == true;
-    setupCompleted = data['setupCompleted'] == true;
+      if (query.docs.isEmpty) {
+        _showSnack("Teacher profile not found");
+        return;
+      }
 
-    if (!isApproved) {
-      _showSnack("Your account is not approved yet");
-      return;
-    }
+      final snap = query.docs.first;
+      teacherDocId = snap.id;
+      final data = snap.data();
 
-    departmentId = data['departmentId'];
-    if (departmentId != null) {
-      final d = await _db.collection('department').doc(departmentId!).get();
-      if (mounted) setState(() => departmentName = d['name']);
-    }
+      isApproved = data['isApproved'] == true;
+      setupCompleted = data['setupCompleted'] == true;
 
-    if (setupCompleted) {
-      setState(() {
-        // Load Lists
-        if (data['classIds'] != null) {
-          selectedClassIds.clear();
-          selectedClassIds.addAll(List<String>.from(data['classIds']));
-        }
-        if (data['subjectIds'] != null) {
-          selectedSubjectIds.clear();
-          selectedSubjectIds.addAll(List<String>.from(data['subjectIds']));
-        }
-        // Load last used semester or default
+      if (!isApproved) {
+        _showSnack("Your account is not approved yet");
+        return;
+      }
+
+      departmentId = data['departmentId'];
+
+      if (departmentId != null) {
+        final dept = await _db
+            .collection('department')
+            .doc(departmentId!)
+            .get();
+        departmentName = dept.data()?['name'];
+      }
+
+      if (setupCompleted) {
+        selectedClassIds
+          ..clear()
+          ..addAll(List<String>.from(data['classIds'] ?? []));
+
+        selectedSubjectIds
+          ..clear()
+          ..addAll(List<String>.from(data['subjectIds'] ?? []));
+
         currentSemesterFilter = data['semester'];
-      });
-    }
+      }
 
-    if (mounted) setState(() {});
+      if (mounted) setState(() {});
+    } catch (e) {
+      _showSnack("Failed to load teacher profile");
+    }
   }
 
-  void _goToLogin() {
-    FirebaseAuth.instance.signOut();
+  void _goToLogin() async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -93,26 +105,28 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     );
   }
 
-  // ---------------- SAVE ----------------
+  // ---------------- SAVE SETUP ----------------
   Future<void> _saveSetup() async {
-    if (departmentId == null ||
-        selectedClassIds.isEmpty ||
-        selectedSubjectIds.isEmpty) {
-      _showSnack("Please select department, classes, and subjects");
+    if (teacherDocId == null) {
+      _showSnack("Teacher profile missing");
       return;
     }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (departmentId == null ||
+        selectedClassIds.isEmpty ||
+        selectedSubjectIds.isEmpty) {
+      _showSnack("Select department, classes, and subjects");
+      return;
+    }
 
     setState(() => isSaving = true);
 
     try {
-      await _db.collection('teacher').doc(user.uid).update({
+      await _db.collection('teacher').doc(teacherDocId).update({
         'departmentId': departmentId,
-        'classIds': selectedClassIds, // Saving List
-        'semester': currentSemesterFilter, // Saving last filter (optional)
-        'subjectIds': selectedSubjectIds, // Saving List
+        'classIds': selectedClassIds,
+        'subjectIds': selectedSubjectIds,
+        'semester': currentSemesterFilter,
         'setupCompleted': true,
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -129,6 +143,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     }
   }
 
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -154,23 +169,23 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            _buildWrapper(_departmentDropdown()),
+            _wrap(_departmentDropdown()),
             const SizedBox(height: 16),
-            _buildWrapper(_classMultiSelect()),
+            _wrap(_classMultiSelect()),
             const SizedBox(height: 16),
-            _buildWrapper(_semesterDropdown()),
+            _wrap(_semesterDropdown()),
             const SizedBox(height: 16),
-            _buildWrapper(_subjectsMultiSelect()),
+            _wrap(_subjectsMultiSelect()),
             const SizedBox(height: 30),
             _saveButton(),
-            _buildSelectionList(), // ✅ LIST SELECTIONS UNDER SAVE BUTTON
+            _summarySection(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildWrapper(Widget child) {
+  Widget _wrap(Widget child) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -188,7 +203,8 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     );
   }
 
-  // 1. Department Dropdown (Single Select)
+  // ---------------- WIDGETS ----------------
+
   Widget _departmentDropdown() {
     return StreamBuilder<QuerySnapshot>(
       stream: _db.collection('department').orderBy('name').snapshots(),
@@ -207,7 +223,6 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
           onChanged: (val) {
             setState(() {
               departmentId = val;
-              // Reset dependent lists when department changes
               selectedClassIds.clear();
               selectedSubjectIds.clear();
               currentSemesterFilter = null;
@@ -218,7 +233,6 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     );
   }
 
-  // 2. Class Multi-Select (Expansion Tile)
   Widget _classMultiSelect() {
     if (departmentId == null) return const Text("Select Department first");
 
@@ -232,19 +246,18 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
         return ExpansionTile(
           title: const Text("Select Classes"),
           subtitle: Text("${selectedClassIds.length} Selected"),
-          leading: Icon(Icons.school, color: primaryBlue),
           children: snap.data!.docs.map((d) {
             final id = d.id;
             return CheckboxListTile(
               title: Text(d['name']),
-              activeColor: primaryBlue,
               value: selectedClassIds.contains(id),
+              activeColor: primaryBlue,
               onChanged: (val) {
-                setState(() {
-                  val! ? selectedClassIds.add(id) : selectedClassIds.remove(id);
-                  // If classes change, we might need to re-verify subjects,
-                  // but keeping them selected is often better UX.
-                });
+                setState(
+                  () => val!
+                      ? selectedClassIds.add(id)
+                      : selectedClassIds.remove(id),
+                );
               },
             );
           }).toList(),
@@ -253,9 +266,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
     );
   }
 
-  // 3. Semester Dropdown (Simple Filter)
   Widget _semesterDropdown() {
-    // ✅ REMOVED UG/PG RESTRICTIONS - Showing all semesters
     return DropdownButtonFormField<int>(
       value: currentSemesterFilter,
       decoration: InputDecoration(
@@ -263,26 +274,23 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
         prefixIcon: Icon(Icons.filter_list, color: primaryBlue),
         border: InputBorder.none,
       ),
-      items: [1, 2, 3, 4, 5, 6, 7, 8]
-          .map((s) => DropdownMenuItem(value: s, child: Text("Semester $s")))
-          .toList(),
-      onChanged: (val) {
-        setState(() {
-          currentSemesterFilter = val;
-        });
-      },
+      items: List.generate(
+        8,
+        (i) => DropdownMenuItem(value: i + 1, child: Text("Semester ${i + 1}")),
+      ),
+      onChanged: (val) => setState(() => currentSemesterFilter = val),
     );
   }
 
-  // 4. Subjects Multi-Select (Filtered by Classes AND Semester)
   Widget _subjectsMultiSelect() {
-    if (selectedClassIds.isEmpty)
-      return const Text("Select at least one Class");
-    if (currentSemesterFilter == null)
-      return const Text("Select Semester to view subjects");
+    if (selectedClassIds.isEmpty) {
+      return const Text("Select at least one class");
+    }
+    if (currentSemesterFilter == null) {
+      return const Text("Select semester to view subjects");
+    }
 
     return StreamBuilder<QuerySnapshot>(
-      // ✅ Valid Firestore Query: whereIn (Field A) + isEqualTo (Field B)
       stream: _db
           .collection('subject')
           .where('classId', whereIn: selectedClassIds)
@@ -292,23 +300,19 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
         if (!snap.hasData) return const LinearProgressIndicator();
 
         if (snap.data!.docs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: Text("No subjects found for these classes/semester."),
-          );
+          return const Text("No subjects found");
         }
 
         return ExpansionTile(
           title: const Text("Select Subjects"),
           subtitle: Text("${selectedSubjectIds.length} Selected"),
-          leading: Icon(Icons.book, color: primaryBlue),
-          initiallyExpanded: true, // Auto-open to show subjects
+          initiallyExpanded: true,
           children: snap.data!.docs.map((d) {
             final id = d.id;
             return CheckboxListTile(
               title: Text(d['name']),
-              activeColor: primaryBlue,
               value: selectedSubjectIds.contains(id),
+              activeColor: primaryBlue,
               onChanged: (val) {
                 setState(
                   () => val!
@@ -329,7 +333,6 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryBlue,
-          foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -339,16 +342,17 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
             ? const CircularProgressIndicator(color: Colors.white)
             : const Text(
                 "SAVE CHANGES",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
       ),
     );
   }
 
-  // --- THE NEW SUMMARY SECTION ---
-  Widget _buildSelectionList() {
-    if (selectedClassIds.isEmpty && selectedSubjectIds.isEmpty)
+  // --- SUMMARY SECTION (ENHANCED, UI ONLY) ---
+  Widget _summarySection() {
+    if (selectedClassIds.isEmpty && selectedSubjectIds.isEmpty) {
       return const SizedBox();
+    }
 
     return Container(
       margin: const EdgeInsets.only(top: 24),
@@ -361,6 +365,7 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // HEADER
           Row(
             children: [
               Icon(Icons.check_circle_outline, color: primaryBlue),
@@ -375,47 +380,49 @@ class _TeacherSetupPageState extends State<TeacherSetupPage> {
               ),
             ],
           ),
-          const Divider(),
+          const Divider(height: 24),
 
-          // List Selected Classes
+          // ---------- CLASSES ----------
           if (selectedClassIds.isNotEmpty) ...[
             const Text(
-              "Classes:",
+              "Classes",
               style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
+            const SizedBox(height: 8),
             ...selectedClassIds.map(
               (id) => FutureBuilder<DocumentSnapshot>(
                 future: _db.collection('class').doc(id).get(),
-                builder: (context, snap) {
-                  if (!snap.hasData) return const SizedBox(); // loading hidden
+                builder: (_, snap) {
+                  if (!snap.hasData) return const SizedBox();
                   return Padding(
-                    padding: const EdgeInsets.only(left: 8, top: 4),
+                    padding: const EdgeInsets.only(left: 8, bottom: 4),
                     child: Text(
-                      "• ${snap.data?['name'] ?? 'Unknown Class'}",
+                      "• ${snap.data!['name']}",
                       style: const TextStyle(fontSize: 14),
                     ),
                   );
                 },
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
           ],
 
-          // List Selected Subjects
+          // ---------- SUBJECTS ----------
           if (selectedSubjectIds.isNotEmpty) ...[
             const Text(
-              "Subjects:",
+              "Subjects",
               style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
+            const SizedBox(height: 8),
             ...selectedSubjectIds.map(
               (id) => FutureBuilder<DocumentSnapshot>(
                 future: _db.collection('subject').doc(id).get(),
-                builder: (context, snap) {
+                builder: (_, snap) {
                   if (!snap.hasData) return const SizedBox();
                   return Padding(
-                    padding: const EdgeInsets.only(left: 8, top: 4),
+                    padding: const EdgeInsets.only(left: 8, bottom: 4),
                     child: Text(
-                      "• ${snap.data?['name'] ?? 'Unknown Subject'}",
+                      "• ${snap.data!['name']}",
                       style: const TextStyle(fontSize: 14),
                     ),
                   );
