@@ -1,5 +1,6 @@
 import 'package:darzo/attendance/attendance_daily.dart';
 import 'package:darzo/settings.dart';
+import 'package:darzo/teacher/edit_setup.dart';
 import 'package:darzo/teacher/internal.dart';
 import 'package:darzo/attendance/start_attendance.dart';
 import 'package:darzo/teacher/teacher_student.dart';
@@ -307,7 +308,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           color: const Color(0xFF009688),
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
+            MaterialPageRoute(builder: (_) => const EditSetupPage()),
           ),
         ),
         _actionCard(
