@@ -240,29 +240,39 @@ class TeacherApprovalPage extends StatelessWidget {
 
     try {
       final db = FirebaseFirestore.instance;
+      final batch = db.batch(); // Use batch for safety
 
-      await db.collection('teacher').doc(authUid).set({
+      // 1. UPDATE TEACHER PROFILE
+      // We use set with merge: true to cover both cases:
+      // Case A: Doc exists (Update isApproved)
+      // Case B: Doc missing (Create it - legacy support)
+      final teacherRef = db.collection('teacher').doc(authUid);
+      batch.set(teacherRef, {
+        'isApproved': true,
+        // Ensure critical fields exist just in case
         'uid': authUid,
-        'name': requestData['name'],
         'email': requestData['email'],
         'departmentId': requestData['departmentId'],
         'departmentName': requestData['departmentName'],
-        'isApproved': true,
-        'setupCompleted': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+        'role': 'teacher',
+      }, SetOptions(merge: true));
 
-      await db.collection('users').doc(authUid).set({
+      // 2. ENSURE USER ROLE EXISTS
+      final userRef = db.collection('users').doc(authUid);
+      batch.set(userRef, {
         'uid': authUid,
         'email': requestData['email'],
         'role': 'teacher',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
-      await db.collection('teacher_request').doc(requestId).update({
+      // 3. CLOSE THE TICKET
+      final requestRef = db.collection('teacher_request').doc(requestId);
+      batch.update(requestRef, {
         'status': 'approved',
         'approvedAt': FieldValue.serverTimestamp(),
       });
+
+      await batch.commit();
 
       _showSnack(context, "Teacher approved successfully", success: true);
     } catch (e) {
