@@ -1,3 +1,4 @@
+import 'package:darzo/auth/api_warmup.dart';
 import 'package:darzo/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -9,7 +10,7 @@ import 'auth/auth_provider.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
+  warmUpApiServer();
   runApp(
     MultiProvider(
       providers: [ChangeNotifierProvider(create: (_) => AppAuthProvider())],
