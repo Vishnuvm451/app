@@ -22,7 +22,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   String teacherName = '';
   String departmentId = '';
 
-  // 🆕 MULTI-SELECT SUPPORT
+  // MULTI-SELECT SUPPORT
   List<String> classIds = [];
   List<String> subjectIds = [];
 
@@ -30,7 +30,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // Theme Colors
   final Color primaryBlue = const Color(0xFF1E88E5);
   final Color bgWhite = const Color(0xFFF5F7FA);
 
@@ -41,7 +40,10 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // LOAD TEACHER PROFILE
+  // LOAD TEACHER PROFILE (FIXED)
+  // --------------------------------------------------
+  // --------------------------------------------------
+  // LOAD TEACHER PROFILE (FIXED – DOC ID BASED)
   // --------------------------------------------------
   Future<void> _loadTeacher() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -53,6 +55,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       if (!mounted) return;
 
       if (!snap.exists) {
+        // ❗ Teacher profile missing
+        _showSnack("Teacher profile not found. Contact admin.");
         await _logout();
         return;
       }
@@ -77,7 +81,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         teacherName = data['name'] ?? '';
         departmentId = data['departmentId'] ?? '';
 
-        // 🆕 Load Lists safely
         classIds = List<String>.from(data['classIds'] ?? []);
         subjectIds = List<String>.from(data['subjectIds'] ?? []);
 
@@ -101,7 +104,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // UI BUILD
+  // UI
   // --------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -119,58 +122,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. HEADER
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 30),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Dashboard",
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            "Teacher Panel",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.logout_rounded,
-                            color: Colors.white,
-                          ),
-                          onPressed: _logout,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 30),
-                  _buildProfileRow(),
-                ],
-              ),
-            ),
-
-            // 2. BODY
+            _header(),
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -189,12 +141,10 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 16),
                     _quickActionsGrid(),
-                    const SizedBox(height: 30),
                   ],
                 ),
               ),
@@ -205,20 +155,52 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     );
   }
 
+  Widget _header() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 30),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    "Dashboard",
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    "Teacher Panel",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout_rounded, color: Colors.white),
+                onPressed: _logout,
+              ),
+            ],
+          ),
+          const SizedBox(height: 30),
+          _buildProfileRow(),
+        ],
+      ),
+    );
+  }
+
   Widget _buildProfileRow() {
     return Row(
       children: [
-        Container(
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.3),
-            shape: BoxShape.circle,
-          ),
-          child: const CircleAvatar(
-            radius: 28,
-            backgroundColor: Colors.white,
-            child: Icon(Icons.person, color: Colors.blue, size: 30),
-          ),
+        const CircleAvatar(
+          radius: 28,
+          backgroundColor: Colors.white,
+          child: Icon(Icons.person, color: Colors.blue, size: 30),
         ),
         const SizedBox(width: 16),
         Expanded(
@@ -242,7 +224,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                         : departmentId.toUpperCase(),
                   ),
                   const SizedBox(width: 8),
-                  // Show Count instead of ID
                   _infoBadge("${classIds.length} Classes"),
                 ],
               ),
@@ -257,7 +238,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: Colors.white24,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -266,7 +247,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           color: Colors.white,
           fontSize: 12,
           fontWeight: FontWeight.bold,
-          letterSpacing: 0.5,
         ),
       ),
     );
@@ -279,41 +259,39 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       crossAxisCount: 2,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
-      childAspectRatio: 1.0,
       children: [
         _actionCard(
           icon: Icons.qr_code_scanner_rounded,
           label: "Start\nAttendance",
           color: const Color(0xFF2196F3),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const TeacherAttendanceSessionPage(),
-            ),
-          ),
+          onTap: () {
+            if (classIds.isEmpty) {
+              _showSnack("No classes assigned. Edit Setup.");
+              return;
+            }
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const TeacherAttendanceSessionPage(),
+              ),
+            );
+          },
         ),
-
-        // 🆕 NEW LOGIC: Pick Class before Marking
         _actionCard(
           icon: Icons.checklist_rtl_rounded,
           label: "Mark\nAttendance",
           color: const Color(0xFFFF9800),
-          onTap: () => _pickClassAndNavigate(
-            (selectedId) => ManualAttendancePage(classId: selectedId),
-          ),
+          onTap: () =>
+              _pickClassAndNavigate((id) => ManualAttendancePage(classId: id)),
         ),
-
-        // 🆕 NEW LOGIC: Pick Class before Internal Marks
         _actionCard(
           icon: Icons.edit_note_rounded,
           label: "Internal\nMarks",
           color: const Color(0xFF9C27B0),
           onTap: () => _pickClassAndNavigate(
-            (selectedId) =>
-                AddInternalMarksPage(classId: selectedId, subjectId: 'default'),
+            (id) => AddInternalMarksPage(classId: id, subjectId: 'default'),
           ),
         ),
-
         _actionCard(
           icon: Icons.group_rounded,
           label: "My\nStudents",
@@ -357,54 +335,34 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     required Color color,
     required VoidCallback onTap,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.08),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, size: 32, color: color),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                  height: 1.2,
-                ),
-              ),
-            ],
-          ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              backgroundColor: color.withOpacity(0.1),
+              radius: 28,
+              child: Icon(icon, size: 32, color: color),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
       ),
     );
   }
 
   // --------------------------------------------------
-  // 🆕 MULTI-CLASS SELECTION HELPER
+  // CLASS PICKER
   // --------------------------------------------------
   void _pickClassAndNavigate(Widget Function(String) pageBuilder) {
     if (classIds.isEmpty) {
@@ -412,7 +370,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       return;
     }
 
-    // If only 1 class, go directly
     if (classIds.length == 1) {
       Navigator.push(
         context,
@@ -421,48 +378,29 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       return;
     }
 
-    // If multiple classes, show Bottom Sheet
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return Container(
+        return Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Select Class",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              ...classIds.map(
-                (id) => FutureBuilder<DocumentSnapshot>(
-                  future: _db.collection('class').doc(id).get(),
-                  builder: (context, snap) {
-                    final name = snap.data?['name'] ?? "Loading...";
-                    return ListTile(
-                      leading: const Icon(
-                        Icons.class_outlined,
-                        color: Colors.blue,
-                      ),
-                      title: Text(name),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () {
-                        Navigator.pop(context); // Close sheet
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => pageBuilder(id)),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
+            children: classIds.map((id) {
+              return ListTile(
+                leading: const Icon(Icons.class_outlined),
+                title: Text(id),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => pageBuilder(id)),
+                  );
+                },
+              );
+            }).toList(),
           ),
         );
       },
