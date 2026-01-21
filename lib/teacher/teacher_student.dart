@@ -25,7 +25,7 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
   }
 
   // --------------------------------------------------
-  // 1. LOAD TEACHER PROFILE (TO GET DEPT & DEFAULT CLASS)
+  // 1. LOAD TEACHER PROFILE
   // --------------------------------------------------
   Future<void> _loadTeacherProfile() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -37,14 +37,16 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
 
       final data = snap.data()!;
 
-      setState(() {
-        departmentId = data['departmentId'];
-        // Auto-select their assigned class initially
-        selectedClassId = data['classId'];
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          departmentId = data['departmentId'];
+          // We load it, but we validate it in the StreamBuilder later
+          selectedClassId = data['classId'];
+          isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -54,7 +56,7 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA), // Modern Background
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text(
           "Students List",
@@ -72,15 +74,15 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                _classDropdown(), // ✅ Class Selector
-                Expanded(child: _studentsList()), // ✅ Student List
+                _classDropdown(), // ✅ Fixed Dropdown
+                Expanded(child: _studentsList()),
               ],
             ),
     );
   }
 
   // --------------------------------------------------
-  // CLASS DROPDOWN
+  // CLASS DROPDOWN (FIXED)
   // --------------------------------------------------
   Widget _classDropdown() {
     if (departmentId == null) return const SizedBox();
@@ -114,16 +116,23 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
 
           final classes = snapshot.data!.docs;
 
-          // Sort classes by year (Client-side sort)
+          // Client-side Sort
           classes.sort((a, b) {
             final yearA = (a.data() as Map)['year'] ?? 0;
             final yearB = (b.data() as Map)['year'] ?? 0;
             return yearA.compareTo(yearB);
           });
 
+          // 🔴 CRITICAL FIX: Ensure selectedClassId actually exists in the list
+          // If it's not in the list, set value to null to prevent crash
+          final isValidSelection = classes.any(
+            (doc) => doc.id == selectedClassId,
+          );
+          final dropdownValue = isValidSelection ? selectedClassId : null;
+
           return DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: selectedClassId,
+              value: dropdownValue, // ✅ Use safe value
               hint: const Text("Select Class"),
               isExpanded: true,
               icon: Icon(Icons.arrow_drop_down_circle, color: primaryBlue),
