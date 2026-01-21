@@ -24,6 +24,9 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   bool isLoading = false;
   bool _isPasswordVisible = false;
 
+  // Theme Color
+  final Color primaryBlue = const Color(0xFF2196F3);
+
   @override
   void dispose() {
     nameController.dispose();
@@ -33,7 +36,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // TEACHER REGISTER
+  // TEACHER REGISTER LOGIC
   // ======================================================
   Future<void> registerTeacher() async {
     if (nameController.text.trim().isEmpty ||
@@ -64,13 +67,44 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       final user = cred.user!;
       final uid = user.uid;
 
-      // 2. SEND VERIFICATION EMAIL (OPTIONAL)
-      user.sendEmailVerification().catchError((e) {
-        print("Failed to send verification email: $e");
+      // 2. SEND VERIFICATION EMAIL (Silent fail allowed)
+      user.sendEmailVerification().catchError(
+        (e) => debugPrint("Email verification error: $e"),
+      );
+
+      // 3. ATOMIC DATABASE WRITE (CRITICAL FIX)
+      // We must write to 'users', 'teacher', and 'teacher_request' simultaneously.
+      final batch = FirebaseFirestore.instance.batch();
+
+      // A. Users Collection (Required for Login Page role check)
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      batch.set(userRef, {
+        'uid': uid,
+        'email': email,
+        'role': 'teacher',
+        'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 3. CREATE TEACHER REQUEST
-      await FirebaseFirestore.instance.collection('teacher_request').add({
+      // B. Teacher Collection (The main profile, locked initially)
+      final teacherRef = FirebaseFirestore.instance
+          .collection('teacher')
+          .doc(uid);
+      batch.set(teacherRef, {
+        'authUid': uid,
+        'name': nameController.text.trim(),
+        'email': email,
+        'departmentId': selectedDeptId,
+        'isApproved': false, // Admin must flip this to true
+        'setupCompleted': false,
+        'role': 'teacher',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // C. Request Ticket (For Admin Panel visibility)
+      final requestRef = FirebaseFirestore.instance
+          .collection('teacher_request')
+          .doc();
+      batch.set(requestRef, {
         'authUid': uid,
         'name': nameController.text.trim(),
         'email': email,
@@ -80,32 +114,18 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // This ensures the dashboard doesn't crash if they try to login
-      await FirebaseFirestore.instance.collection('teacher').doc(uid).set({
-        'authUid': uid,
-        'name': nameController.text.trim(),
-        'email': email,
-        'departmentId': selectedDeptId,
-        'isApproved': false, // Admin must approve this
-        'setupCompleted': false,
-        'role': 'teacher',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      // Commit all writes at once
+      await batch.commit();
 
       if (!mounted) return;
 
       _showSnack("Registration successful!", success: true);
 
-      // 5. NAVIGATE TO LOGIN (OR DASHBOARD)
-      // Since your app requires Admin Approval first, we usually send them to Login
-      // so they can try logging in and see the "Pending" message.
-
-      // OPTION A: Logout and go to Login
+      // 4. LOGOUT & REDIRECT
       await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
 
-      // Show success dialog
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -117,10 +137,11 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.pushReplacement(
+                Navigator.pop(ctx); // Close dialog
+                Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (_) => const LoginPage()),
+                  (route) => false,
                 );
               },
               child: const Text("OK"),
@@ -130,19 +151,17 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
       );
     } on FirebaseAuthException catch (e) {
       String msg = "Registration failed";
-      if (e.code == 'email-already-in-use') {
+      if (e.code == 'email-already-in-use')
         msg = "Email is already registered.";
-      } else if (e.code == 'weak-password') {
+      else if (e.code == 'weak-password')
         msg = "Password is too weak.";
-      } else if (e.code == 'invalid-email') {
+      else if (e.code == 'invalid-email')
         msg = "Invalid email format.";
-      }
       _showSnack(msg);
     } catch (e) {
-      if (cred?.user != null) {
-        await cred!.user!.delete();
-      }
-      _showSnack("Error: ${e.toString()}");
+      // Rollback Auth if DB write fails
+      if (cred?.user != null) await cred!.user!.delete();
+      _showSnack("System Error: ${e.toString()}");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -159,12 +178,10 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
   }
 
   // ======================================================
-  // UI (UNCHANGED)
+  // UI BUILD
   // ======================================================
   @override
   Widget build(BuildContext context) {
-    const Color primaryBlue = Color(0xFF2196F3);
-
     return Scaffold(
       backgroundColor: primaryBlue,
       body: SafeArea(
@@ -212,6 +229,9 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       TextField(
                         controller: passwordController,
                         obscureText: !_isPasswordVisible,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                        ],
                         decoration: InputDecoration(
                           labelText: "Password",
                           prefixIcon: const Icon(Icons.lock_outline),
@@ -221,11 +241,9 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                                   ? Icons.visibility
                                   : Icons.visibility_off,
                             ),
-                            onPressed: () {
-                              setState(() {
-                                _isPasswordVisible = !_isPasswordVisible;
-                              });
-                            },
+                            onPressed: () => setState(
+                              () => _isPasswordVisible = !_isPasswordVisible,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
@@ -234,7 +252,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                       ),
                       const SizedBox(height: 15),
 
-                      // DEPARTMENT DROPDOWN
+                      // Department Dropdown
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('department')
@@ -244,25 +262,23 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                           if (!snapshot.hasData) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 15),
-                              child: CircularProgressIndicator(),
+                              child: LinearProgressIndicator(),
                             );
                           }
-
-                          final docs = snapshot.data!.docs;
 
                           return DropdownButtonFormField<String>(
                             value: selectedDeptId,
                             isExpanded: true,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: "Department",
-                              prefixIcon: Icon(Icons.account_balance_outlined),
+                              prefixIcon: const Icon(
+                                Icons.account_balance_outlined,
+                              ),
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.all(
-                                  Radius.circular(14),
-                                ),
+                                borderRadius: BorderRadius.circular(14),
                               ),
                             ),
-                            items: docs.map((doc) {
+                            items: snapshot.data!.docs.map((doc) {
                               final data = doc.data() as Map<String, dynamic>;
                               return DropdownMenuItem<String>(
                                 value: doc.id,
@@ -270,9 +286,11 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                               );
                             }).toList(),
                             onChanged: (val) {
+                              final doc = snapshot.data!.docs.firstWhere(
+                                (d) => d.id == val,
+                              );
                               setState(() {
                                 selectedDeptId = val;
-                                final doc = docs.firstWhere((d) => d.id == val);
                                 selectedDeptName =
                                     (doc.data()
                                         as Map<String, dynamic>)['name'];
@@ -281,25 +299,27 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                           );
                         },
                       ),
+
                       const SizedBox(height: 25),
 
                       SizedBox(
                         width: double.infinity,
+                        height: 50,
                         child: ElevatedButton(
                           onPressed: isLoading ? null : registerTeacher,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryBlue,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(30),
                             ),
                           ),
                           child: isLoading
                               ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
+                                  width: 24,
+                                  height: 24,
                                   child: CircularProgressIndicator(
                                     color: Colors.white,
+                                    strokeWidth: 2,
                                   ),
                                 )
                               : const Text(
@@ -312,8 +332,8 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 16),
 
+                      const SizedBox(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -347,7 +367,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
     );
   }
 
-  // ---------------- TEXT FIELD HELPER ----------------
+  // Text Field Helper
   Widget _field(
     TextEditingController ctrl,
     String label,
