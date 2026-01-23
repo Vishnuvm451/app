@@ -8,9 +8,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:intl/intl.dart';
-
-import '../widget/face_camera_circle.dart';
 
 class MarkAttendancePage extends StatefulWidget {
   const MarkAttendancePage({super.key});
@@ -22,7 +21,7 @@ class MarkAttendancePage extends StatefulWidget {
 class _MarkAttendancePageState extends State<MarkAttendancePage> {
   // ================= CONFIG =================
   static const String _apiBaseUrl = "https://darzo-backend-api.onrender.com";
-  static const int _apiTimeoutSeconds = 120;
+  static const int _apiTimeoutSeconds = 60;
 
   // ================= CAMERA & ML =================
   CameraController? _controller;
@@ -180,7 +179,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     final rotY = face.headEulerAngleY ?? 0;
     final rotZ = face.headEulerAngleZ ?? 0;
 
-    // ✅ FIX 1: Safe torch/flash with error handling
+    // Torch logic
     if (!_torchEnabled && face.boundingBox.height < 120) {
       try {
         await _controller?.setFlashMode(FlashMode.torch);
@@ -190,7 +189,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       }
     }
 
-    // ✅ FIX 2: Head tilt validation
+    // Head tilt validation
     if (rotZ.abs() > 25) {
       _updateStatus("Keep head level", false);
       return;
@@ -198,7 +197,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
     switch (_currentStep) {
       case 0:
-        // ✅ FIX 3: Straight face capture
         if (rotY.abs() < 10 && !_isCapturing) {
           _isCapturing = true;
           _updateStatus("Hold still...", true);
@@ -210,7 +208,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         break;
 
       case 1:
-        // ✅ FIX 4: Turn LEFT first (rotY < -20 means left)
+        // Turn LEFT
         if (rotY < -20) {
           setState(() {
             _currentStep = 2;
@@ -224,7 +222,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         break;
 
       case 2:
-        // ✅ FIX 5: Turn RIGHT last (rotY > 20 means right)
+        // Turn RIGHT
         if (rotY > 20) {
           setState(() {
             _progress = 1.0;
@@ -255,7 +253,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
   // ================= CAPTURE =================
   Future<void> _captureFace() async {
-    // ✅ FIX 6: Check if image already captured
     if (_capturedImageBytes != null) {
       _isCapturing = false;
       return;
@@ -294,11 +291,13 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       );
 
       request.fields['admission_no'] = admissionNo!;
+
       request.files.add(
         http.MultipartFile.fromBytes(
           'image',
           _capturedImageBytes!,
           filename: 'face.jpg',
+          contentType: MediaType('image', 'jpeg'),
         ),
       );
 
@@ -308,7 +307,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         ),
       );
 
-      // ✅ FIX 7: Added check for empty response
       if (response.body.isEmpty) {
         _handleError("Empty server response");
         return;
@@ -316,7 +314,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       final data = jsonDecode(response.body);
 
-      // ✅ FIX 8: Proper null check for data['success']
       if (response.statusCode != 200 || data['success'] != true) {
         _handleError(data['message'] ?? "Face verification failed");
         return;
@@ -374,17 +371,14 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   // ================= ERROR & RESET =================
   void _handleError(String msg) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
-
     _resetFlow();
   }
 
   void _resetFlow() {
     if (!mounted) return;
-
     setState(() {
       _currentStep = 0;
       _progress = 0;
@@ -394,26 +388,29 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       _capturedImageBytes = null;
       _torchEnabled = false;
     });
-
     _controller?.startImageStream(_processCameraImage);
   }
 
   void _showSuccess() {
     if (!mounted) return;
-
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        content: const Text("Attendance marked successfully"),
+        content: const Text(
+          "Attendance marked successfully!",
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 18),
+        ),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               Navigator.pop(context);
             },
-            child: const Text("OK"),
+            child: const Text("Done", style: TextStyle(fontSize: 16)),
           ),
         ],
       ),
@@ -442,54 +439,246 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     );
   }
 
-  // ================= UI =================
+  // ================= UI BUILD =================
   @override
   Widget build(BuildContext context) {
+    // 1. Loading State
     if (_isLoadingData) {
       return const Scaffold(
         backgroundColor: Color(0xFF2196F3),
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
-      );
-    }
-
-    if (_errorMessage != null) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF2196F3),
         body: Center(
-          child: Text(
-            _errorMessage!,
-            style: const TextStyle(color: Colors.white),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 20),
+              Text(
+                "Initializing Camera...",
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ],
           ),
         ),
       );
     }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF2196F3),
-      appBar: AppBar(
-        title: const Text("Mark Attendance"),
+    // 2. Error State
+    if (_errorMessage != null) {
+      return Scaffold(
         backgroundColor: const Color(0xFF2196F3),
-        centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          const SizedBox(height: 40),
-          Center(
-            child: FaceCameraCircle(
-              controller: _controller!,
-              progress: _progress,
-              isFaceAligned: _isFaceAligned,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 50),
+                const SizedBox(height: 20),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _isLoadingData = true;
+                      _errorMessage = null;
+                    });
+                    _loadDataAndCamera();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.blue,
+                  ),
+                  child: const Text("Retry"),
+                ),
+              ],
             ),
           ),
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(
-              _instruction,
-              style: const TextStyle(
+        ),
+      );
+    }
+
+    // 3. Main Camera UI
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // A. Camera Preview
+          if (_controller != null && _controller!.value.isInitialized)
+            Center(
+              child: AspectRatio(
+                aspectRatio: 1 / _controller!.value.aspectRatio,
+                child: CameraPreview(_controller!),
+              ),
+            ),
+
+          // B. Overlay (Light blue tint outside the circle)
+          ColorFiltered(
+            colorFilter: ColorFilter.mode(
+              // 🔥 CHANGE: Light blue with low opacity
+              const Color(0xFF2196F3).withOpacity(0.3),
+              BlendMode.srcOut,
+            ),
+            child: Stack(
+              children: [
+                Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.transparent,
+                    backgroundBlendMode: BlendMode.dstOut,
+                  ),
+                ),
+                Center(
+                  child: Container(
+                    height: 300,
+                    width: 300,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // C. Custom Circle Border (Animated Color)
+          Center(
+            child: Container(
+              height: 320,
+              width: 320,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _isFaceAligned ? Colors.greenAccent : Colors.white54,
+                  width: 4,
+                ),
+                boxShadow: [
+                  if (_isFaceAligned)
+                    BoxShadow(
+                      color: Colors.greenAccent.withOpacity(0.5),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          // D. Top Bar (Progress & Title)
+          Positioned(
+            top: 50,
+            left: 20,
+            right: 20,
+            child: Column(
+              children: [
+                // Back Button & Title
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        "Liveness Check",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          shadows: [
+                            Shadow(
+                              blurRadius: 10.0,
+                              color: Colors.black45,
+                              offset: Offset(2.0, 2.0),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 40), // Balance the back button
+                  ],
+                ),
+                const SizedBox(height: 20),
+                // Step Progress Bar
+                LinearProgressIndicator(
+                  value: _progress,
+                  backgroundColor: Colors.white30,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    _isFaceAligned ? Colors.greenAccent : Colors.orangeAccent,
+                  ),
+                  minHeight: 8,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ],
+            ),
+          ),
+
+          // E. Bottom Instruction Card
+          Positioned(
+            bottom: 40,
+            left: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: BoxDecoration(
                 color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // Dynamic Icon based on instruction
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _isFaceAligned
+                          ? Colors.green.shade50
+                          : Colors.orange.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _isFaceAligned
+                          ? Icons.check_circle_outline
+                          : Icons.face_retouching_natural,
+                      color: _isFaceAligned ? Colors.green : Colors.orange,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  // Instruction Text
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _instruction,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        if (_isProcessing)
+                          const Text(
+                            "Processing...",
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
