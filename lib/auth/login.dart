@@ -34,47 +34,47 @@ class _LoginPageState extends State<LoginPage> {
   // LOGIN
   // ======================================================
   Future<void> _login() async {
+    // 1. Basic Validation
     if (emailCtrl.text.trim().isEmpty || passwordCtrl.text.isEmpty) {
-      _showSnack("Enter email and password");
+      _showCleanSnackBar(
+        "Please enter both email and password.",
+        isError: true,
+      );
       return;
     }
 
     setState(() => isLoading = true);
 
     try {
-      // AUTH
+      // 2. AUTHENTICATION
       await context.read<AppAuthProvider>().login(
         email: emailCtrl.text.trim(),
         password: passwordCtrl.text.trim(),
       );
 
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        _showSnack("Login failed");
-        return;
-      }
+      if (user == null) throw "Login failed. Please try again.";
 
       final uid = user.uid;
 
       // ======================================================
-      // CHECK USER PROFILE
+      // 3. CHECK USER PROFILE (Common 'users' collection)
       // ======================================================
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
           .get();
 
-      // 🚨 TEACHER NOT APPROVED YET
+      // 🚨 TEACHER NOT APPROVED YET / ACCOUNT PENDING
       if (!userDoc.exists) {
-        _showSnack("Your registration is pending.\nWait for admin approval.");
         await FirebaseAuth.instance.signOut();
-        return;
+        throw "Your account is pending approval from Admin.";
       }
 
       final String role = userDoc['role'];
 
       // ======================================================
-      // STUDENT FLOW
+      // 4. STUDENT FLOW
       // ======================================================
       if (role == 'student') {
         final studentQuery = await FirebaseFirestore.instance
@@ -84,13 +84,14 @@ class _LoginPageState extends State<LoginPage> {
             .get();
 
         if (studentQuery.docs.isEmpty) {
-          _showSnack("Student record missing");
-          return;
+          throw "Student profile data is missing.";
         }
 
         final studentDoc = studentQuery.docs.first;
         final admissionNo = studentDoc.id;
         final bool faceEnabled = studentDoc['face_enabled'] == true;
+
+        if (!mounted) return;
 
         if (!faceEnabled) {
           Navigator.pushReplacement(
@@ -102,18 +103,17 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
           );
-          return;
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
+          );
         }
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
-        );
         return;
       }
 
       // ======================================================
-      // TEACHER FLOW
+      // 5. TEACHER FLOW
       // ======================================================
       if (role == 'teacher') {
         final teacherDoc = await FirebaseFirestore.instance
@@ -122,33 +122,102 @@ class _LoginPageState extends State<LoginPage> {
             .get();
 
         if (!teacherDoc.exists) {
-          _showSnack("Teacher profile not found");
-          return;
+          throw "Teacher profile data is missing.";
         }
 
+        // Check if Teacher is Approved AND Setup is Done
+        final bool isApproved = teacherDoc['isApproved'] == true;
         final bool setupCompleted = teacherDoc['setupCompleted'] == true;
+
+        if (!isApproved) {
+          await FirebaseAuth.instance.signOut();
+          throw "Your Teacher account is not approved yet.";
+        }
+
+        if (!mounted) return;
 
         if (!setupCompleted) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const TeacherSetupPage()),
           );
-          return;
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
+          );
         }
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TeacherDashboardPage()),
-        );
         return;
       }
 
-      _showSnack("Invalid role detected");
+      throw "Unknown user role detected.";
+    } on FirebaseAuthException catch (e) {
+      // 🔥 SPECIFIC FIREBASE ERROR HANDLING
+      String message;
+      switch (e.code) {
+        case 'invalid-credential':
+        case 'user-not-found':
+        case 'wrong-password':
+          message = "Incorrect email or password.";
+          break;
+        case 'invalid-email':
+          message = "The email format is invalid.";
+          break;
+        case 'user-disabled':
+          message = "This account has been disabled.";
+          break;
+        case 'network-request-failed':
+          message = "No internet connection.";
+          break;
+        case 'too-many-requests':
+          message = "Too many attempts. Try again later.";
+          break;
+        default:
+          message = "Login Error: ${e.message}";
+      }
+      _showCleanSnackBar(message, isError: true);
     } catch (e) {
-      _showSnack(e.toString().replaceAll('Exception:', '').trim());
+      // 🔥 GENERIC ERROR HANDLING
+      // Removes "Exception:" prefix to make it look cleaner
+      String cleanError = e.toString().replaceAll("Exception:", "").trim();
+      _showCleanSnackBar(cleanError, isError: true);
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
+  }
+
+  // ==========================================
+  // ✨ PASTE THIS HELPER AT THE BOTTOM OF PAGE
+  // ==========================================
+  void _showCleanSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.error_outline : Icons.check_circle,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -400,15 +469,6 @@ class _LoginPageState extends State<LoginPage> {
             color: Colors.white,
           ),
         ),
-      ),
-    );
-  }
-
-  void _showSnack(String message, {bool success = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: success ? Colors.green : Colors.red,
       ),
     );
   }
