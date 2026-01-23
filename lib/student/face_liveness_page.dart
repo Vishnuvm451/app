@@ -27,7 +27,7 @@ class FaceLivenessPage extends StatefulWidget {
 }
 
 class _FaceLivenessPageState extends State<FaceLivenessPage> {
-  static const String _apiBaseUrl = "https://darzo-api.onrender.com";
+  static const String _apiBaseUrl = "https://darzo-backend-api.onrender.com";
   static const int _apiTimeoutSeconds = 120;
 
   CameraController? _controller;
@@ -110,7 +110,7 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
                             controller: _controller!,
                             progress: _progress,
                             isFaceAligned: _isFaceAligned,
-                            size: 280, // 🔥 BIGGER CIRCLE
+                            size: 280,
                           ),
                   ),
                 ),
@@ -278,11 +278,17 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
     final rotY = face.headEulerAngleY ?? 0;
     final rotZ = face.headEulerAngleZ ?? 0;
 
+    // ✅ FIX 1: Safe flash mode with error handling
     if (!_torchEnabled && face.boundingBox.height < 120) {
-      await _controller?.setFlashMode(FlashMode.torch);
-      _torchEnabled = true;
+      try {
+        await _controller?.setFlashMode(FlashMode.torch);
+        _torchEnabled = true;
+      } catch (_) {
+        debugPrint("⚠️ Torch not available on this device");
+      }
     }
 
+    // ✅ FIX 2: Head tilt validation
     if (rotZ.abs() > 25) {
       _updateStatus("Keep head level", false);
       return;
@@ -290,9 +296,11 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
 
     switch (_currentStep) {
       case 0:
+        // ✅ FIX 3: Straight face capture
         if (rotY.abs() < 10 && !_isCapturing) {
           _isCapturing = true;
           _updateStatus("Hold still...", true);
+          await Future.delayed(const Duration(milliseconds: 300));
           await _captureStraightFace();
         } else {
           _updateStatus("Look Straight", false);
@@ -300,7 +308,8 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
         break;
 
       case 1:
-        if (rotY > 20) {
+        // ✅ FIX 4: Turn LEFT first (rotY < -20 means left)
+        if (rotY < -20) {
           setState(() {
             _currentStep = 2;
             _progress = 0.66;
@@ -313,7 +322,8 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
         break;
 
       case 2:
-        if (rotY < -20) {
+        // ✅ FIX 5: Turn RIGHT last (rotY > 20 means right)
+        if (rotY > 20) {
           setState(() {
             _progress = 1.0;
             _instruction = "Verifying...";
@@ -344,6 +354,12 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
 
   // ================= CAPTURE =================
   Future<void> _captureStraightFace() async {
+    // ✅ FIX 6: Check if image already captured
+    if (_capturedImageBytes != null) {
+      _isCapturing = false;
+      return;
+    }
+
     try {
       await _safeStopImageStream();
       final XFile file = await _controller!.takePicture();
@@ -356,6 +372,8 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
 
       final jpegBytes = img.encodeJpg(decoded, quality: 90);
       _capturedImageBytes = Uint8List.fromList(jpegBytes);
+
+      if (!mounted) return;
 
       setState(() {
         _currentStep = 1;
@@ -382,12 +400,16 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
 
     try {
       // ================= HEALTH CHECK =================
-      final health = await http
-          .get(Uri.parse("$_apiBaseUrl/health"))
-          .timeout(const Duration(seconds: 10));
+      try {
+        final health = await http
+            .get(Uri.parse("$_apiBaseUrl/health"))
+            .timeout(const Duration(seconds: 10));
 
-      if (health.statusCode != 200) {
-        debugPrint("⚠️ Health check failed, proceeding anyway");
+        if (health.statusCode != 200) {
+          debugPrint("⚠️ Health check failed, proceeding anyway");
+        }
+      } catch (e) {
+        debugPrint("⚠️ Health check error: $e, proceeding anyway");
       }
 
       final request = http.MultipartRequest(
@@ -421,10 +443,9 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
         return;
       }
 
-      // ================= ALREADY REGISTERED (FIX) =================
-      if (response.statusCode == 400 ||
-          response.statusCode == 409 &&
-              response.body.toLowerCase().contains("already")) {
+      // ✅ FIX 7: Fixed logic operator (should be || not &&)
+      if ((response.statusCode == 400 || response.statusCode == 409) &&
+          response.body.toLowerCase().contains("already")) {
         debugPrint("ℹ️ Face already registered — treating as success");
         await _markFaceEnabled();
         return;
@@ -443,8 +464,7 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
     }
   }
 
-  //             HELPER
-
+  // ================= HELPER =================
   Future<void> _markFaceEnabled() async {
     await FirebaseFirestore.instance
         .collection('student')
@@ -482,6 +502,7 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
       _isImageClicked = false;
       _isCapturing = false;
       _capturedImageBytes = null;
+      _torchEnabled = false;
     });
     _initCamera();
   }

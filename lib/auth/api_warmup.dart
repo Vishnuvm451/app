@@ -7,7 +7,7 @@ Future<void> warmUpApiServer() async {
     debugPrint("🔥 Warming up API server...");
 
     final response = await http
-        .get(Uri.parse("https://darzo-api.onrender.com/health"))
+        .get(Uri.parse("https://darzo-backend-api.onrender.com/health"))
         .timeout(const Duration(seconds: 12));
 
     debugPrint("✅ API warm-up done: ${response.statusCode}");
