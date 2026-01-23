@@ -21,7 +21,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   bool isLoading = true;
 
   String teacherName = '';
-  String departmentId = '';
+  String departmentId = ''; // This will be formatted in the UI
 
   // MULTI-SELECT SUPPORT
   List<String> classIds = [];
@@ -41,10 +41,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // LOAD TEACHER PROFILE (FIXED)
-  // --------------------------------------------------
-  // --------------------------------------------------
-  // LOAD TEACHER PROFILE (FIXED – DOC ID BASED)
+  // LOAD TEACHER PROFILE
   // --------------------------------------------------
   Future<void> _loadTeacher() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -56,7 +53,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       if (!mounted) return;
 
       if (!snap.exists) {
-        // ❗ Teacher profile missing
         _showSnack("Teacher profile not found. Contact admin.");
         await _logout();
         return;
@@ -222,7 +218,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   _infoBadge(
                     departmentId.isEmpty
                         ? "No Dept"
-                        : departmentId.toUpperCase(),
+                        : departmentId
+                              .replaceAll('_', ' ')
+                              .toUpperCase(), // 🔥 Formatted Here
                   ),
                   const SizedBox(width: 8),
                   _infoBadge("${classIds.length} Classes"),
@@ -321,7 +319,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
               builder: (_) => SettingsPage(
                 userRole: 'teacher',
                 initialName: teacherName,
-                initialSubTitle: "Dept: ${departmentId.toUpperCase()}",
+                initialSubTitle:
+                    "Dept: ${departmentId.replaceAll('_', ' ').toUpperCase()}", // 🔥 Formatted here too
               ),
             ),
           ),
