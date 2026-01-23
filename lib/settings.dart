@@ -99,11 +99,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() => _isLoading = true);
     try {
-      // Logic: Update the document found via Query or ID
       final collection = 'student';
-      // We assume the doc ID is the UID for simplicity in updates,
-      // but strictly we should query if your doc IDs are admission numbers.
-      // However, for this fix, we will try updating by UID first.
 
       await FirebaseFirestore.instance
           .collection(collection)
@@ -127,11 +123,22 @@ class _SettingsPageState extends State<SettingsPage> {
             }
           });
 
-      _showSnack("Face data removed successfully", Colors.green);
+      _showSnack("Face data removed. Redirecting to Login...", Colors.green);
+
+      // 🔥 UPDATED LOGIC: Wait & Navigate to Login
+      await Future.delayed(const Duration(seconds: 2));
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (_) => false,
+      );
     } catch (e) {
       _showSnack("Failed to remove face data", Colors.red);
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -141,7 +148,7 @@ class _SettingsPageState extends State<SettingsPage> {
       builder: (context) => AlertDialog(
         title: const Text("Remove Face Data?"),
         content: const Text(
-          "You will not be able to mark attendance using your face until you re-register.",
+          "You will need to re-register your face to mark attendance. You will be logged out immediately.",
         ),
         actions: [
           TextButton(
@@ -251,7 +258,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Delete Firestore Data (Try simple delete, handle fallback)
+      // 1. Delete Firestore Data
       String collection = widget.userRole == 'student' ? 'student' : 'teacher';
 
       await FirebaseFirestore.instance
@@ -259,7 +266,6 @@ class _SettingsPageState extends State<SettingsPage> {
           .doc(currentUser!.uid)
           .delete()
           .onError((e, _) async {
-            // Fallback for custom Doc IDs
             final q = await FirebaseFirestore.instance
                 .collection(collection)
                 .where('authUid', isEqualTo: currentUser!.uid)
@@ -380,7 +386,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          displayName, // ✅ Uses internal state
+                          displayName,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 24,
@@ -389,7 +395,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          displaySubTitle, // ✅ Uses internal state
+                          displaySubTitle,
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.9),
                             fontSize: 18,
