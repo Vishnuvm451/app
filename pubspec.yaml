@@ -45,17 +45,19 @@ dependencies:
   http: ^1.6.0
   intl: ^0.18.1
   google_mlkit_face_detection: ^0.11.0
+  http_parser: ^4.0.2
 
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-  # The "flutter_lints" package below contains a set of recommended lints to
+    
+ # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
+  # rules and activating additional ones
+  flutter_launcher_icons: "^0.13.1"
   flutter_lints: ^6.0.0
 
 # For information on the generic Dart part of this file, see the
@@ -64,7 +66,7 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   assets:
-    - assets/darzo_logo.png
+    - assets/icon/darzo_logo1.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
@@ -101,3 +103,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+# ✅ Configuration to generate the App Icon (Home Screen)
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/darzo_logo1.png" 
+  min_sdk_android: 21
