@@ -8,8 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:darzo/auth/login.dart';
 import 'package:darzo/auth/auth_provider.dart';
-import 'package:darzo/services/firestore_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
@@ -20,145 +20,90 @@ class StudentDashboardPage extends StatefulWidget {
 
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   bool isLoading = true;
-  bool isSessionActive = false;
 
-  String classId = '';
-
-  /// loading | no-session | not-marked | present | half-day | absent
-  String attendanceStatus = 'loading';
-
-  // 1. DECLARE VARIABLES HERE 👇
+  // Data Variables
   String studentName = "Loading...";
   String admissionNo = "";
-  String departmentId = "";
+  String classId = "";
+  String departmentId = ""; // ✅ Variable to store Department Name
+  String studentDocId = "";
+  String debugMsg = "Initializing...";
 
   @override
   void initState() {
     super.initState();
-    _loadDashboardData();
-    _loadStudentProfile(); // <--- Call the function to load data
+    _initDashboardData();
   }
 
   // ==================================================
-  // LOAD PROFILE DATA (CORRECTED LOGIC)
+  // 1. DATA LOADER
   // ==================================================
-  Future<void> _loadStudentProfile() async {
+  Future<void> _initDashboardData() async {
+    if (!mounted) return;
+
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        // 🔍 CORRECTED SEARCH LOGIC: Find document where authUid matches
-        final querySnapshot = await FirebaseFirestore.instance
-            .collection('student')
-            .where('authUid', isEqualTo: user.uid)
-            .limit(1)
-            .get();
-
-        if (querySnapshot.docs.isNotEmpty) {
-          final data = querySnapshot.docs.first.data();
-          if (mounted) {
-            setState(() {
-              // Get name, defaulting to "Student" if missing
-              studentName = data['name'] ?? "Student";
-
-              // Get admission no, defaulting to Document ID if missing
-              admissionNo = data['admissionNo'] ?? querySnapshot.docs.first.id;
-
-              departmentId = data['departmentId'] ?? "";
-            });
-          }
-        } else {
-          print("❌ No student profile found for this user!");
-        }
-      } catch (e) {
-        print("❌ Error loading profile: $e");
-      }
+    if (user == null) {
+      _logout();
+      return;
     }
-  }
 
-  // -------------------------------
-  // LOAD DASHBOARD DATA
-  // --------------------------------------------------
-  Future<void> _loadDashboardData() async {
     try {
-      final auth = context.read<AppAuthProvider>();
-      final user = auth.user;
-
-      if (user == null) {
-        await _logout();
-        return;
-      }
-
-      final student = await FirestoreService.instance.getStudent(user.uid);
-
-      if (student == null) {
-        _setNoSession();
-        return;
-      }
-
-      classId = student['classId'] ?? '';
-      if (classId.isEmpty) {
-        _setNoSession();
-        return;
-      }
-
-      // ✅ CHECK ACTIVE ATTENDANCE SESSION
-      final sessionQuery = await FirebaseFirestore.instance
-          .collection('attendance_session')
-          .where('classId', isEqualTo: classId)
-          .where('isActive', isEqualTo: true)
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('student')
+          .where('authUid', isEqualTo: user.uid)
           .limit(1)
           .get();
 
-      isSessionActive = sessionQuery.docs.isNotEmpty;
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        final data = doc.data();
 
-      // ✅ LOAD FINAL ATTENDANCE (if any)
-      final finalStatus = await FirestoreService.instance
-          .getTodayFinalAttendance(studentId: user.uid, classId: classId);
+        if (mounted) {
+          setState(() {
+            studentName = data['name'] ?? "Student";
+            admissionNo = data['admissionNo'] ?? doc.id;
+            classId = data['classId'] ?? "";
 
-      if (!mounted) return;
+            // ✅ CAPTURE DEPARTMENT ID
+            departmentId = data['departmentId'] ?? "";
 
-      setState(() {
-        attendanceStatus =
-            finalStatus ?? (isSessionActive ? 'not-marked' : 'no-session');
-        isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        attendanceStatus = 'no-session';
-        isLoading = false;
-      });
+            studentDocId = doc.id;
+            isLoading = false;
+            debugMsg = "Success";
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+            debugMsg = "No Profile Found for UID:\n${user.uid}";
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          debugMsg = "Error: $e";
+        });
+      }
     }
   }
 
-  void _setNoSession() {
-    setState(() {
-      attendanceStatus = 'no-session';
-      isLoading = false;
-    });
-  }
-
-  // --------------------------------------------------
-  // LOGOUT
-  // --------------------------------------------------
   Future<void> _logout() async {
     await context.read<AppAuthProvider>().logout();
     if (!mounted) return;
-
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginPage()),
     );
   }
 
-  // --------------------------------------------------
-  // UI
-  // --------------------------------------------------
+  // ==================================================
+  // 2. MAIN UI
+  // ==================================================
   @override
   Widget build(BuildContext context) {
-    // We rely on our local `studentName` variable now, which comes from Firestore
-    // instead of just the Auth Provider, ensuring accuracy.
-
     return Scaffold(
       backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
@@ -167,10 +112,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         title: const Text("Student Dashboard", style: TextStyle(fontSize: 26)),
         centerTitle: true,
         actions: [
-          // Settings Shortcut in AppBar (Optional, since you have it in Quick Actions)
-          IconButton(
-            icon: const Icon(Icons.logout, size: 28),
-            onPressed: _logout,
+          Padding(
+            padding: const EdgeInsets.only(right: 9.0),
+            child: IconButton(
+              icon: const Icon(Icons.logout, size: 32),
+              onPressed: _logout,
+            ),
           ),
         ],
       ),
@@ -193,16 +140,16 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // --------------------------------------------------
-  // HEADER
-  // --------------------------------------------------
+  // ==================================================
+  // 3. HEADER (UPDATED)
+  // ==================================================
   Widget _header() {
     return Column(
       children: [
         const Icon(Icons.school, size: 70, color: Colors.white),
         const SizedBox(height: 12),
         Text(
-          "Welcome, $studentName 👋", // ✅ Using fetched variable
+          "Welcome, $studentName 👋",
           textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 22,
@@ -211,50 +158,116 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           ),
         ),
         const SizedBox(height: 6),
-        if (classId.isNotEmpty)
+
+        // 🔥 DISPLAY DEPARTMENT INSTEAD OF CLASS ID
+        if (departmentId.isNotEmpty)
           Text(
-            "Class ID: $classId",
-            style: const TextStyle(color: Colors.white70, fontSize: 14),
+            "Department: ${departmentId.replaceAll('_', ' ')}", // Formatting for cleaner look
+            style: const TextStyle(
+              color: Color.fromARGB(197, 255, 255, 255),
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
           ),
       ],
     );
   }
 
-  // --------------------------------------------------
-  // ATTENDANCE CARD
-  // --------------------------------------------------
+  // ==================================================
+  // 4. ATTENDANCE CARD
+  // ==================================================
   Widget _attendanceCard() {
-    Color color;
-    String text;
-    bool canMark = false;
-
-    switch (attendanceStatus) {
-      case 'present':
-        color = Colors.green;
-        text = "Present Today ✅";
-        break;
-      case 'half-day':
-        color = Colors.orange;
-        text = "Half Day ⏳";
-        break;
-      case 'absent':
-        color = Colors.red;
-        text = "Absent ❌";
-        break;
-      case 'not-marked':
-        color = Colors.blue;
-        text = "Attendance Not Marked";
-        canMark = isSessionActive;
-        break;
-      case 'no-session':
-        color = Colors.grey;
-        text = "Waiting for Teacher to Start Attendance";
-        break;
-      default:
-        color = Colors.grey;
-        text = "Checking Attendance...";
+    if (classId.isEmpty || studentDocId.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.red),
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 40),
+            const SizedBox(height: 10),
+            const Text(
+              "Profile Error",
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              debugMsg,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: _initDashboardData,
+              child: const Text("Retry"),
+            ),
+          ],
+        ),
+      );
     }
 
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('attendance_session')
+          .where('classId', isEqualTo: classId)
+          .where('isActive', isEqualTo: true)
+          .snapshots(),
+      builder: (context, sessionSnap) {
+        if (!sessionSnap.hasData || sessionSnap.data!.docs.isEmpty) {
+          return _buildCardUI(
+            text: "No Active Session",
+            color: Colors.grey,
+            canMark: false,
+          );
+        }
+
+        final sessionData =
+            sessionSnap.data!.docs.first.data() as Map<String, dynamic>;
+        final sessionType = sessionData['sessionType'];
+        final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        final attendanceDocId = "${classId}_${today}_$sessionType";
+
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('attendance')
+              .doc(attendanceDocId)
+              .collection('student')
+              .doc(studentDocId)
+              .snapshots(),
+          builder: (context, attendanceSnap) {
+            bool isMarked =
+                attendanceSnap.hasData && attendanceSnap.data!.exists;
+
+            if (isMarked) {
+              return _buildCardUI(
+                text: "Present Today ✅",
+                color: Colors.green,
+                canMark: false,
+                isMarked: true,
+              );
+            } else {
+              return _buildCardUI(
+                text: "Attendance Not Marked",
+                color: Colors.blue,
+                canMark: true,
+              );
+            }
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildCardUI({
+    required String text,
+    required Color color,
+    required bool canMark,
+    bool isMarked = false,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -277,28 +290,28 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              icon: const Icon(Icons.face),
+              icon: Icon(isMarked ? Icons.check_circle : Icons.face),
               label: Text(
-                canMark ? "Mark Attendance" : "Waiting for Teacher",
+                isMarked
+                    ? "Marked Successfully"
+                    : (canMark ? "Mark Attendance" : "Waiting for Teacher"),
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: canMark
+                    ? const Color(0xFF2196F3)
+                    : Colors.grey.shade300,
+                foregroundColor: canMark ? Colors.white : Colors.grey,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
               onPressed: canMark
-                  ? () async {
-                      await Navigator.push(
+                  ? () {
+                      Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => const MarkAttendancePage(),
                         ),
                       );
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        isLoading = true;
-                        attendanceStatus = 'loading';
-                      });
-
-                      _loadDashboardData();
                     }
                   : null,
             ),
@@ -308,9 +321,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // --------------------------------------------------
-  // QUICK ACTIONS
-  // --------------------------------------------------
+  // ==================================================
+  // 5. QUICK ACTIONS
+  // ==================================================
   Widget _quickActions() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -364,7 +377,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const ViewClassmatesPage(),
+                      builder: (_) => const ViewClassmatesPage(),
                     ),
                   );
                 },
@@ -376,7 +389,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => SettingsPage(
+                      builder: (_) => SettingsPage(
                         userRole: 'student',
                         initialName: studentName,
                         initialSubTitle: "Adm No: $admissionNo",
@@ -398,10 +411,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     required VoidCallback onTap,
   }) {
     return InkWell(
-      borderRadius: BorderRadius.circular(16),
       onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.blue.shade200),
