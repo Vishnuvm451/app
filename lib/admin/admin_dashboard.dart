@@ -1,10 +1,13 @@
 import 'package:darzo/admin/admin_approval.dart';
 import 'package:darzo/admin/admin_class_sub.dart';
+import 'package:darzo/admin/admin_manage_hod.dart';
 import 'package:darzo/admin/manage_department.dart';
+import 'package:darzo/time_table_selection.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:darzo/admin/admin_manage_users.dart';
 import 'package:darzo/auth/login.dart';
+import 'package:darzo/auth/notifications.dart';
 
 class AdminDashboardPage extends StatelessWidget {
   const AdminDashboardPage({super.key});
@@ -16,7 +19,11 @@ class AdminDashboardPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: primaryBlue,
       appBar: AppBar(
-        title: const Text("Admin Dashboard"),
+        title: const Text(
+          "Admin Dashboard",
+          style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
         backgroundColor: primaryBlue,
         elevation: 0,
         actions: [
@@ -76,7 +83,16 @@ class AdminDashboardPage extends StatelessWidget {
                 );
               },
             ),
-
+            _adminCard(
+              icon: Icons.star_rounded,
+              title: "Assign HOD",
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AdminManageHODPage()),
+                );
+              },
+            ),
             _adminCard(
               icon: Icons.settings,
               title: "Manage Department",
@@ -85,6 +101,32 @@ class AdminDashboardPage extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (_) => const AdminManageAcademicPage(),
+                  ),
+                );
+              },
+            ),
+
+            _adminCard(
+              icon: Icons.calendar_month,
+              title: "Manage Timetable",
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const TimetableSelectionPage(isAdmin: true),
+                  ),
+                );
+              },
+            ),
+            _adminCard(
+              icon: Icons.settings,
+              title: "Notification Alerts",
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const SendNotificationPage(senderRole: 'Admin'),
                   ),
                 );
               },
@@ -112,7 +154,7 @@ class AdminDashboardPage extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: const [
             BoxShadow(
-              color: Colors.black12,
+              color: Color.fromARGB(31, 0, 0, 0),
               blurRadius: 6,
               offset: Offset(0, 4),
             ),
