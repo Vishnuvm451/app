@@ -3,6 +3,8 @@ import 'package:darzo/settings.dart';
 import 'package:darzo/student/mark_attendance_face.dart';
 import 'package:darzo/student/student_internal_marks_page.dart';
 import 'package:darzo/student/view_classmates_page.dart';
+import 'package:darzo/student/student_timetable_page.dart';
+import 'package:darzo/student/view_teachers_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -25,7 +27,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   String studentName = "Loading...";
   String admissionNo = "";
   String classId = "";
-  String departmentId = ""; // ✅ Variable to store Department Name
+  String departmentId = "";
+  String currentSemester = ""; // ✅ Variable for Semester
   String studentDocId = "";
   String debugMsg = "Initializing...";
 
@@ -63,9 +66,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             studentName = data['name'] ?? "Student";
             admissionNo = data['admissionNo'] ?? doc.id;
             classId = data['classId'] ?? "";
-
-            // ✅ CAPTURE DEPARTMENT ID
             departmentId = data['departmentId'] ?? "";
+            // ✅ Fetch Semester (Default to 'Semester 1' if missing)
+            currentSemester = data['semester'] ?? "Semester 6";
 
             studentDocId = doc.id;
             isLoading = false;
@@ -96,6 +99,26 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginPage()),
+    );
+  }
+
+  // ✅ NAVIGATION LOGIC
+  void _navigateToTimetable() {
+    if (classId.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Class not assigned yet.")));
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentTimetablePage(
+          classId: classId,
+          currentSemester: currentSemester,
+        ),
+      ),
     );
   }
 
@@ -141,7 +164,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   }
 
   // ==================================================
-  // 3. HEADER (UPDATED)
+  // 3. HEADER
   // ==================================================
   Widget _header() {
     return Column(
@@ -158,11 +181,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           ),
         ),
         const SizedBox(height: 6),
-
-        // 🔥 DISPLAY DEPARTMENT INSTEAD OF CLASS ID
         if (departmentId.isNotEmpty)
           Text(
-            "Department: ${departmentId.replaceAll('_', ' ')}", // Formatting for cleaner look
+            "Department: ${departmentId.replaceAll('_', ' ')}",
             style: const TextStyle(
               color: Color.fromARGB(197, 255, 255, 255),
               fontSize: 16,
@@ -379,6 +400,22 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                     MaterialPageRoute(
                       builder: (_) => const ViewClassmatesPage(),
                     ),
+                  );
+                },
+              ),
+              // 1. My Timetable Button (Navigates to the Timetable Page)
+              _actionCard(
+                Icons.calendar_month_rounded,
+                "My Timetable",
+                onTap: _navigateToTimetable,
+              ),
+              _actionCard(
+                Icons.school_rounded,
+                "My Teachers",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ViewTeachersPage()),
                   );
                 },
               ),
