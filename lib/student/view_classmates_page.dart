@@ -13,6 +13,7 @@ class _ViewClassmatesPageState extends State<ViewClassmatesPage> {
   bool isLoading = true;
   String? errorMessage;
   String? myClassId;
+  String myClassName = "Loading..."; // Default safe value
   List<Map<String, dynamic>> classmates = [];
 
   @override
@@ -36,23 +37,46 @@ class _ViewClassmatesPageState extends State<ViewClassmatesPage> {
       if (myProfileSnap.docs.isEmpty) throw "Student profile not found";
 
       final myData = myProfileSnap.docs.first.data();
-      myClassId = myData['classId'];
+      myClassId = myData['classId']?.toString(); // Force to String
 
-      if (myClassId == null) throw "Class ID missing in profile";
+      if (myClassId == null || myClassId!.isEmpty)
+        throw "Class ID missing in profile";
 
-      // 2. Fetch All Students in SAME Class
-      // 🚀 SIMPLIFIED: Removed 'orderBy' to fix Index Error
+      // 2. Fetch Class Name (Crash-Proof Logic)
+      String tempClassName = myClassId!;
+      try {
+        final classDoc = await FirebaseFirestore.instance
+            .collection('class')
+            .doc(myClassId)
+            .get();
+
+        if (classDoc.exists && classDoc.data() != null) {
+          final data = classDoc.data()!;
+          // Explicitly check fields and convert to String to avoid Type errors
+          if (data['name'] != null) {
+            tempClassName = data['name'].toString();
+          } else if (data['className'] != null) {
+            tempClassName = data['className'].toString();
+          } else if (data['deptName'] != null) {
+            tempClassName = data['deptName'].toString();
+          }
+        }
+      } catch (e) {
+        debugPrint("Error fetching class name: $e");
+      }
+
+      // 3. Fetch All Students in SAME Class
       final querySnapshot = await FirebaseFirestore.instance
           .collection('student')
           .where('classId', isEqualTo: myClassId)
           .get();
 
-      // 3. Process & Sort Data in App (Avoids Firebase Index requirement)
+      // 4. Process & Sort Data
       List<Map<String, dynamic>> tempList = querySnapshot.docs
           .map((doc) => doc.data())
           .toList();
 
-      // Sort by Admission Number locally
+      // Sort by Admission Number (Safely)
       tempList.sort((a, b) {
         final adNoA = (a['admissionNo'] ?? '').toString();
         final adNoB = (b['admissionNo'] ?? '').toString();
@@ -61,6 +85,7 @@ class _ViewClassmatesPageState extends State<ViewClassmatesPage> {
 
       if (mounted) {
         setState(() {
+          myClassName = tempClassName;
           classmates = tempList;
           isLoading = false;
         });
@@ -102,9 +127,14 @@ class _ViewClassmatesPageState extends State<ViewClassmatesPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Class ID: ${myClassId ?? '...'}",
-                        style: const TextStyle(color: Colors.white70),
+                        "Class: $myClassName",
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
+                      const SizedBox(height: 4),
                       Text(
                         "${classmates.length} Students Found",
                         style: const TextStyle(
@@ -124,10 +154,12 @@ class _ViewClassmatesPageState extends State<ViewClassmatesPage> {
                     itemCount: classmates.length,
                     itemBuilder: (context, index) {
                       final student = classmates[index];
-                      final name = student['name'] ?? 'Unknown';
-                      final admissionNo = student['admissionNo'] ?? '-';
 
-                      // Highlight "Me"
+                      // ✅ FORCE TO STRING to prevent "Null is not subtype of String" error
+                      final name = (student['name'] ?? 'Unknown').toString();
+                      final admissionNo = (student['admissionNo'] ?? '-')
+                          .toString();
+
                       final isMe =
                           student['authUid'] ==
                           FirebaseAuth.instance.currentUser?.uid;
