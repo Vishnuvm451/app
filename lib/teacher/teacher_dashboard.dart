@@ -4,11 +4,13 @@ import 'package:darzo/teacher/edit_setup.dart';
 import 'package:darzo/teacher/internal.dart';
 import 'package:darzo/attendance/start_attendance.dart';
 import 'package:darzo/teacher/teacher_student.dart';
+import 'package:darzo/time_table_selection.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/auth/login.dart';
 import 'teacher_setup_page.dart';
+import 'package:darzo/auth/notifications.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
   const TeacherDashboardPage({super.key});
@@ -179,7 +181,11 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                 ],
               ),
               IconButton(
-                icon: const Icon(Icons.logout_rounded, color: Colors.white),
+                icon: const Icon(
+                  Icons.logout_rounded,
+                  color: Colors.white,
+                  size: 34,
+                ),
                 onPressed: _logout,
               ),
             ],
@@ -307,6 +313,31 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const EditSetupPage()),
+          ),
+        ),
+        _actionCard(
+          icon: Icons.edit_calendar_rounded,
+          label: "Edit\nTimetable",
+          color: Colors.purple,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const TimetableSelectionPage(isAdmin: false),
+              ),
+            );
+          },
+        ),
+
+        _actionCard(
+          icon: Icons.notifications_active_rounded,
+          label: "Notication\nAlerts",
+          color: const Color(0xFF009688),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const SendNotificationPage(senderRole: 'Teacher'),
+            ),
           ),
         ),
         _actionCard(
