@@ -18,6 +18,7 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
   final Color bgWhite = const Color(0xFFF5F7FA);
 
   String classId = '';
+  String className = ''; // Added to store Class Name
   String studentDocId = ''; // Admission Number
   bool isLoading = true;
   String? errorMessage;
@@ -28,12 +29,13 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
     _loadStudentProfile();
   }
 
-  // 1. LOAD PROFILE
+  // 1. LOAD PROFILE & CLASS NAME
   Future<void> _loadStudentProfile() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("User not logged in");
 
+      // 1. Get Student Doc
       final q = await _db
           .collection('student')
           .where('authUid', isEqualTo: user.uid)
@@ -43,9 +45,27 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
       if (q.docs.isEmpty) throw Exception("Profile not found");
 
       final doc = q.docs.first;
+      final fetchedClassId = doc.data()['classId'] ?? '';
+
+      // 2. Get Class Name (using the classId)
+      String fetchedClassName = '';
+      if (fetchedClassId.isNotEmpty) {
+        final classDoc = await _db
+            .collection('class')
+            .doc(fetchedClassId)
+            .get();
+        if (classDoc.exists) {
+          final classData = classDoc.data();
+          // Try 'className' first, fallback to 'name'
+          fetchedClassName =
+              classData?['className'] ?? classData?['name'] ?? '';
+        }
+      }
+
       if (mounted) {
         setState(() {
-          classId = doc.data()['classId'] ?? '';
+          classId = fetchedClassId;
+          className = fetchedClassName;
           studentDocId = doc.id;
           isLoading = false;
         });
@@ -65,9 +85,27 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
     return Scaffold(
       backgroundColor: bgWhite,
       appBar: AppBar(
-        title: const Text(
-          "My Performance",
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        title: Column(
+          children: [
+            const Text(
+              "My Performance",
+              style: TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+            // Show Class Name if available
+            if (className.isNotEmpty)
+              Text(
+                className,
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal,
+                ),
+              ),
+          ],
         ),
         centerTitle: true,
         backgroundColor: Colors.transparent,
@@ -112,47 +150,67 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
             final testDoc = tests[index];
             final data = testDoc.data() as Map<String, dynamic>;
             final testName = data['testName'] ?? 'Unknown Test';
-            final subjectId = data['subjectId'] ?? 'Unknown Subject';
+            final subjectId = data['subjectId'] ?? '';
 
             // Get Max Marks for percentage calc
             final maxData = data['maxMarks'] as Map<String, dynamic>? ?? {};
             final maxTotal = (maxData['total'] ?? 100).toDouble();
 
-            // Fetch STUDENT result
+            // 1. Fetch Subject Name First
             return FutureBuilder<DocumentSnapshot>(
-              future: testDoc.reference
-                  .collection('student')
-                  .doc(studentDocId)
-                  .get(),
-              builder: (_, stuSnap) {
-                if (!stuSnap.hasData) return const SizedBox(); // Silent loading
-
-                if (!stuSnap.data!.exists) {
-                  return _buildMarkCard(
-                    testName: testName,
-                    subject: subjectId,
-                    score: 0,
-                    total: maxTotal,
-                    isMissing: true,
-                  );
+              future: _db.collection('subject').doc(subjectId).get(),
+              builder: (context, subjectSnap) {
+                // If subject loading or failed, fallback to ID or 'Loading...'
+                String subjectName = 'Loading...';
+                if (subjectSnap.hasData && subjectSnap.data!.exists) {
+                  final subData =
+                      subjectSnap.data!.data() as Map<String, dynamic>;
+                  subjectName =
+                      subData['subjectName'] ??
+                      subData['name'] ??
+                      'Unknown Subject';
+                } else if (subjectSnap.connectionState ==
+                    ConnectionState.done) {
+                  subjectName = 'Unknown Subject';
                 }
 
-                final scoreData = stuSnap.data!.data() as Map<String, dynamic>;
-                final totalScore = (scoreData['total'] ?? 0).toDouble();
+                // 2. Fetch Student Result
+                return FutureBuilder<DocumentSnapshot>(
+                  future: testDoc.reference
+                      .collection('student')
+                      .doc(studentDocId)
+                      .get(),
+                  builder: (_, stuSnap) {
+                    if (!stuSnap.hasData) return const SizedBox();
 
-                // Detailed breakdown
-                final exam = (scoreData['internal'] ?? 0).toDouble();
-                final att = (scoreData['attendance'] ?? 0).toDouble();
-                final assgn = (scoreData['assignment'] ?? 0).toDouble();
+                    if (!stuSnap.data!.exists) {
+                      return _buildMarkCard(
+                        testName: testName,
+                        subject: subjectName, // Pass Name instead of ID
+                        score: 0,
+                        total: maxTotal,
+                        isMissing: true,
+                      );
+                    }
 
-                return _buildMarkCard(
-                  testName: testName,
-                  subject: subjectId,
-                  score: totalScore,
-                  total: maxTotal,
-                  exam: exam,
-                  attendance: att,
-                  assignment: assgn,
+                    final scoreData =
+                        stuSnap.data!.data() as Map<String, dynamic>;
+                    final totalScore = (scoreData['total'] ?? 0).toDouble();
+
+                    final exam = (scoreData['internal'] ?? 0).toDouble();
+                    final att = (scoreData['attendance'] ?? 0).toDouble();
+                    final assgn = (scoreData['assignment'] ?? 0).toDouble();
+
+                    return _buildMarkCard(
+                      testName: testName,
+                      subject: subjectName, // Pass Name instead of ID
+                      score: totalScore,
+                      total: maxTotal,
+                      exam: exam,
+                      attendance: att,
+                      assignment: assgn,
+                    );
+                  },
                 );
               },
             );
@@ -230,11 +288,11 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      subject.toUpperCase(),
+                      subject.toUpperCase(), // Now displays the fetched Name
                       style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade500,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: const Color.fromARGB(255, 30, 30, 30),
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -323,7 +381,7 @@ class _StudentInternalMarksPageState extends State<StudentInternalMarksPage> {
         ),
         const SizedBox(height: 2),
         Text(
-          val.toStringAsFixed(1), // remove decimal if integer
+          val.toStringAsFixed(1),
           style: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
