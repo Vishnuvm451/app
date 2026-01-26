@@ -23,7 +23,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   bool isLoading = true;
 
   String teacherName = '';
-  String departmentId = ''; // This will be formatted in the UI
+  String departmentId = '';
 
   // MULTI-SELECT SUPPORT
   List<String> classIds = [];
@@ -224,9 +224,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   _infoBadge(
                     departmentId.isEmpty
                         ? "No Dept"
-                        : departmentId
-                              .replaceAll('_', ' ')
-                              .toUpperCase(), // 🔥 Formatted Here
+                        : departmentId.replaceAll('_', ' ').toUpperCase(),
                   ),
                   const SizedBox(width: 8),
                   _infoBadge("${classIds.length} Classes"),
@@ -351,7 +349,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                 userRole: 'teacher',
                 initialName: teacherName,
                 initialSubTitle:
-                    "Dept: ${departmentId.replaceAll('_', ' ').toUpperCase()}", // 🔥 Formatted here too
+                    "Dept: ${departmentId.replaceAll('_', ' ').toUpperCase()}",
               ),
             ),
           ),
@@ -393,7 +391,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   // --------------------------------------------------
-  // CLASS PICKER
+  // FIXED CLASS PICKER (SHOWS NAMES)
   // --------------------------------------------------
   void _pickClassAndNavigate(Widget Function(String) pageBuilder) {
     if (classIds.isEmpty) {
@@ -401,6 +399,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       return;
     }
 
+    // Direct navigation if only 1 class
     if (classIds.length == 1) {
       Navigator.push(
         context,
@@ -409,33 +408,117 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       return;
     }
 
+    // Show Bottom Sheet with FutureBuilder to fetch names
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(20),
+        return Container(
+          padding: const EdgeInsets.all(15),
+          // Height constraint for large lists
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.5,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: classIds.map((id) {
-              return ListTile(
-                leading: const Icon(Icons.class_outlined),
-                title: Text(id),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => pageBuilder(id)),
-                  );
-                },
-              );
-            }).toList(),
+            children: [
+              const Text(
+                "Select Class",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: FutureBuilder<List<DocumentSnapshot>>(
+                  // Fetch all class documents for the IDs we have
+                  future: _fetchClassDetails(classIds),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      // Fallback to IDs if fetch fails
+                      return ListView(
+                        children: classIds
+                            .map(
+                              (id) => _buildListTile(id, id, null, pageBuilder),
+                            )
+                            .toList(),
+                      );
+                    }
+
+                    final classDocs = snapshot.data!;
+
+                    return ListView.builder(
+                      itemCount: classDocs.length,
+                      itemBuilder: (ctx, index) {
+                        final doc = classDocs[index];
+                        final data = doc.data() as Map<String, dynamic>?;
+
+                        final className =
+                            data?['className'] ?? data?['name'] ?? doc.id;
+                        final subjectName =
+                            data?['subjectName']; // Might be null
+
+                        return _buildListTile(
+                          doc.id,
+                          className,
+                          subjectName,
+                          pageBuilder,
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         );
       },
     );
+  }
+
+  // Helper to build list tiles
+  Widget _buildListTile(
+    String id,
+    String title,
+    String? subtitle,
+    Widget Function(String) pageBuilder,
+  ) {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.blue.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Icon(Icons.class_outlined, color: Colors.blue),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: subtitle != null
+          ? Text(subtitle, style: TextStyle(color: Colors.grey[600]))
+          : null,
+      onTap: () {
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => pageBuilder(id)),
+        );
+      },
+    );
+  }
+
+  // Helper to fetch documents
+  Future<List<DocumentSnapshot>> _fetchClassDetails(List<String> ids) async {
+    // Note: 'whereIn' is limited to 10 items. For robustness with large lists,
+    // we fetch individually using Future.wait. It's safer for "My Classes" lists.
+    List<Future<DocumentSnapshot>> futures = [];
+    for (String id in ids) {
+      futures.add(_db.collection('class').doc(id).get());
+    }
+    return await Future.wait(futures);
   }
 
   void _showSnack(String msg) {
