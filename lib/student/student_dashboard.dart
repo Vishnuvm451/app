@@ -28,7 +28,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   String admissionNo = "";
   String classId = "";
   String departmentId = "";
-  String currentSemester = ""; // ✅ Variable for Semester
+  String currentSemester = "";
   String studentDocId = "";
   String debugMsg = "Initializing...";
 
@@ -38,9 +38,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     _initDashboardData();
   }
 
-  // ==================================================
-  // 1. DATA LOADER
-  // ==================================================
+  // ================= LOAD STUDENT DATA =================
   Future<void> _initDashboardData() async {
     if (!mounted) return;
 
@@ -67,9 +65,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             admissionNo = data['admissionNo'] ?? doc.id;
             classId = data['classId'] ?? "";
             departmentId = data['departmentId'] ?? "";
-            // ✅ Fetch Semester (Default to 'Semester 1' if missing)
             currentSemester = data['semester'] ?? "Semester 6";
-
             studentDocId = doc.id;
             isLoading = false;
             debugMsg = "Success";
@@ -93,6 +89,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     }
   }
 
+  // ================= LOGOUT =================
   Future<void> _logout() async {
     await context.read<AppAuthProvider>().logout();
     if (!mounted) return;
@@ -102,7 +99,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ✅ NAVIGATION LOGIC
+  // ================= NAVIGATION =================
   void _navigateToTimetable() {
     if (classId.isEmpty) {
       ScaffoldMessenger.of(
@@ -122,9 +119,25 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ==================================================
-  // 2. MAIN UI
-  // ==================================================
+  // ================= CHECK SESSION VALIDITY =================
+  /// Check if a session is still valid (not expired)
+  bool _isSessionValid(Map<String, dynamic> sessionData) {
+    try {
+      final expiresAt = sessionData['expiresAt'] as Timestamp?;
+      if (expiresAt == null) return false;
+
+      final now = DateTime.now();
+      final expireTime = expiresAt.toDate();
+
+      // ✅ Session is valid if expiration is in the future
+      return expireTime.isAfter(now);
+    } catch (e) {
+      print("❌ Error checking session validity: $e");
+      return false;
+    }
+  }
+
+  // ================= BUILD UI =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -163,9 +176,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ==================================================
-  // 3. HEADER
-  // ==================================================
+  // ================= HEADER =================
   Widget _header() {
     return Column(
       children: [
@@ -194,10 +205,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ==================================================
-  // 4. ATTENDANCE CARD
-  // ==================================================
+  // ================= ATTENDANCE CARD =================
   Widget _attendanceCard() {
+    // ✅ VALIDATION: Check if student profile is complete
     if (classId.isEmpty || studentDocId.isEmpty) {
       return Container(
         width: double.infinity,
@@ -231,6 +241,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       );
     }
 
+    // ✅ LISTEN TO ATTENDANCE SESSIONS
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('attendance_session')
@@ -238,20 +249,42 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           .where('isActive', isEqualTo: true)
           .snapshots(),
       builder: (context, sessionSnap) {
+        // ✅ NO ACTIVE SESSION
         if (!sessionSnap.hasData || sessionSnap.data!.docs.isEmpty) {
           return _buildCardUI(
             text: "No Active Session",
+            subtitle: "Teacher hasn't started attendance yet",
             color: Colors.grey,
             canMark: false,
+            buttonText: "Waiting for Teacher",
           );
         }
 
-        final sessionData =
-            sessionSnap.data!.docs.first.data() as Map<String, dynamic>;
-        final sessionType = sessionData['sessionType'];
+        // ✅ CHECK IF SESSION IS EXPIRED
+        final sessionDoc = sessionSnap.data!.docs.first;
+        final sessionData = sessionDoc.data() as Map<String, dynamic>;
+
+        // Validate that session is still within its expiration time
+        if (!_isSessionValid(sessionData)) {
+          print("⏰ Session expired");
+          return _buildCardUI(
+            text: "Session Expired",
+            subtitle:
+                "This session has expired. Teacher needs to start a new one",
+            color: Colors.orange,
+            canMark: false,
+            buttonText: "Session Closed",
+          );
+        }
+
+        final sessionType = sessionData['sessionType'] ?? 'unknown';
         final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
         final attendanceDocId = "${classId}_${today}_$sessionType";
 
+        print("✅ Active Session: $sessionType");
+        print("📝 Attendance Doc ID: $attendanceDocId");
+
+        // ✅ LISTEN TO STUDENT'S ATTENDANCE RECORD
         return StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection('attendance')
@@ -260,33 +293,45 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               .doc(studentDocId)
               .snapshots(),
           builder: (context, attendanceSnap) {
-            bool isMarked =
-                attendanceSnap.hasData && attendanceSnap.data!.exists;
+            // ✅ ALREADY MARKED TODAY
+            if (attendanceSnap.hasData && attendanceSnap.data!.exists) {
+              final attendanceData =
+                  attendanceSnap.data!.data() as Map<String, dynamic>;
+              final markedAt = attendanceData['markedAt'] as Timestamp?;
 
-            if (isMarked) {
               return _buildCardUI(
                 text: "Present Today ✅",
+                subtitle: markedAt != null
+                    ? "Marked at ${DateFormat('HH:mm a').format(markedAt.toDate())}"
+                    : "Already marked",
                 color: Colors.green,
                 canMark: false,
+                buttonText: "Attendance Marked",
                 isMarked: true,
               );
-            } else {
-              return _buildCardUI(
-                text: "Attendance Not Marked",
-                color: Colors.blue,
-                canMark: true,
-              );
             }
+
+            // ✅ SESSION ACTIVE BUT NOT MARKED YET
+            return _buildCardUI(
+              text: "Mark Your Attendance",
+              subtitle: "Session: $sessionType (Auto-expires in 4 hours)",
+              color: Colors.blue,
+              canMark: true,
+              buttonText: "Mark Attendance",
+            );
           },
         );
       },
     );
   }
 
+  // ================= BUILD CARD UI =================
   Widget _buildCardUI({
     required String text,
+    String subtitle = "",
     required Color color,
     required bool canMark,
+    required String buttonText,
     bool isMarked = false,
   }) {
     return Container(
@@ -307,18 +352,25 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               color: color,
             ),
           ),
+          if (subtitle.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+            ),
+          ],
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               icon: Icon(isMarked ? Icons.check_circle : Icons.face),
               label: Text(
-                isMarked
-                    ? "Marked Successfully"
-                    : (canMark ? "Mark Attendance" : "Waiting for Teacher"),
+                buttonText,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
+                // ✅ BUTTON ENABLED ONLY IF: canMark=true AND NOT already marked
                 backgroundColor: canMark
                     ? const Color(0xFF2196F3)
                     : Colors.grey.shade300,
@@ -342,9 +394,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ==================================================
-  // 5. QUICK ACTIONS
-  // ==================================================
+  // ================= QUICK ACTIONS =================
   Widget _quickActions() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -403,7 +453,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   );
                 },
               ),
-              // 1. My Timetable Button (Navigates to the Timetable Page)
               _actionCard(
                 Icons.calendar_month_rounded,
                 "My Timetable",
@@ -442,6 +491,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
+  // ================= ACTION CARD =================
   Widget _actionCard(
     IconData icon,
     String title, {
