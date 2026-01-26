@@ -11,17 +11,15 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // ✅ CHANGED: Use Java 1.8 to fix the notification error
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
         
         // ✅ ADDED: This enables the desugaring feature you need
         isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
-        // ✅ CHANGED: Match Java 1.8
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     defaultConfig {
