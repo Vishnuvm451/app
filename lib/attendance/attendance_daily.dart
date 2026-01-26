@@ -16,6 +16,10 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   String selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
   bool isSaving = false;
 
+  // Added variables for Header Info
+  String _className = '';
+  String _subjectName = '';
+
   final Map<String, String> attendanceData = {};
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -25,6 +29,26 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
   void initState() {
     super.initState();
     _checkTeacherAccess();
+    _fetchClassDetails(); // Fetch Class & Subject Name
+  }
+
+  // ---------------- NEW: FETCH CLASS DETAILS ----------------
+  Future<void> _fetchClassDetails() async {
+    try {
+      final doc = await _db.collection('class').doc(widget.classId).get();
+      if (doc.exists) {
+        final data = doc.data();
+        if (mounted) {
+          setState(() {
+            _className = data?['className'] ?? data?['name'] ?? '';
+            // Attempt to get subject name if it exists in the class document
+            _subjectName = data?['subjectName'] ?? '';
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading class details: $e");
+    }
   }
 
   Future<void> _checkTeacherAccess() async {
@@ -65,9 +89,28 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text(
-          "Manual Attendance",
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        // Updated Title to show Class & Subject
+        title: Column(
+          children: [
+            const Text(
+              "Manual Attendance",
+              style: TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (_className.isNotEmpty)
+              Text(
+                _subjectName.isNotEmpty
+                    ? "$_className • $_subjectName"
+                    : _className,
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal,
+                ),
+              ),
+          ],
         ),
         centerTitle: true,
         backgroundColor: Colors.transparent,
@@ -282,28 +325,31 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
 
   Widget _saveFooter() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       color: Colors.white,
       child: SizedBox(
         width: double.infinity,
         height: 56,
-        child: ElevatedButton(
-          onPressed: isSaving ? null : _saveAttendance,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: primaryBlue,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: ElevatedButton(
+            onPressed: isSaving ? null : _saveAttendance,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryBlue,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
-          ),
-          child: isSaving
-              ? const CircularProgressIndicator(color: Colors.white)
-              : const Text(
-                  "FINALIZE ATTENDANCE",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
+            child: isSaving
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text(
+                    "FINALIZE ATTENDANCE",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
                   ),
-                ),
+          ),
         ),
       ),
     );
