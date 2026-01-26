@@ -17,6 +17,8 @@ class _TeacherAttendanceSessionPageState
   String? classId;
   String sessionType = "morning";
   bool isLoading = false;
+  bool isMorningActive = false;
+  bool isAfternoonActive = false;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final Color primaryBlue = const Color(0xFF2196F3);
@@ -28,36 +30,107 @@ class _TeacherAttendanceSessionPageState
     _loadTeacherProfile();
   }
 
-  // --------------------------------------------------
+  // ================= LOAD TEACHER PROFILE =================
   Future<void> _loadTeacherProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        _showSnack("User not authenticated");
+        if (mounted) Navigator.pop(context);
+        return;
+      }
 
-    final query = await _db
-        .collection('teacher')
-        .where('authUid', isEqualTo: user.uid)
-        .limit(1)
-        .get();
+      final query = await _db
+          .collection('teacher')
+          .where('authUid', isEqualTo: user.uid)
+          .limit(1)
+          .get();
 
-    if (query.docs.isEmpty) {
-      if (mounted) Navigator.pop(context);
-      return;
+      if (query.docs.isEmpty) {
+        _showSnack("Teacher profile not found");
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+
+      final data = query.docs.first.data();
+
+      if (data['isApproved'] != true || data['setupCompleted'] != true) {
+        _showSnack("Complete approval & setup first");
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+
+      final classIds = data['classIds'] as List?;
+      if (classIds == null || classIds.isEmpty) {
+        _showSnack("No class assigned");
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+
+      setState(() {
+        classId = classIds.first as String;
+      });
+
+      // Load current session status
+      _loadSessionStatus();
+    } catch (e) {
+      _showSnack("Error loading profile: $e");
     }
-
-    final data = query.docs.first.data();
-
-    if (data['isApproved'] != true || data['setupCompleted'] != true) {
-      _showSnack("Complete approval & setup first");
-      if (mounted) Navigator.pop(context);
-      return;
-    }
-
-    setState(() {
-      classId = (data['classIds'] as List).first;
-    });
   }
 
-  // --------------------------------------------------
+  // ================= LOAD SESSION STATUS =================
+  Future<void> _loadSessionStatus() async {
+    if (classId == null) return;
+
+    try {
+      final today = _todayId();
+
+      // Check morning session
+      final morningDoc = await _db
+          .collection('attendance_session')
+          .doc('${classId}_${today}_morning')
+          .get();
+
+      final afternoonDoc = await _db
+          .collection('attendance_session')
+          .doc('${classId}_${today}_afternoon')
+          .get();
+
+      if (mounted) {
+        setState(() {
+          // Check if sessions exist AND are active AND not expired
+          isMorningActive =
+              morningDoc.exists &&
+              morningDoc['isActive'] == true &&
+              _isSessionValid(morningDoc);
+
+          isAfternoonActive =
+              afternoonDoc.exists &&
+              afternoonDoc['isActive'] == true &&
+              _isSessionValid(afternoonDoc);
+        });
+      }
+    } catch (e) {
+      print("❌ Error loading session status: $e");
+    }
+  }
+
+  // ================= CHECK SESSION VALIDITY =================
+  bool _isSessionValid(DocumentSnapshot doc) {
+    try {
+      final expiresAt = doc['expiresAt'] as Timestamp?;
+      if (expiresAt == null) return false;
+
+      final now = DateTime.now();
+      final expireTime = expiresAt.toDate();
+
+      return expireTime.isAfter(now);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ================= START SESSION =================
   Future<void> _startSession() async {
     if (classId == null) {
       _showSnack("Class not assigned");
@@ -65,157 +138,256 @@ class _TeacherAttendanceSessionPageState
     }
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      _showSnack("User not authenticated");
+      return;
+    }
+
+    // ✅ Check if session already active
+    final today = _todayId();
+    final sessionId = "${classId}_${today}_$sessionType";
+    final sessionDoc = await _db
+        .collection('attendance_session')
+        .doc(sessionId)
+        .get();
+
+    if (sessionDoc.exists && sessionDoc['isActive'] == true) {
+      final expiresAt = sessionDoc['expiresAt'] as Timestamp?;
+      if (expiresAt != null && expiresAt.toDate().isAfter(DateTime.now())) {
+        _showSnack("$sessionType session is already active");
+        return;
+      }
+    }
 
     setState(() => isLoading = true);
 
-    final today = _todayId();
-    final sessionId = "${classId}_${today}_$sessionType";
-
     try {
-      final sessionRef = _db.collection('attendance_session').doc(sessionId);
-      final attendanceRef = _db.collection('attendance').doc(sessionId);
+      final now = DateTime.now();
+      final expiresAt = now.add(SESSION_DURATION);
 
-      await _db.runTransaction((tx) async {
-        final snap = await tx.get(sessionRef);
-
-        if (snap.exists && snap.data()!['isActive'] == true) {
-          final expiresAt = snap.data()!['expiresAt'] as Timestamp?;
-          if (expiresAt != null && expiresAt.toDate().isAfter(DateTime.now())) {
-            throw Exception("Session already active");
-          }
-        }
-
-        tx.set(sessionRef, {
-          'classId': classId,
-          'date': today,
-          'sessionType': sessionType,
-          'isActive': true,
-          'startedBy': user.uid,
-          'startedAt': FieldValue.serverTimestamp(),
-          'expiresAt': Timestamp.fromDate(DateTime.now().add(SESSION_DURATION)),
-        });
-
-        tx.set(attendanceRef, {
-          'classId': classId,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+      // ✅ Create session
+      await _db.collection('attendance_session').doc(sessionId).set({
+        'classId': classId,
+        'date': today,
+        'sessionType': sessionType,
+        'isActive': true,
+        'startedBy': user.uid,
+        'startedAt': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(expiresAt),
+        'endedAt': null,
       });
 
-      _showSnack("Attendance session started", success: true);
+      // ✅ Initialize attendance document
+      await _db.collection('attendance').doc(sessionId).set({
+        'classId': classId,
+        'date': today,
+        'sessionType': sessionType,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      _showSnack("✅ $sessionType session started", success: true);
+
+      // ✅ Reload session status
+      _loadSessionStatus();
     } catch (e) {
-      _showSnack(e.toString().replaceAll("Exception:", "").trim());
+      _showSnack("❌ Error starting session: ${e.toString()}");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
   }
 
-  // --------------------------------------------------
+  // ================= STOP SESSION =================
   Future<void> _stopSession() async {
-    if (classId == null) return;
-
-    setState(() => isLoading = true);
+    if (classId == null) {
+      _showSnack("Class not assigned");
+      return;
+    }
 
     final today = _todayId();
     final sessionId = "${classId}_${today}_$sessionType";
 
-    try {
-      final ref = _db.collection('attendance_session').doc(sessionId);
-      final snap = await ref.get();
+    // Check if session exists
+    final sessionDoc = await _db
+        .collection('attendance_session')
+        .doc(sessionId)
+        .get();
 
-      if (!snap.exists || snap.data()!['isActive'] != true) {
-        _showSnack("No active session");
+    if (!sessionDoc.exists || sessionDoc['isActive'] != true) {
+      _showSnack("❌ No active $sessionType session");
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      // ✅ Step 1: Mark session as inactive
+      await _db.collection('attendance_session').doc(sessionId).update({
+        'isActive': false,
+        'endedAt': FieldValue.serverTimestamp(),
+        'endReason': 'manual_stop',
+      });
+
+      _showSnack("✅ $sessionType session stopped", success: true);
+
+      // ✅ Step 2: Calculate and finalize attendance (async, don't block UI)
+      _finalizeAttendanceAsync(classId!, today);
+
+      // ✅ Reload session status
+      _loadSessionStatus();
+    } catch (e) {
+      _showSnack("❌ Error stopping session: ${e.toString()}");
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // ================= FINALIZE ATTENDANCE (Background) =================
+  Future<void> _finalizeAttendanceAsync(String classId, String today) async {
+    try {
+      print("📊 Starting attendance finalization...");
+
+      final finalDocId = '${classId}_$today';
+      final finalRef = _db.collection('attendance_final').doc(finalDocId);
+
+      // ✅ Get all students in class
+      final studentsSnap = await _db
+          .collection('student')
+          .where('classId', isEqualTo: classId)
+          .get();
+
+      print("📍 Total students: ${studentsSnap.docs.length}");
+
+      if (studentsSnap.docs.isEmpty) {
+        print("⚠️ No students found in class");
         return;
       }
 
-      await _finalizeAttendance(classId!);
+      // ✅ Get morning attendance records
+      final morningSnap = await _db
+          .collection('attendance')
+          .doc('${classId}_${today}_morning')
+          .collection('student')
+          .get();
 
-      await ref.update({
-        'isActive': false,
-        'endedAt': FieldValue.serverTimestamp(),
-        'endedReason': 'manual_or_expired',
-      });
+      // ✅ Get afternoon attendance records
+      final afternoonSnap = await _db
+          .collection('attendance')
+          .doc('${classId}_${today}_afternoon')
+          .collection('student')
+          .get();
 
-      _showSnack("Attendance finalized", success: true);
-    } catch (_) {
-      _showSnack("Failed to stop session");
-    } finally {
-      if (mounted) setState(() => isLoading = false);
-    }
-  }
+      print("📍 Morning attendance: ${morningSnap.docs.length}");
+      print("📍 Afternoon attendance: ${afternoonSnap.docs.length}");
 
-  // --------------------------------------------------
-  Future<void> _finalizeAttendance(String classId) async {
-    final today = _todayId();
-    final finalDocId = '${classId}_$today';
-    final finalRef = _db.collection('attendance_final').doc(finalDocId);
+      // ✅ Create lookup maps
+      final morningMap = {for (var d in morningSnap.docs) d.id: true};
+      final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
 
-    await finalRef.set({
-      'classId': classId,
-      'date': today,
-      'finalizedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      // ✅ Get existing manual overrides
+      final existingFinal = await finalRef.collection('student').get();
+      final manualOverrides = {
+        for (var d in existingFinal.docs)
+          if (d['method'] == 'manual_override') d.id: true,
+      };
 
-    final studentsSnap = await _db
-        .collection('student')
-        .where('classId', isEqualTo: classId)
-        .get();
+      print("📍 Manual overrides: ${manualOverrides.length}");
 
-    final morningSnap = await _db
-        .collection('attendance')
-        .doc('${classId}_${today}_morning')
-        .collection('student')
-        .get();
+      // ✅ Calculate attendance for each student
+      final batch = _db.batch();
+      int processedCount = 0;
 
-    final afternoonSnap = await _db
-        .collection('attendance')
-        .doc('${classId}_${today}_afternoon')
-        .collection('student')
-        .get();
+      for (final stu in studentsSnap.docs) {
+        final studentId = stu.id;
 
-    final morningMap = {for (var d in morningSnap.docs) d.id: true};
-    final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
+        // ✅ Skip manual overrides (preserve teacher's manual entries)
+        if (manualOverrides.containsKey(studentId)) {
+          print("⏭️ Skipping $studentId (manual override)");
+          continue;
+        }
 
-    final existingFinal = await finalRef.collection('student').get();
-    final manualOverrides = {
-      for (var d in existingFinal.docs)
-        if (d['method'] == 'manual_override') d.id: true,
-    };
+        // ✅ Check morning and afternoon attendance
+        final morningPresent = morningMap.containsKey(studentId);
+        final afternoonPresent = afternoonMap.containsKey(studentId);
 
-    final batch = _db.batch();
-    int count = 0;
+        // ✅ Calculate status: present, half-day, absent
+        String status;
+        if (morningPresent && afternoonPresent) {
+          status = 'present'; // Both sessions
+        } else if (morningPresent || afternoonPresent) {
+          status = 'half-day'; // One session only
+        } else {
+          status = 'absent'; // Neither session
+        }
 
-    for (final stu in studentsSnap.docs) {
-      final sid = stu.id;
-      if (manualOverrides.containsKey(sid)) continue;
+        print(
+          "📝 $studentId: $status (M:$morningPresent, A:$afternoonPresent)",
+        );
 
-      final m = morningMap[sid] == true;
-      final a = afternoonMap[sid] == true;
+        // ✅ Add to batch
+        batch.set(finalRef.collection('student').doc(studentId), {
+          'studentId': studentId,
+          'status': status,
+          'morningPresent': morningPresent,
+          'afternoonPresent': afternoonPresent,
+          'method': 'auto_calc',
+          'computedAt': FieldValue.serverTimestamp(),
+        });
 
-      final status = (m && a)
-          ? 'present'
-          : (m || a)
-          ? 'half-day'
-          : 'absent';
+        processedCount++;
 
-      batch.set(finalRef.collection('student').doc(sid), {
-        'studentId': sid,
-        'status': status,
-        'method': 'auto_calc',
-        'computedAt': FieldValue.serverTimestamp(),
-      });
-
-      count++;
-      if (count >= 400) {
-        await batch.commit();
-        count = 0;
+        // ✅ Commit batch every 500 records
+        if (processedCount % 500 == 0) {
+          await batch.commit();
+          print("✅ Batch committed: $processedCount records");
+        }
       }
-    }
 
-    if (count > 0) await batch.commit();
+      // ✅ Commit remaining records
+      if (processedCount % 500 != 0) {
+        await batch.commit();
+        print("✅ Final batch committed");
+      }
+
+      // ✅ Update attendance_final document metadata
+      await finalRef.set({
+        'classId': classId,
+        'date': today,
+        'totalStudents': studentsSnap.docs.length,
+        'presentCount': studentsSnap.docs
+            .where(
+              (s) =>
+                  morningMap.containsKey(s.id) &&
+                  afternoonMap.containsKey(s.id),
+            )
+            .length,
+        'halfDayCount': studentsSnap.docs
+            .where(
+              (s) =>
+                  (morningMap.containsKey(s.id) ||
+                      afternoonMap.containsKey(s.id)) &&
+                  !(morningMap.containsKey(s.id) &&
+                      afternoonMap.containsKey(s.id)),
+            )
+            .length,
+        'absentCount': studentsSnap.docs
+            .where(
+              (s) =>
+                  !morningMap.containsKey(s.id) &&
+                  !afternoonMap.containsKey(s.id),
+            )
+            .length,
+        'status': 'finalized',
+        'finalizedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print("🎉 Attendance finalization complete");
+    } catch (e) {
+      print("❌ Finalization error: $e");
+      _showSnack("⚠️ Finalization error (data may be incomplete): $e");
+    }
   }
 
-  // --------------------------------------------------
+  // ================= BUILD UI =================
   @override
   Widget build(BuildContext context) {
     if (classId == null) {
@@ -238,6 +410,7 @@ class _TeacherAttendanceSessionPageState
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
+            // ✅ Information banner
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -258,19 +431,105 @@ class _TeacherAttendanceSessionPageState
               ),
             ),
             const SizedBox(height: 24),
-            _card(_radio("Morning", "morning")),
+
+            // ✅ Morning session selector with status indicator
+            _card(
+              _sessionRadio(
+                title: "Morning",
+                value: "morning",
+                isActive: isMorningActive,
+              ),
+            ),
             const SizedBox(height: 12),
-            _card(_radio("Afternoon", "afternoon")),
+
+            // ✅ Afternoon session selector with status indicator
+            _card(
+              _sessionRadio(
+                title: "Afternoon",
+                value: "afternoon",
+                isActive: isAfternoonActive,
+              ),
+            ),
             const SizedBox(height: 40),
-            _btn("START ATTENDANCE", _startSession),
+
+            // ✅ Start session button
+            _btn(
+              "START ATTENDANCE",
+              _startSession,
+              isDisabled:
+                  (sessionType == "morning" && isMorningActive) ||
+                  (sessionType == "afternoon" && isAfternoonActive),
+            ),
             const SizedBox(height: 16),
-            _btn("STOP ATTENDANCE", _stopSession, danger: true),
+
+            // ✅ Stop session button (only enabled if session is active)
+            _btn(
+              "STOP ATTENDANCE",
+              _stopSession,
+              danger: true,
+              isDisabled:
+                  (sessionType == "morning" && !isMorningActive) ||
+                  (sessionType == "afternoon" && !isAfternoonActive),
+            ),
           ],
         ),
       ),
     );
   }
 
+  // ================= SESSION RADIO WITH STATUS =================
+  Widget _sessionRadio({
+    required String title,
+    required String value,
+    required bool isActive,
+  }) {
+    return RadioListTile<String>(
+      value: value,
+      groupValue: sessionType,
+      activeColor: primaryBlue,
+      title: Row(
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          if (isActive)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                "🔴 ACTIVE",
+                style: TextStyle(
+                  color: Colors.green,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                "⚫ INACTIVE",
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+      onChanged: (v) => setState(() => sessionType = v!),
+    );
+  }
+
+  // ================= CARD WRAPPER =================
   Widget _card(Widget child) {
     return Container(
       decoration: BoxDecoration(
@@ -284,46 +543,52 @@ class _TeacherAttendanceSessionPageState
     );
   }
 
-  Widget _radio(String title, String val) {
-    return RadioListTile<String>(
-      value: val,
-      groupValue: sessionType,
-      activeColor: primaryBlue,
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-      onChanged: (v) => setState(() => sessionType = v!),
-    );
-  }
-
-  Widget _btn(String text, VoidCallback onTap, {bool danger = false}) {
+  // ================= BUTTON =================
+  Widget _btn(
+    String text,
+    VoidCallback onTap, {
+    bool danger = false,
+    bool isDisabled = false,
+  }) {
     return SizedBox(
       width: double.infinity,
       height: 56,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          backgroundColor: danger ? Colors.red : primaryBlue,
+          backgroundColor: isDisabled
+              ? Colors.grey.shade400
+              : (danger ? Colors.red : primaryBlue),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        onPressed: isLoading ? null : onTap,
+        onPressed: isLoading || isDisabled ? null : onTap,
         child: isLoading
             ? const CircularProgressIndicator(color: Colors.white)
-            : Text(text, style: const TextStyle(fontWeight: FontWeight.bold)),
+            : Text(
+                text,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
       ),
     );
   }
 
+  // ================= SNACKBAR =================
   void _showSnack(String msg, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
         backgroundColor: success ? Colors.green : Colors.red,
+        duration: const Duration(seconds: 4),
       ),
     );
   }
 }
 
-// --------------------------------------------------
+// ================= UTILITY =================
 String _todayId() {
   final now = DateTime.now();
   return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
