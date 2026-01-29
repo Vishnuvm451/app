@@ -2,7 +2,7 @@ import 'package:darzo/student/face_liveness_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:darzo/auth/auth_provider.dart';
-import 'package:darzo/auth/login.dart';
+import 'package:darzo/login.dart';
 import 'package:darzo/student/student_dashboard.dart';
 import 'package:darzo/teacher/teacher_dashboard.dart';
 import 'package:darzo/teacher/teacher_setup_page.dart';
