@@ -4,7 +4,7 @@ import 'package:flutter/services.dart'; // 🔥 Required for InputFormatters
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:darzo/auth/login.dart';
+import 'package:darzo/login.dart';
 
 class AdminRegisterPage extends StatefulWidget {
   const AdminRegisterPage({super.key});
