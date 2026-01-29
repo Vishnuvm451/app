@@ -5,7 +5,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/admin/admin_login.dart';
 import 'package:darzo/auth/auth_provider.dart';
-import 'package:darzo/parents/parent_child.dart';
+import 'package:darzo/parents/child_admisision_no.dart';
 import 'package:darzo/parents/parent_dashboard.dart';
 import 'package:darzo/register_role_check.dart';
 import 'package:darzo/student/face_liveness_page.dart';
