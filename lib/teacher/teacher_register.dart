@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../auth/login.dart';
+import '../login.dart';
 
 class TeacherRegisterPage extends StatefulWidget {
   const TeacherRegisterPage({super.key});
@@ -333,7 +333,7 @@ class _TeacherRegisterPageState extends State<TeacherRegisterPage> {
                         ),
                       ),
 
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [

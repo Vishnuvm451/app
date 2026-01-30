@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:darzo/teacher/teacher_dashboard.dart';
-import 'package:darzo/auth/login.dart';
+import 'package:darzo/login.dart';
 
 class TeacherSetupPage extends StatefulWidget {
   const TeacherSetupPage({super.key});
