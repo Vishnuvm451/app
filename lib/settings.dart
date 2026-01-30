@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:darzo/auth/login.dart';
+import 'package:darzo/login.dart';
 
 class SettingsPage extends StatefulWidget {
   final String userRole; // 'student' or 'teacher'
@@ -81,13 +81,48 @@ class _SettingsPageState extends State<SettingsPage> {
             String adm = data['admissionNo'] ?? "N/A";
             displaySubTitle = "Adm No: $adm";
           } else {
-            String dept = data['departmentId'] ?? "N/A";
-            displaySubTitle = "Dept: $dept";
+            // ✅ UPDATED: For teacher, fetch department name instead of ID
+            _fetchDepartmentName(data['departmentId'] ?? "N/A");
           }
         });
       }
     } catch (e) {
       print("Error fetching settings profile: $e");
+    }
+  }
+
+  // ✅ NEW: Fetch department name from departmentId
+  Future<void> _fetchDepartmentName(String departmentId) async {
+    try {
+      if (departmentId == "N/A") {
+        setState(() {
+          displaySubTitle = "Dept: N/A";
+        });
+        return;
+      }
+
+      final deptDoc = await FirebaseFirestore.instance
+          .collection('department')
+          .doc(departmentId)
+          .get();
+
+      if (deptDoc.exists && mounted) {
+        final data = deptDoc.data() as Map<String, dynamic>;
+        final deptName = data['name'] ?? data['departmentName'] ?? departmentId;
+        setState(() {
+          displaySubTitle = "Dept: $deptName";
+        });
+      } else {
+        // If department not found, show ID as fallback
+        setState(() {
+          displaySubTitle = "Dept: ${departmentId.replaceAll('_', ' ')}";
+        });
+      }
+    } catch (e) {
+      print("Error fetching department name: $e");
+      setState(() {
+        displaySubTitle = "Dept: $departmentId";
+      });
     }
   }
 
@@ -380,7 +415,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             backgroundColor: Colors.white,
                             child: Text(
                               "🧑‍🎓",
-                              style: TextStyle(fontSize: 40),
+                              style: TextStyle(fontSize: 38),
                             ),
                           ),
                         ),
@@ -389,7 +424,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           displayName,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 24,
+                            fontSize: 23,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -397,8 +432,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         Text(
                           displaySubTitle,
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 18,
+                            color: Colors.white,
+                            fontSize: 19,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -406,8 +441,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         Text(
                           currentUser?.email ?? "No Email",
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 16,
+                            color: Colors.white,
+                            fontSize: 17,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
