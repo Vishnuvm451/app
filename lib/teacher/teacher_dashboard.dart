@@ -8,9 +8,9 @@ import 'package:darzo/time_table_selection.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:darzo/auth/login.dart';
+import 'package:darzo/login.dart';
 import 'teacher_setup_page.dart';
-import 'package:darzo/auth/notifications.dart';
+import 'package:darzo/notification/notifications.dart';
 
 class TeacherDashboardPage extends StatefulWidget {
   const TeacherDashboardPage({super.key});
@@ -86,10 +86,19 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         setupCompleted = true;
         isLoading = false;
       });
+
+      print("✅ Teacher loaded: $teacherName");
+      print("📍 Classes: $classIds");
     } catch (e) {
       debugPrint("Error loading dashboard: $e");
       if (mounted) setState(() => isLoading = false);
     }
+  }
+
+  // ✅ NEW: Refresh function for pull-to-refresh
+  Future<void> _refreshDashboard() async {
+    print("🔄 Refreshing teacher dashboard...");
+    await _loadTeacher();
   }
 
   Future<void> _logout() async {
@@ -116,39 +125,49 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
 
     return Scaffold(
       backgroundColor: primaryBlue,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _header(),
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: bgWhite,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(30),
-                    topRight: Radius.circular(30),
+      // ✅ NEW: Wrap body with RefreshIndicator for pull-to-refresh
+      body: RefreshIndicator(
+        onRefresh: _refreshDashboard,
+        color: primaryBlue,
+        backgroundColor: Colors.white,
+        child: SafeArea(
+          bottom: false,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _header(),
+                Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: bgWhite,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(30),
+                      topRight: Radius.circular(30),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Quick Actions",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _quickActionsGrid(),
+                      ],
+                    ),
                   ),
                 ),
-                child: ListView(
-                  padding: const EdgeInsets.all(24),
-                  children: [
-                    const Text(
-                      "Quick Actions",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _quickActionsGrid(),
-                  ],
-                ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -326,10 +345,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             );
           },
         ),
-
         _actionCard(
           icon: Icons.notifications_active_rounded,
-          label: "Notication\nAlerts",
+          label: "Notification\nAlerts",
           color: const Color(0xFF009688),
           onTap: () => Navigator.push(
             context,

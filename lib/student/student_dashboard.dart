@@ -225,7 +225,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     }
   }
 
-  // ================= BUILD UI (UPDATED) =================
+  // ================= BUILD UI =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -245,7 +245,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 12.0),
+            padding: const EdgeInsets.only(right: 13.0),
             child: IconButton(
               icon: Container(
                 padding: const EdgeInsets.all(1),
@@ -300,7 +300,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             border: Border.all(color: Colors.white.withOpacity(0.5), width: 2),
           ),
           child: const CircleAvatar(
-            radius: 33,
+            radius: 32,
             backgroundColor: Colors.white,
             child: Icon(Icons.school, size: 40, color: Color(0xFF2196F3)),
           ),
@@ -337,7 +337,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ================= ATTENDANCE CARD (UPDATED) =================
+  // ================= ATTENDANCE CARD =================
   Widget _attendanceCard() {
     if (classId.isEmpty || studentDocId.isEmpty) {
       return _buildCardUI(
@@ -539,7 +539,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             ),
           ),
           if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
               subtitle,
               textAlign: TextAlign.center,
@@ -550,7 +550,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               ),
             ),
           ],
-          const SizedBox(height: 15),
+          const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             height: 50,
@@ -586,11 +586,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                         ? Icons.check_circle
                         : Icons.face_retouching_natural,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   Text(
                     buttonText,
                     style: const TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -649,11 +649,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
-            childAspectRatio: 1.1, // Makes cards slightly wider/shorter
+            childAspectRatio: 1.1, // Adjusted for better proportions
             children: [
               _actionCard(
-                Icons.bar_chart_rounded,
-                "Attendance\nSummary",
+                icon: Icons.bar_chart_rounded,
+                label: "Attendance\nSummary",
+                color: const Color(0xFF2196F3),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -662,8 +663,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 ),
               ),
               _actionCard(
-                Icons.assignment_rounded,
-                "Internal\nMarks",
+                icon: Icons.assignment_rounded,
+                label: "Internal\nMarks",
+                color: const Color(0xFF9C27B0),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -672,54 +674,33 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 ),
               ),
               _actionCard(
-                Icons.group_rounded,
-                "Classmates",
+                icon: Icons.group_rounded,
+                label: "Classmates",
+                color: const Color(0xFF4CAF50),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const ViewClassmatesPage()),
                 ),
               ),
               _actionCard(
-                Icons.calendar_month_rounded,
-                "Timetable",
+                icon: Icons.calendar_month_rounded,
+                label: "Timetable",
+                color: const Color(0xFFFF9800),
                 onTap: _navigateToTimetable,
               ),
               _actionCard(
-                Icons.person_search_rounded,
-                "Teachers",
+                icon: Icons.person_search_rounded,
+                label: "Teachers",
+                color: const Color(0xFF009688),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const ViewTeachersPage()),
                 ),
               ),
               _actionCard(
-                Icons.notifications_active_rounded,
-                "Notifications",
-                badge: _unreadNotificationCount > 0
-                    ? _unreadNotificationCount.toString()
-                    : null,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const NotificationViewPage(),
-                  ),
-                ),
-              ),
-              _actionCard(
-                Icons.chat_bubble_rounded,
-                "Chat",
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Chat feature coming soon! 🚀'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
-              ),
-              _actionCard(
-                Icons.settings_rounded,
-                "Settings",
+                icon: Icons.settings_rounded,
+                label: "Settings",
+                color: Colors.blueGrey,
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -731,6 +712,31 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   ),
                 ),
               ),
+              _actionCard(
+                icon: Icons.notifications_active_rounded,
+                label: "Notifications",
+                color: Colors.red,
+                badgeCount: _unreadNotificationCount,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationViewPage(),
+                  ),
+                ),
+              ),
+              _actionCard(
+                icon: Icons.chat_bubble_rounded,
+                label: "Chat",
+                color: Colors.pink,
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Chat feature coming soon! 🚀'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ],
@@ -738,65 +744,62 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ================= ACTION CARD (NEAT UI) =================
-  Widget _actionCard(
-    IconData icon,
-    String title, {
-    String? badge,
+  // ================= ACTION CARD (FIXED ALIGNMENT) =================
+  Widget _actionCard({
+    required IconData icon,
+    required String label,
+    required Color color,
+    int badgeCount = 0,
     required VoidCallback onTap,
   }) {
     return Material(
-      color: Colors.transparent,
+      color: Colors
+          .transparent, // Keep transparent so the container handles the look
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color.fromARGB(
-              255,
-              255,
-              255,
-              255,
-            ), // Very subtle background
+            color: Colors.grey.shade50, // Subtle background color
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.blue),
+            border: Border.all(color: Colors.grey.shade200), // Clean border
           ),
           child: Stack(
+            alignment:
+                Alignment.center, // ✅ CRITICAL: Centers everything in the stack
             children: [
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment
+                      .center, // ✅ CRITICAL: Centers horizontal text
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
+                        color: color.withOpacity(0.1),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
-                        icon,
-                        size: 28,
-                        color: const Color(0xFF2196F3),
-                      ),
+                      child: Icon(icon, size: 28, color: color),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: Text(
-                      title,
+                    const SizedBox(height: 10),
+                    Text(
+                      label,
                       textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Color.fromARGB(214, 0, 0, 0),
+                        color: Colors.black87,
                         height: 1.2,
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              if (badge != null)
+              if (badgeCount > 0)
                 Positioned(
                   top: 8,
                   right: 8,
@@ -817,7 +820,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                       ],
                     ),
                     child: Text(
-                      badge,
+                      badgeCount.toString(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 10,
