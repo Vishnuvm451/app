@@ -6,8 +6,8 @@ import 'package:darzo/time_table_selection.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:darzo/admin/admin_manage_users.dart';
-import 'package:darzo/auth/login.dart';
-import 'package:darzo/auth/notifications.dart';
+import 'package:darzo/login.dart';
+import 'package:darzo/notification/notifications.dart';
 
 class AdminDashboardPage extends StatelessWidget {
   const AdminDashboardPage({super.key});
