@@ -11,8 +11,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   warmUpApiServer();
-  // Initialize Notifications
-  await NotificationService().initialize();
   runApp(
     MultiProvider(
       providers: [ChangeNotifierProvider(create: (_) => AppAuthProvider())],
