@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:darzo/attendance/attendance_summary.dart';
+import 'package:darzo/notification/notification_service.dart';
 import 'package:darzo/notification/notification_view_page.dart';
 import 'package:darzo/settings.dart';
 import 'package:darzo/student/mark_attendance_face.dart';
@@ -153,6 +154,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             isLoading = false;
             debugMsg = "Success";
           });
+          // Initialize Notifications
+          await NotificationService().initialize(
+            role: 'student',
+            id: admissionNo,
+          );
         }
       } else {
         if (mounted) {

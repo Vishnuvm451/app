@@ -23,7 +23,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   bool _isInitialized = false;
 
-  Future<void> initialize() async {
+  Future<void> initialize({required String role, required String id}) async {
     if (_isInitialized) return;
 
     try {
@@ -61,11 +61,17 @@ class NotificationService {
       String? token = await _fcm.getToken();
       if (token != null) {
         debugPrint("🔑 FCM Token: $token");
-        await _saveTokenToFirestore(token);
+        await _saveTokenToFirestore(token: token, id: id, role: role);
       }
 
       // 6. Listen for Token Refresh
-      _fcm.onTokenRefresh.listen(_saveTokenToFirestore);
+      _fcm.onTokenRefresh.listen((token) {
+        _saveTokenToFirestore(
+          token: token,
+          role: role, // your role variable
+          id: id, // your user id
+        );
+      });
 
       // 7. FOREGROUND LISTENER (Crucial for Local Notifications)
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
@@ -91,32 +97,25 @@ class NotificationService {
   // =====================================================
   // 1. SAVE TOKEN (MATCHING YOUR SCREENSHOT)
   // =====================================================
-  Future<void> _saveTokenToFirestore(String token) async {
+  Future<void> _saveTokenToFirestore({
+    required String token,
+    required String role,
+    required String id,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     try {
-      // ✅ TARGET: collection 'fcm' -> document 'student'
-      final docRef = FirebaseFirestore.instance
-          .collection('fcm')
-          .doc('student');
+      final docRef = FirebaseFirestore.instance.collection('fcm').doc(role);
 
-      // ✅ ACTION: Add token to 'fcm_array' using arrayUnion
-      // arrayUnion prevents duplicate tokens
-      await docRef.update({
-        'fcm_array': FieldValue.arrayUnion([token]),
-      });
+      // 🔑 Update map: fcm_array.{id} = token
+      await docRef.set({
+        'fcm_array': {id: token},
+      }, SetOptions(merge: true));
 
-      debugPrint("✅ Token added to fcm/student/fcm_array");
+      debugPrint("✅ Token saved in fcm/$role under key $id");
     } catch (e) {
       debugPrint("❌ Error saving token: $e");
-
-      // Optional: Create document if it doesn't exist
-      try {
-        await FirebaseFirestore.instance.collection('fcm').doc('student').set({
-          'fcm_array': [token],
-        }, SetOptions(merge: true));
-      } catch (_) {}
     }
   }
 
