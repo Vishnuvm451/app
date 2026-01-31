@@ -1,0 +1,162 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+// =====================================================
+// BACKGROUND HANDLER (Top Level)
+// =====================================================
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  debugPrint("📩 [BACKGROUND] Message: ${message.notification?.title}");
+}
+
+class NotificationService {
+  static final NotificationService _instance = NotificationService._internal();
+  factory NotificationService() => _instance;
+  NotificationService._internal();
+
+  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin _localNotif =
+      FlutterLocalNotificationsPlugin();
+  bool _isInitialized = false;
+
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+
+    try {
+      // 1. Request Permission
+      await _fcm.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        announcement: true,
+      );
+
+      // 2. Setup Local Notifications (Android & iOS)
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
+      const iosSettings = DarwinInitializationSettings();
+
+      await _localNotif.initialize(
+        const InitializationSettings(
+          android: androidSettings,
+          iOS: iosSettings,
+        ),
+        onDidReceiveNotificationResponse: (response) {
+          debugPrint("👆 Local notification tapped: ${response.payload}");
+        },
+      );
+
+      // 3. Create Channel (Required for Android)
+      await _createNotificationChannel();
+
+      // 4. Handle Background Messages
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+      // 5. Get Token & Save (UPDATED FOR YOUR SCREENSHOT)
+      String? token = await _fcm.getToken();
+      if (token != null) {
+        debugPrint("🔑 FCM Token: $token");
+        await _saveTokenToFirestore(token);
+      }
+
+      // 6. Listen for Token Refresh
+      _fcm.onTokenRefresh.listen(_saveTokenToFirestore);
+
+      // 7. FOREGROUND LISTENER (Crucial for Local Notifications)
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        debugPrint("📬 [FOREGROUND] Notification received");
+
+        // If the app is open, FCM doesn't show a notification by default.
+        // We must trigger a LOCAL notification manually.
+        if (message.notification != null) {
+          _showLocalNotification(
+            title: message.notification!.title ?? 'New Message',
+            body: message.notification!.body ?? '',
+          );
+        }
+      });
+
+      _isInitialized = true;
+      debugPrint("✅ NotificationService Initialized");
+    } catch (e) {
+      debugPrint("❌ Notification Init Error: $e");
+    }
+  }
+
+  // =====================================================
+  // 1. SAVE TOKEN (MATCHING YOUR SCREENSHOT)
+  // =====================================================
+  Future<void> _saveTokenToFirestore(String token) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // ✅ TARGET: collection 'fcm' -> document 'student'
+      final docRef = FirebaseFirestore.instance
+          .collection('fcm')
+          .doc('student');
+
+      // ✅ ACTION: Add token to 'fcm_array' using arrayUnion
+      // arrayUnion prevents duplicate tokens
+      await docRef.update({
+        'fcm_array': FieldValue.arrayUnion([token]),
+      });
+
+      debugPrint("✅ Token added to fcm/student/fcm_array");
+    } catch (e) {
+      debugPrint("❌ Error saving token: $e");
+
+      // Optional: Create document if it doesn't exist
+      try {
+        await FirebaseFirestore.instance.collection('fcm').doc('student').set({
+          'fcm_array': [token],
+        }, SetOptions(merge: true));
+      } catch (_) {}
+    }
+  }
+
+  // =====================================================
+  // 2. SHOW LOCAL NOTIFICATION
+  // =====================================================
+  Future<void> _showLocalNotification({
+    required String title,
+    required String body,
+  }) async {
+    const androidDetail = AndroidNotificationDetails(
+      'announcements', // ID must match the channel created
+      'Announcements',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+    );
+
+    const iosDetail = DarwinNotificationDetails();
+
+    await _localNotif.show(
+      DateTime.now().millisecond,
+      title,
+      body,
+      const NotificationDetails(android: androidDetail, iOS: iosDetail),
+    );
+  }
+
+  Future<void> _createNotificationChannel() async {
+    const channel = AndroidNotificationChannel(
+      'announcements',
+      'Announcements',
+      importance: Importance.max,
+      playSound: true,
+    );
+
+    await _localNotif
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
+  }
+}

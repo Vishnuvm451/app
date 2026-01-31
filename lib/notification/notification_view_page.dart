@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -25,92 +27,207 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
   bool _isSelectMode = false;
   final Set<String> _selectedIds = {};
 
+  // ✅ FIX: Dynamic key based on User ID
+  String get _prefsKey => 'hidden_announcements_${userId ?? "guest"}';
+
+  // ✅ FIX: Explicit timers for snackbar and undo
+  Timer? _snackbarTimer;
+  Timer? _undoTimer;
+
   @override
   void initState() {
     super.initState();
-    _loadHiddenIds();
-    _initializeUserProfile();
+    // ✅ FIX: Initialize in strict order
+    _initPageData();
+  }
+
+  @override
+  void dispose() {
+    // ✅ FIX: Cancel all timers on dispose
+    _snackbarTimer?.cancel();
+    _undoTimer?.cancel();
+    super.dispose();
   }
 
   // =====================================================
-  // 1. LOCAL STORAGE
+  // 1. INITIALIZATION
   // =====================================================
-  Future<void> _loadHiddenIds() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _hiddenAnnouncementIds =
-          prefs.getStringList('hidden_announcements') ?? [];
-    });
-  }
-
-  Future<void> _hideAnnouncements(List<String> idsToHide) async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _hiddenAnnouncementIds.addAll(idsToHide);
-      _hiddenAnnouncementIds = _hiddenAnnouncementIds
-          .toSet()
-          .toList(); // Unique
-    });
-    await prefs.setStringList('hidden_announcements', _hiddenAnnouncementIds);
-
-    if (_isSelectMode) {
-      setState(() {
-        _isSelectMode = false;
-        _selectedIds.clear();
-      });
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${idsToHide.length} notification(s) dismissed'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () async {
-              setState(() {
-                _hiddenAnnouncementIds.removeWhere(
-                  (id) => idsToHide.contains(id),
-                );
-              });
-              await prefs.setStringList(
-                'hidden_announcements',
-                _hiddenAnnouncementIds,
-              );
-            },
-          ),
-        ),
-      );
-    }
-  }
-
-  // =====================================================
-  // 2. FETCH USER PROFILE
-  // =====================================================
-  Future<void> _initializeUserProfile() async {
+  Future<void> _initPageData() async {
     final user = FirebaseAuth.instance.currentUser;
+
     if (user != null) {
       setState(() => userId = user.uid);
-      try {
-        final query = await FirebaseFirestore.instance
-            .collection('student')
-            .where('authUid', isEqualTo: user.uid)
-            .limit(1)
-            .get();
 
-        if (query.docs.isNotEmpty) {
-          final data = query.docs.first.data();
-          if (mounted) {
-            setState(() {
-              userClassId = data['classId'];
-              userDeptId = data['departmentId'];
-              isLoading = false;
-            });
-          }
-        } else {
-          if (mounted) setState(() => isLoading = false);
+      // 1. Load hidden IDs for THIS specific user
+      await _loadHiddenIds();
+
+      // 2. Load profile for filtering
+      await _fetchUserProfile();
+    } else {
+      // Handle guest/logged out state
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // ✅ FIX: Added try-catch
+  Future<void> _loadHiddenIds() async {
+    if (userId == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _hiddenAnnouncementIds = prefs.getStringList(_prefsKey) ?? [];
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading hidden IDs: $e');
+    }
+  }
+
+  // ✅ FIX: Added try-catch
+  Future<void> _fetchUserProfile() async {
+    if (userId == null) return;
+    try {
+      final query = await FirebaseFirestore.instance
+          .collection('student')
+          .where('authUid', isEqualTo: userId)
+          .limit(1)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        final data = query.docs.first.data();
+        if (mounted) {
+          setState(() {
+            userClassId = data['classId'];
+            userDeptId = data['departmentId'];
+            isLoading = false;
+          });
         }
-      } catch (e) {
+      } else {
         if (mounted) setState(() => isLoading = false);
+      }
+    } catch (e) {
+      debugPrint('❌ Error fetching profile: $e');
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // =====================================================
+  // 2. HIDE LOGIC (PERSISTENT & USER SPECIFIC)
+  // =====================================================
+  Future<void> _hideAnnouncements(List<String> idsToHide) async {
+    if (userId == null) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // ✅ FIX: Store original list for proper undo
+      final originalHidden = List<String>.from(_hiddenAnnouncementIds);
+
+      setState(() {
+        _hiddenAnnouncementIds.addAll(idsToHide);
+        _hiddenAnnouncementIds = _hiddenAnnouncementIds.toSet().toList();
+      });
+
+      // Save to device storage
+      await prefs.setStringList(_prefsKey, _hiddenAnnouncementIds);
+
+      if (_isSelectMode) {
+        setState(() {
+          _isSelectMode = false;
+          _selectedIds.clear();
+        });
+      }
+
+      if (mounted) {
+        // ✅ FIX: Cancel any existing timers
+        _snackbarTimer?.cancel();
+        _undoTimer?.cancel();
+
+        // ✅ FIX: Clear previous snackbars
+        ScaffoldMessenger.of(context).clearSnackBars();
+
+        debugPrint('📢 Dismissing ${idsToHide.length} announcement(s)');
+
+        // ✅ FIX: Show snackbar with explicit timer
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              idsToHide.length == 1
+                  ? 'Notification dismissed'
+                  : '${idsToHide.length} notifications dismissed',
+            ),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                // ✅ FIX: Cancel undo timer
+                _undoTimer?.cancel();
+
+                debugPrint(
+                  '↩️ Undo pressed - restoring ${idsToHide.length} announcement(s)',
+                );
+
+                try {
+                  setState(() {
+                    _hiddenAnnouncementIds = originalHidden;
+                  });
+                  await prefs.setStringList(_prefsKey, _hiddenAnnouncementIds);
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).clearSnackBars();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Notification restored'),
+                        duration: Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                        margin: EdgeInsets.all(16),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  debugPrint('❌ Undo error: $e');
+                }
+              },
+            ),
+          ),
+        );
+
+        // ✅ FIX: Timer to AUTO-HIDE snackbar after 4 seconds
+        _snackbarTimer = Timer(const Duration(seconds: 4), () {
+          if (mounted) {
+            debugPrint('⏱️ Snackbar timer expired - hiding snackbar');
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+        });
+
+        // ✅ FIX: Timer for undo window (3 seconds)
+        _undoTimer = Timer(const Duration(seconds: 3), () {
+          debugPrint('⏱️ Undo window closed');
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error hiding announcements: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+
+        // ✅ FIX: Timer to hide error snackbar
+        _snackbarTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+        });
       }
     }
   }
@@ -154,7 +271,7 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
             style: const TextStyle(
               color: Colors.black87,
               fontWeight: FontWeight.bold,
-              fontSize: 21,
+              fontSize: 20,
             ),
           ),
           actions: [
@@ -175,7 +292,7 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
   }
 
   // =====================================================
-  // 3. ANNOUNCEMENTS LIST (FIXED FIELD NAMES)
+  // 3. ANNOUNCEMENTS LIST
   // =====================================================
   Widget _buildAnnouncementsList() {
     final DateTime thirtyDaysAgo = DateTime.now().subtract(
@@ -185,15 +302,14 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('announcements')
-          .orderBy(
-            'timestamp',
-            descending: true,
-          ) // ✅ Changed 'createdAt' to 'timestamp'
+          .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) return _buildErrorState();
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF2196F3)),
+          );
         }
 
         final docs = snapshot.data?.docs ?? [];
@@ -202,16 +318,16 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
         final relevantDocs = docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
 
-          // 1. Check if hidden locally
+          // 1. Check if hidden locally (User Specific)
           if (_hiddenAnnouncementIds.contains(doc.id)) return false;
 
           // 2. Check 30-day cutoff
-          // ✅ FIX: Use 'timestamp' field
           final Timestamp? timestamp = data['timestamp'];
           if (timestamp != null && timestamp.toDate().isBefore(thirtyDaysAgo)) {
             return false;
           }
 
+          // 3. Target Filter
           final target = data['target'] ?? 'all';
           final targetValue = data['targetValue'];
 
@@ -282,20 +398,18 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
   }
 
   // =====================================================
-  // 5. CARD UI (FIXED FIELD MAPPING)
+  // 5. CARD UI
   // =====================================================
   Widget _buildAnnouncementCard(String docId, Map<String, dynamic> data) {
     final String sender = (data['sender'] ?? 'Teacher').toString();
     final bool isAdmin = sender.toLowerCase() == 'admin';
 
-    // ✅ FIX: Use 'body' instead of 'message'
     final String title = data['title'] ?? 'Notice';
     final String body = data['body'] ?? '';
     final Timestamp? timestamp = data['timestamp'];
 
     final bool isSelected = _selectedIds.contains(docId);
 
-    // Theme Colors
     final Color themeColor = isAdmin
         ? Colors.redAccent
         : const Color(0xFF2196F3);
@@ -308,7 +422,9 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
       decoration: BoxDecoration(
         color: isSelected ? Colors.blue.shade50 : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: isSelected ? Border.all(color: Colors.blue, width: 2) : null,
+        border: isSelected
+            ? Border.all(color: Colors.blue, width: 2)
+            : Border.all(color: Colors.grey.shade200, width: 1),
         boxShadow: [
           if (!isSelected)
             BoxShadow(
@@ -358,10 +474,10 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        sender, // ✅ Using 'sender' from DB
+                        sender,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 14,
                           color: Colors.black87,
                         ),
                       ),
@@ -391,12 +507,14 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  body, // ✅ Using 'body' from DB
+                  body,
                   style: TextStyle(
                     fontSize: 14,
                     height: 1.5,
                     color: Colors.grey.shade700,
                   ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -449,8 +567,12 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
           const Icon(Icons.error_outline, size: 50, color: Colors.red),
           const SizedBox(height: 16),
           const Text("Could not fetch notices."),
-          TextButton(
+          const SizedBox(height: 16),
+          ElevatedButton(
             onPressed: () => setState(() {}),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2196F3),
+            ),
             child: const Text("Try Again"),
           ),
         ],
@@ -458,21 +580,27 @@ class _NotificationViewPageState extends State<NotificationViewPage> {
     );
   }
 
+  // ✅ FIX: Added try-catch for timestamp formatting
   String _formatTimeAgo(Timestamp? timestamp) {
     if (timestamp == null) return '';
-    final dt = timestamp.toDate();
-    final diff = DateTime.now().difference(dt);
+    try {
+      final dt = timestamp.toDate();
+      final diff = DateTime.now().difference(dt);
 
-    if (diff.inDays > 7) {
-      return DateFormat('dd MMM').format(dt);
-    } else if (diff.inDays >= 1) {
-      return '${diff.inDays}d ago';
-    } else if (diff.inHours >= 1) {
-      return '${diff.inHours}h ago';
-    } else if (diff.inMinutes >= 1) {
-      return '${diff.inMinutes}m ago';
-    } else {
-      return 'Just now';
+      if (diff.inDays > 7) {
+        return DateFormat('dd MMM').format(dt);
+      } else if (diff.inDays >= 1) {
+        return '${diff.inDays}d ago';
+      } else if (diff.inHours >= 1) {
+        return '${diff.inHours}h ago';
+      } else if (diff.inMinutes >= 1) {
+        return '${diff.inMinutes}m ago';
+      } else {
+        return 'Just now';
+      }
+    } catch (e) {
+      debugPrint('❌ Error formatting timestamp: $e');
+      return '';
     }
   }
 }
