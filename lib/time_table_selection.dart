@@ -108,17 +108,22 @@ class _TimetableSelectionPageState extends State<TimetableSelectionPage> {
   // LOGIC: Define Semesters based on UG/PG and Year
   List<String> _getSemestersForClass(String id) {
     if (id.contains("PG")) {
-      if (id.contains("YEAR1") || id.contains("YEAR_1"))
+      if (id.contains("YEAR1") || id.contains("YEAR_1")) {
         return ["Semester 1", "Semester 2"];
-      if (id.contains("YEAR2") || id.contains("YEAR_2"))
+      }
+      if (id.contains("YEAR2") || id.contains("YEAR_2")) {
         return ["Semester 3", "Semester 4"];
+      }
     } else if (id.contains("UG")) {
-      if (id.contains("YEAR1") || id.contains("YEAR_1"))
+      if (id.contains("YEAR1") || id.contains("YEAR_1")) {
         return ["Semester 1", "Semester 2"];
-      if (id.contains("YEAR2") || id.contains("YEAR_2"))
+      }
+      if (id.contains("YEAR2") || id.contains("YEAR_2")) {
         return ["Semester 3", "Semester 4"];
-      if (id.contains("YEAR3") || id.contains("YEAR_3"))
+      }
+      if (id.contains("YEAR3") || id.contains("YEAR_3")) {
         return ["Semester 5", "Semester 6"];
+      }
     }
 
     // Fallback: If pattern not found, show all 8
