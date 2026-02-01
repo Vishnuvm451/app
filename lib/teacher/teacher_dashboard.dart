@@ -352,7 +352,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => const SendNotificationPage(senderRole: 'Teacher'),
+              builder: (_) => SendNotificationPage(senderRole: 'Teacher'),
             ),
           ),
         ),
