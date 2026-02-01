@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -23,20 +24,23 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   static const String _apiBaseUrl = "https://darzo-backend-api.onrender.com";
   static const int _apiTimeoutSeconds = 30;
 
-  // ✅ IMAGE COMPRESSION SETTINGS
-  static const int _maxImageSizePerImage = 900 * 1024; // 900KB per image max
-  static const int _totalMaxSize = 3 * 1024 * 1024; // 3MB total limit
-  static const int _jpegQuality = 75; // JPEG quality (0-100)
+  static const int _maxImageSizePerImage = 900 * 1024;
+  static const int _totalMaxSize = 3 * 1024 * 1024;
+  static const int _jpegQuality = 75;
 
-  // ✅ RELAXED THRESHOLDS (same as FaceLivenessPage)
-  static const double _straightThreshold = 18.0;
-  static const double _turnThreshold = 15.0;
+  // ML Kit Orientation Thresholds (Relaxed slightly for better UX)
+  static const double _straightYawLimit = 15.0; // Relaxed from 12.0
+  static const double _turnYawThreshold =
+      20.0; // Relaxed from 25.0 to make turning easier detected
+  static const double _maxTilt = 20.0; // Relaxed from 15.0
+
   static const int _holdDurationSeconds = 3;
   static const int _maxLivenessSeconds = 60;
 
   // ================= CAMERA & ML =================
   CameraController? _controller;
   late FaceDetector _faceDetector;
+  bool _isCameraInitialized = false;
 
   bool _isProcessing = false;
   bool _isCapturing = false;
@@ -45,42 +49,49 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   bool _isDisposed = false;
 
   // ================= LIVENESS UI =================
-  int _step = 0; // 0=Straight, 1=Left, 2=Right, 3=Done
+  int _step = 0; // 0=Straight, 1=Left, 2=Right
   double _progress = 0.0;
   String _instruction = "Initializing...";
   bool _faceAligned = false;
+
+  // Face Painting Data
+  List<Face> _faces = [];
+  Size? _imageSize;
+  InputImageRotation _rotation = InputImageRotation.rotation0deg;
+  CameraLensDirection _cameraLensDirection = CameraLensDirection.front;
 
   // Hold Timer
   DateTime? _holdStartTime;
   int _secondsRemaining = _holdDurationSeconds;
   Timer? _livenessTimeoutTimer;
 
-  // ✅ Store ALL 3 IMAGES
+  // Store Images
   Uint8List? _straight;
   Uint8List? _left;
   Uint8List? _right;
 
   // ================= DATA =================
   String? studentId;
-  String? studentDocId;
   String? admissionNo;
   String? classId;
-  String? sessionId; // ✅ Store session ID
-  String? sessionType;
+  String? sessionId;
   String? _errorMessage;
 
   // ================= LIFECYCLE =================
   @override
   void initState() {
     super.initState();
+
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
         performanceMode: FaceDetectorMode.accurate,
-        enableLandmarks: false,
+        enableLandmarks: true,
+        enableClassification: true,
         enableTracking: true,
-        minFaceSize: 0.20,
+        minFaceSize: 0.10, // chnaged from 0.15 to 0.10 for better detection
       ),
     );
+
     _startLivenessTimeout();
     _loadDataAndCamera();
   }
@@ -90,7 +101,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     _livenessTimeoutTimer = Timer(
       const Duration(seconds: _maxLivenessSeconds),
       () {
-        if (mounted && !_isDisposed) {
+        if (mounted && !_isDisposed && !_isSubmitting && _step < 3) {
           _showError("Verification took too long. Please try again.");
           _resetFlow();
         }
@@ -101,20 +112,10 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   @override
   void dispose() {
     _isDisposed = true;
-    _isProcessing = true;
-    _isCapturing = true;
     _livenessTimeoutTimer?.cancel();
-
     _stopStream();
     _faceDetector.close();
     _controller?.dispose();
-    _controller = null;
-
-    // ✅ Clear image memory
-    _straight = null;
-    _left = null;
-    _right = null;
-
     super.dispose();
   }
 
@@ -140,7 +141,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       studentId = user.uid;
 
-      // ✅ Get student data
       final studentQuery = await FirebaseFirestore.instance
           .collection('student')
           .where('authUid', isEqualTo: studentId)
@@ -152,61 +152,52 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       final doc = studentQuery.docs.first;
       final data = doc.data();
 
-      studentDocId = doc.id;
       admissionNo = data['admissionNo'] ?? doc.id;
       classId = data['classId'];
 
       if (classId == null) throw "Class not assigned";
 
-      // ✅ Check if face is registered
-      final faceEnabled = data['face_enabled'] ?? false;
-      if (faceEnabled != true) {
-        throw "Face not registered. Please register first.";
-      }
-
-      // ✅ FIX: Query active session by classId and isActive = true
-      QuerySnapshot sessionQuery;
-      try {
-        sessionQuery = await FirebaseFirestore.instance
-            .collection('attendance_session')
-            .where('classId', isEqualTo: classId)
-            .where('isActive', isEqualTo: true)
-            .limit(1)
-            .get();
-      } catch (e) {
-        debugPrint("Session query error: $e");
-        throw "Failed to check active sessions";
-      }
+      final sessionQuery = await FirebaseFirestore.instance
+          .collection('attendance_session')
+          .where('classId', isEqualTo: classId)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
 
       if (sessionQuery.docs.isEmpty) {
         throw "No active attendance session for your class";
       }
 
-      final sessionDoc = sessionQuery.docs.first;
-      sessionId = sessionDoc.id; // ✅ Store session ID
-      sessionType = sessionDoc['sessionType'] ?? 'morning';
+      sessionId = sessionQuery.docs.first.id;
 
-      // ✅ Initialize camera
       final cameras = await availableCameras();
-      if (cameras.isEmpty) {
-        throw "No cameras available on device";
-      }
+      if (cameras.isEmpty) throw "No cameras available";
 
       final frontCamera = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
+      _cameraLensDirection = frontCamera.lensDirection;
+
       _controller = CameraController(
         frontCamera,
-        ResolutionPreset.medium, // ✅ Changed to medium for better compression
+        ResolutionPreset
+            .medium, // Changed to medium for better performance/speed
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.nv21,
+        imageFormatGroup: Platform.isAndroid
+            ? ImageFormatGroup.nv21
+            : ImageFormatGroup.bgra8888,
       );
 
       await _controller!.initialize();
+      _isCameraInitialized = true;
 
       if (_isDisposed || !mounted) return;
+
+      _rotation =
+          InputImageRotationValue.fromRawValue(frontCamera.sensorOrientation) ??
+          InputImageRotation.rotation0deg;
 
       await _controller!.startImageStream(_processFrame);
 
@@ -217,48 +208,13 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         });
       }
     } catch (e) {
-      debugPrint("❌ Load error: $e");
-      if (!mounted) return;
-      setState(() {
-        _isLoadingData = false;
-        _errorMessage = e.toString();
-      });
-    }
-  }
-
-  // ================= IMAGE COMPRESSION =================
-  Future<Uint8List> _compressImage(Uint8List imageBytes) async {
-    try {
-      // Decode image
-      final image = img.decodeImage(imageBytes);
-      if (image == null) return imageBytes;
-
-      // Resize if too large
-      img.Image resized = image;
-      if (image.width > 480 || image.height > 640) {
-        resized = img.copyResize(
-          image,
-          width: 480,
-          height: 640,
-          interpolation: img.Interpolation.linear,
-        );
+      if (mounted) {
+        setState(() {
+          _isLoadingData = false;
+          _errorMessage = e.toString();
+        });
       }
-
-      // Encode with compression
-      final compressed = img.encodeJpg(resized, quality: _jpegQuality);
-      return Uint8List.fromList(compressed);
-    } catch (e) {
-      debugPrint("Image compression error: $e");
-      return imageBytes; // Return original if compression fails
     }
-  }
-
-  double _getTotalSizeKB() {
-    double total = 0;
-    if (_straight != null) total += _straight!.length / 1024;
-    if (_left != null) total += _left!.length / 1024;
-    if (_right != null) total += _right!.length / 1024;
-    return total;
   }
 
   // ================= FRAME PROCESS =================
@@ -287,13 +243,27 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         return;
       }
 
+      setState(() {
+        _faces = faces;
+        _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+      });
+
       if (faces.isEmpty) {
         _resetHold("No face detected 🔍");
         _isProcessing = false;
         return;
       }
 
-      _evaluateFace(faces.first);
+      final face = faces.first;
+
+      String? qualityError = _checkFaceQuality(face, _imageSize!);
+      if (qualityError != null) {
+        _resetHold(qualityError);
+        _isProcessing = false; // Important: Allow next frame to process
+        return;
+      }
+
+      _evaluateFace(face);
     } catch (e) {
       debugPrint("Frame error: $e");
     } finally {
@@ -301,66 +271,98 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     }
   }
 
-  // ================= LIVENESS LOGIC =================
+  // ================= CORE FACE MATH =================
+  String? _checkFaceQuality(Face face, Size imageSize) {
+    final Rect box = face.boundingBox;
+
+    // 1. Check Size (Face must be at least 15% of screen width)
+    if (box.width < imageSize.width * 0.15) {
+      return "Move Closer 🔍";
+    }
+
+    // 2. Face Position Check (Ensure face is somewhat centered, not touching edges)
+    // Relaxed margins: 2 pixels instead of 5 to avoid constant errors
+    if (box.left < 2 ||
+        box.top < 2 ||
+        box.right > imageSize.width - 2 ||
+        box.bottom > imageSize.height - 2) {
+      return "Face Fully in Frame 🖼️";
+    }
+
+    return null;
+  }
+
   void _evaluateFace(Face face) {
     if (_isDisposed || !mounted) return;
 
-    final yaw = face.headEulerAngleY ?? 0;
-    final roll = face.headEulerAngleZ ?? 0;
+    final rotY = face.headEulerAngleY ?? 0; // Yaw (Left/Right)
+    final rotZ = face.headEulerAngleZ ?? 0; // Roll (Tilt)
 
-    if (roll.abs() > 25) {
-      _resetHold("Keep head level ⚖️");
+    // Check Tilt (Head should be relatively vertical)
+    if (rotZ.abs() > _maxTilt) {
+      _resetHold("Keep head straight ⚖️");
       return;
     }
 
     bool isAligned = false;
     String nextInstruction = _instruction;
 
+    // Orientation Logic based on current step
     if (_step == 0) {
-      if (yaw.abs() < _straightThreshold) {
+      // Step 0: Look Straight
+      if (rotY.abs() <= _straightYawLimit) {
         isAligned = true;
       } else {
         nextInstruction = "Look Straight 👀";
       }
     } else if (_step == 1) {
-      if (yaw > _turnThreshold) {
+      // Step 1: Turn Left (Positive Yaw)
+      if (rotY > _turnYawThreshold) {
         isAligned = true;
       } else {
-        nextInstruction = "Turn Left ← (more)";
+        nextInstruction = "Turn Head Left ⬅️";
       }
     } else if (_step == 2) {
-      if (yaw < -_turnThreshold) {
+      // Step 2: Turn Right (Negative Yaw)
+      if (rotY < -_turnYawThreshold) {
         isAligned = true;
       } else {
-        nextInstruction = "Turn Right → (more)";
+        nextInstruction = "Turn Head Right ➡️";
       }
     }
 
+    // Timer Logic for capturing
     if (isAligned) {
-      if (_holdStartTime == null) {
-        _holdStartTime = DateTime.now();
-      }
+      _holdStartTime ??= DateTime.now();
 
       final elapsed = DateTime.now().difference(_holdStartTime!).inSeconds;
       final remaining = _holdDurationSeconds - elapsed;
 
       if (remaining <= 0) {
-        _performCapture();
+        // Timer complete, capture photo
+        if (!_isCapturing) {
+          _performCapture();
+        }
       } else {
-        if (mounted && !_isDisposed) {
+        // Update UI with countdown
+        if (mounted && !_isDisposed && !_isCapturing) {
           setState(() {
             _faceAligned = true;
             _secondsRemaining = remaining;
-            _instruction = "Hold Still... ${remaining}s ⏱️";
+            _instruction = "Hold Still... ${remaining}s";
           });
         }
       }
     } else {
+      // Reset if user moves out of alignment
       _resetHold(nextInstruction);
     }
   }
 
   void _resetHold(String msg) {
+    // Only reset if we aren't already capturing or in the middle of submission
+    if (_isCapturing || _isSubmitting) return;
+
     _holdStartTime = null;
     if (mounted && !_isDisposed) {
       setState(() {
@@ -371,9 +373,15 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     }
   }
 
+  // ================= CAPTURE ACTIONS =================
   Future<void> _performCapture() async {
     if (_isCapturing || _isDisposed) return;
-    _isCapturing = true;
+    setState(() {
+      _isCapturing = true;
+      _faceAligned = true; // Keep green circle during capture
+      _instruction = "Capturing...";
+    });
+
     _holdStartTime = null;
 
     try {
@@ -387,21 +395,25 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       debugPrint("Capture error: $e");
       if (mounted && !_isDisposed) {
         _showError("Capture failed, try again");
+        // Reset to allow retry
+        setState(() {
+          _isCapturing = false;
+          _holdStartTime = null;
+        });
       }
-    } finally {
-      _isCapturing = false;
     }
+    // Note: _isCapturing is set to false inside specific capture methods or finally blocks
   }
 
-  // ================= CAPTURE ACTIONS =================
   Future<void> _captureStraight() async {
     _straight = await _takePhoto();
     if (mounted && !_isDisposed) {
       setState(() {
         _step = 1;
         _progress = 0.33;
-        _instruction = "Turn Left ←";
+        _instruction = "Turn Left ⬅️";
         _faceAligned = false;
+        _isCapturing = false;
         _secondsRemaining = _holdDurationSeconds;
       });
     }
@@ -413,8 +425,9 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       setState(() {
         _step = 2;
         _progress = 0.66;
-        _instruction = "Turn Right →";
+        _instruction = "Turn Right ➡️";
         _faceAligned = false;
+        _isCapturing = false;
         _secondsRemaining = _holdDurationSeconds;
       });
     }
@@ -426,68 +439,168 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       setState(() {
         _step = 3;
         _progress = 1.0;
-        _instruction = "Verifying... 🔄";
+        _instruction = "Processing...";
+        _faceAligned = false;
+        _isCapturing = false;
       });
-    }
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted && !_isDisposed) {
-      await _verifyAndMark();
+
+      // All 3 captured, show preview
+      _showReviewDialog();
     }
   }
 
   Future<Uint8List> _takePhoto() async {
+    // 1. Temporarily stop stream to capture high res photo
     await _stopStream();
+
     if (_controller == null || !_controller!.value.isInitialized) {
       throw Exception("Camera not initialized");
     }
 
-    final file = await _controller!.takePicture();
-    var bytes = await file.readAsBytes();
+    try {
+      final file = await _controller!.takePicture();
+      var bytes = await file.readAsBytes();
 
-    // ✅ Compress image if needed
-    if (bytes.length > _maxImageSizePerImage) {
-      bytes = await _compressImage(bytes);
-    }
+      if (bytes.length > _maxImageSizePerImage) {
+        bytes = await _compressImage(bytes);
+      }
 
-    if (!_isDisposed && mounted && _step < 2) {
-      await _controller!.startImageStream(_processFrame);
+      // 2. Restart stream immediately if not finished
+      if (!_isDisposed && mounted && _step < 3) {
+        await _controller!.startImageStream(_processFrame);
+      }
+      return bytes;
+    } catch (e) {
+      // If error, try to restart stream anyway so app doesn't freeze
+      if (!_isDisposed && mounted) {
+        await _controller!.startImageStream(_processFrame);
+      }
+      rethrow;
     }
-    return bytes;
   }
 
-  // ================= VERIFY & MARK =================
+  Future<Uint8List> _compressImage(Uint8List imageBytes) async {
+    try {
+      final image = img.decodeImage(imageBytes);
+      if (image == null) return imageBytes;
+
+      img.Image resized = image;
+      if (image.width > 480 || image.height > 640) {
+        resized = img.copyResize(image, width: 480, height: 640);
+      }
+
+      final compressed = img.encodeJpg(resized, quality: _jpegQuality);
+      return Uint8List.fromList(compressed);
+    } catch (e) {
+      return imageBytes;
+    }
+  }
+
+  // ================= REVIEW & SUBMIT =================
+  Future<void> _showReviewDialog() async {
+    await _stopStream(); // Ensure stream is stopped while reviewing
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Review Photos", textAlign: TextAlign.center),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "Ensure your face is clear in all 3 photos.",
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildThumb(_straight, "Straight"),
+                  _buildThumb(_left, "Left"),
+                  _buildThumb(_right, "Right"),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _resetFlow();
+            },
+            icon: const Icon(Icons.refresh, color: Colors.red),
+            label: const Text("Retake", style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _verifyAndMark();
+            },
+            icon: const Icon(Icons.cloud_upload),
+            label: const Text("Submit"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThumb(Uint8List? bytes, String label) {
+    return Column(
+      children: [
+        Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.green, width: 2),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.grey[200],
+            image: bytes != null
+                ? DecorationImage(image: MemoryImage(bytes), fit: BoxFit.cover)
+                : null,
+          ),
+          child: bytes == null
+              ? const Icon(Icons.image_not_supported, color: Colors.grey)
+              : null,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+        ),
+      ],
+    );
+  }
+
+  // ================= BACKEND SUBMISSION =================
   Future<void> _verifyAndMark() async {
     if (!mounted || _isDisposed) return;
+
     if (_straight == null || _left == null || _right == null) {
       _showError("Images not ready");
       return;
     }
 
-    // ✅ Validate total size before submission
-    final totalSize = _getTotalSizeKB() * 1024;
+    final totalSize = _straight!.length + _left!.length + _right!.length;
     if (totalSize > _totalMaxSize) {
-      _showError(
-        "Images too large (${(totalSize / 1024 / 1024).toStringAsFixed(2)} MB). Please retake.",
-      );
+      _showError("Images too large. Please retake.");
       return;
     }
 
     setState(() => _isSubmitting = true);
 
     try {
-      // ✅ Verify session is still active
-      if (sessionId == null || classId == null) {
-        throw "Session information missing";
-      }
-
-      final sessionDoc = await FirebaseFirestore.instance
-          .collection('attendance_session')
-          .doc(sessionId)
-          .get();
-
-      if (!sessionDoc.exists || sessionDoc['isActive'] != true) {
-        throw "Attendance session has ended";
-      }
+      if (sessionId == null || classId == null) throw "Session info missing";
 
       final request = http.MultipartRequest(
         'POST',
@@ -495,8 +608,9 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       );
 
       request.fields['admission_no'] = admissionNo ?? '';
+      request.fields['session_id'] = sessionId ?? '';
+      request.fields['student_id'] = studentId ?? '';
 
-      // ✅ Send ALL 3 IMAGES
       final images = [_straight!, _left!, _right!];
       final names = ['face_straight.jpg', 'face_left.jpg', 'face_right.jpg'];
 
@@ -513,55 +627,37 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
       final response = await http.Response.fromStream(
         await request.send().timeout(
-          Duration(seconds: _apiTimeoutSeconds),
-          onTimeout: () {
-            throw TimeoutException("Server response timeout");
-          },
+          const Duration(seconds: _apiTimeoutSeconds),
         ),
       );
 
       if (_isDisposed || !mounted) return;
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>?;
-      final statusCode = response.statusCode;
-
-      if (statusCode == 200 && data != null && data['success'] == true) {
-        // ✅ Create attendance record in Firestore
+      if (response.statusCode == 200) {
+        // Attendance logic in backend handles verification, but we record locally on success
         try {
-          final today = DateTime.now().toString().split(' ')[0]; // YYYY-MM-DD
-          await FirebaseFirestore.instance
-              .collection('attendance')
-              .add({
-                'studentId': studentId,
-                'admissionNo': admissionNo,
-                'sessionId': sessionId,
-                'classId': classId,
-                'status': 'present',
-                'timestamp': FieldValue.serverTimestamp(),
-                'confidence': (data['confidence'] ?? 0).toDouble(),
-                'date': today,
-              })
-              .timeout(
-                const Duration(seconds: 10),
-                onTimeout: () {
-                  throw TimeoutException("Firestore write timeout");
-                },
-              );
-        } catch (firestoreError) {
-          debugPrint("Firestore write warning: $firestoreError");
-          // Continue anyway - backend already marked
+          final today = DateTime.now().toString().split(' ')[0];
+          await FirebaseFirestore.instance.collection('attendance').add({
+            'studentId': studentId,
+            'admissionNo': admissionNo,
+            'sessionId': sessionId,
+            'classId': classId,
+            'status': 'present',
+            'timestamp': FieldValue.serverTimestamp(),
+            'confidence': 1.0, // Assuming 1.0 if server verified
+            'date': today,
+          });
+        } catch (_) {
+          // Fire-and-forget for local record
         }
 
-        _showSuccess(data['confidence']?.toString() ?? "");
+        _showSuccess();
       } else {
-        final message =
-            data?['message'] ?? data?['error'] ?? 'Backend verification failed';
-        _showVerificationFailedDialog(message);
+        _showVerificationFailedDialog(
+          "Verification failed (${response.statusCode})\nCheck backend logs.",
+        );
       }
-    } on TimeoutException catch (e) {
-      _showError("Request timed out: ${e.message}. Please retry.");
     } catch (e) {
-      debugPrint("❌ VERIFICATION ERROR: $e");
       _showError("Error: ${e.toString()}");
     } finally {
       if (mounted && !_isDisposed) {
@@ -570,124 +666,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     }
   }
 
-  // ================= UI HELPERS =================
-  void _showError(String msg) {
-    if (!mounted || _isDisposed) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.white),
-            const SizedBox(width: 10),
-            Expanded(child: Text(msg)),
-          ],
-        ),
-        backgroundColor: Colors.red.shade700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-    _resetFlow();
-  }
-
-  void _showVerificationFailedDialog(String serverMessage) {
-    if (!mounted || _isDisposed) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        icon: const Icon(Icons.error_outline, color: Colors.red, size: 48),
-        title: const Text("Verification Failed"),
-        content: Text(
-          serverMessage,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.grey),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (mounted) Navigator.pop(context);
-              });
-            },
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              _resetFlow();
-            },
-            icon: const Icon(Icons.camera_alt),
-            label: const Text("Retry"),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _resetFlow() {
-    if (!mounted || _isDisposed) return;
-
-    _isDisposed = false;
-    _livenessTimeoutTimer?.cancel();
-    _startLivenessTimeout();
-
-    ScaffoldMessenger.of(context).clearSnackBars();
-    setState(() {
-      _step = 0;
-      _progress = 0;
-      _instruction = "Look Straight 👀";
-      _faceAligned = false;
-      _isSubmitting = false;
-      _isProcessing = false;
-      _isCapturing = false;
-      _straight = null;
-      _left = null;
-      _right = null;
-      _holdStartTime = null;
-      _secondsRemaining = _holdDurationSeconds;
-    });
-    _controller?.startImageStream(_processFrame);
-  }
-
-  void _showSuccess(String confidence) {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        title: const Text("Attendance Marked!"),
-        content: Text(
-          confidence.isNotEmpty && confidence != "0"
-              ? "Verified successfully!\nConfidence: ${double.tryParse(confidence)?.toStringAsFixed(1) ?? confidence}%"
-              : "Attendance marked successfully!",
-          textAlign: TextAlign.center,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text("Done", style: TextStyle(fontSize: 16)),
-          ),
-        ],
-      ),
-    );
-  }
-
+  // ================= HELPERS & UI =================
   InputImage? _toInputImage(CameraImage image) {
     try {
       final plane = image.planes.first;
@@ -706,10 +685,105 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
           bytesPerRow: plane.bytesPerRow,
         ),
       );
-    } catch (e) {
-      debugPrint("InputImage conversion error: $e");
+    } catch (_) {
       return null;
     }
+  }
+
+  void _showError(String msg) {
+    if (!mounted || _isDisposed) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    // Do not auto reset flow here, allow user to read error or retry manually if needed
+    // But for severe errors like timeout, reset might be needed.
+    if (msg.contains("took too long")) {
+      _resetFlow();
+    } else {
+      // Just restart stream if it was stopped
+      if (!_controller!.value.isStreamingImages && _step < 3) {
+        _controller!.startImageStream(_processFrame);
+      }
+    }
+  }
+
+  void _showVerificationFailedDialog(String serverMessage) {
+    if (!mounted || _isDisposed) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Verification Failed"),
+        content: Text(serverMessage),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pop(context); // Go back to dashboard
+            },
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _resetFlow();
+            },
+            child: const Text("Retry"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _resetFlow() {
+    if (!mounted || _isDisposed) return;
+    _livenessTimeoutTimer?.cancel();
+    _startLivenessTimeout();
+    setState(() {
+      _step = 0;
+      _progress = 0;
+      _instruction = "Look Straight 👀";
+      _faceAligned = false;
+      _isSubmitting = false;
+      _isProcessing = false;
+      _isCapturing = false;
+      _straight = null;
+      _left = null;
+      _right = null;
+      _holdStartTime = null;
+      _secondsRemaining = _holdDurationSeconds;
+    });
+    // Restart stream
+    if (_controller != null && !_controller!.value.isStreamingImages) {
+      _controller!.startImageStream(_processFrame);
+    }
+  }
+
+  void _showSuccess() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
+        title: const Text("Attendance Marked!"),
+        content: const Text("Verified successfully!"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back to previous screen
+            },
+            child: const Text("Done"),
+          ),
+        ],
+      ),
+    );
   }
 
   int _getCapturedCount() {
@@ -723,7 +797,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   Widget _buildStepIcon(int stepIndex) {
     final isCompleted = _step > stepIndex;
     final isCurrent = _step == stepIndex;
-
     IconData icon;
     switch (stepIndex) {
       case 0:
@@ -738,7 +811,6 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       default:
         icon = Icons.check;
     }
-
     return Container(
       margin: const EdgeInsets.only(right: 6),
       padding: const EdgeInsets.all(6),
@@ -758,22 +830,12 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
     );
   }
 
-  // ================= UI BUILD =================
   @override
   Widget build(BuildContext context) {
     if (_isLoadingData) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(height: 16),
-              Text("Loading...", style: TextStyle(color: Colors.white70)),
-            ],
-          ),
-        ),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 
@@ -782,46 +844,18 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
         backgroundColor: Colors.black,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
+          leading: BackButton(color: Colors.white),
         ),
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red, size: 60),
-                const SizedBox(height: 20),
-                Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                const SizedBox(height: 30),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 30,
-                      vertical: 12,
-                    ),
-                  ),
-                  child: const Text("Go Back"),
-                ),
-              ],
-            ),
+          child: Text(
+            _errorMessage!,
+            style: const TextStyle(color: Colors.white),
           ),
         ),
       );
     }
 
-    if (_controller == null || !_controller!.value.isInitialized) {
+    if (!_isCameraInitialized || _controller == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: CircularProgressIndicator(color: Colors.white)),
@@ -830,100 +864,24 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          "Verify Attendance",
-          style: TextStyle(color: Colors.white),
-        ),
-        centerTitle: true,
-      ),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Camera Preview
-          Center(
-            child: AspectRatio(
-              aspectRatio: 1 / _controller!.value.aspectRatio,
-              child: CameraPreview(_controller!),
+          // 1. Full Screen Camera
+          CameraPreview(_controller!),
+
+          // 2. Custom Painter for Bounding Box (Visual Feedback)
+          CustomPaint(
+            painter: FaceDetectorPainter(
+              _faces,
+              _imageSize!,
+              _rotation,
+              _cameraLensDirection,
+              _faceAligned,
             ),
           ),
 
-          // Face Cutout Overlay
-          ColorFiltered(
-            colorFilter: ColorFilter.mode(
-              Colors.black.withOpacity(0.6),
-              BlendMode.srcOut,
-            ),
-            child: Stack(
-              children: [
-                Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.transparent,
-                    backgroundBlendMode: BlendMode.dstOut,
-                  ),
-                ),
-                Center(
-                  child: Container(
-                    height: 280,
-                    width: 280,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Alignment Ring with Countdown
-          Center(
-            child: Container(
-              height: 300,
-              width: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _faceAligned ? Colors.greenAccent : Colors.white60,
-                  width: _faceAligned ? 5 : 3,
-                ),
-              ),
-              child: _faceAligned
-                  ? Center(
-                      child: Text(
-                        "$_secondsRemaining",
-                        style: const TextStyle(
-                          fontSize: 60,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.greenAccent,
-                        ),
-                      ),
-                    )
-                  : null,
-            ),
-          ),
-
-          // Progress Bar
-          Positioned(
-            top: 10,
-            left: 20,
-            right: 20,
-            child: LinearProgressIndicator(
-              value: _progress,
-              minHeight: 6,
-              borderRadius: BorderRadius.circular(10),
-              color: Colors.greenAccent,
-              backgroundColor: Colors.white24,
-            ),
-          ),
-
-          // Instruction Card with Step Icons
+          // 3. Instruction & Progress UI
           Positioned(
             bottom: 30,
             left: 20,
@@ -933,12 +891,8 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 10),
                 ],
               ),
               child: Row(
@@ -947,6 +901,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                   _buildStepIcon(1),
                   _buildStepIcon(2),
                   const SizedBox(width: 12),
+
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -957,23 +912,30 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: _faceAligned
-                                ? Colors.green.shade700
-                                : Colors.black87,
+                            color: _faceAligned ? Colors.green : Colors.black87,
                           ),
                         ),
-                        if (_straight != null)
+                        if (_faceAligned && !_isSubmitting && !_isCapturing)
                           Text(
-                            "Captured: ${_getCapturedCount()}/3 | ${_getTotalSizeKB().toStringAsFixed(1)} KB",
+                            "Holding... $_secondsRemaining s",
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        if (!_faceAligned && _straight != null)
+                          Text(
+                            "Captured: ${_getCapturedCount()}/3",
                             style: TextStyle(
-                              fontSize: 12,
                               color: Colors.grey.shade600,
+                              fontSize: 12,
                             ),
                           ),
                       ],
                     ),
                   ),
-                  if (_isSubmitting)
+
+                  if (_isSubmitting || _isCapturing)
                     const SizedBox(
                       width: 24,
                       height: 24,
@@ -983,8 +945,139 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
               ),
             ),
           ),
+
+          // 4. Back Button
+          Positioned(
+            top: 50,
+            left: 20,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 30),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+
+          // 5. Top Progress Bar
+          Positioned(
+            top: 50,
+            left: 70,
+            right: 20,
+            child: LinearProgressIndicator(
+              value: _progress,
+              backgroundColor: Colors.white24,
+              color: Colors.greenAccent,
+            ),
+          ),
         ],
       ),
     );
+  }
+}
+
+// ================= PAINTER CLASS =================
+class FaceDetectorPainter extends CustomPainter {
+  final List<Face> faces;
+  final Size imageSize;
+  final InputImageRotation rotation;
+  final CameraLensDirection cameraLensDirection;
+  final bool isAligned;
+
+  FaceDetectorPainter(
+    this.faces,
+    this.imageSize,
+    this.rotation,
+    this.cameraLensDirection,
+    this.isAligned,
+  );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.0
+      ..color = isAligned ? Colors.green : Colors.red;
+
+    for (final Face face in faces) {
+      final left = translateX(
+        face.boundingBox.left,
+        size,
+        imageSize,
+        rotation,
+        cameraLensDirection,
+      );
+      final top = translateY(
+        face.boundingBox.top,
+        size,
+        imageSize,
+        rotation,
+        cameraLensDirection,
+      );
+      final right = translateX(
+        face.boundingBox.right,
+        size,
+        imageSize,
+        rotation,
+        cameraLensDirection,
+      );
+      final bottom = translateY(
+        face.boundingBox.bottom,
+        size,
+        imageSize,
+        rotation,
+        cameraLensDirection,
+      );
+
+      // ✅ CLAMPING to ensure box stays inside screen logic (USING dart:math)
+      canvas.drawRect(
+        Rect.fromLTRB(
+          math.max(0, left),
+          math.max(0, top),
+          math.min(size.width, right),
+          math.min(size.height, bottom),
+        ),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(FaceDetectorPainter oldDelegate) {
+    return oldDelegate.faces != faces || oldDelegate.isAligned != isAligned;
+  }
+}
+
+// ================= COORDINATE TRANSLATORS =================
+double translateX(
+  double x,
+  Size canvasSize,
+  Size imageSize,
+  InputImageRotation rotation,
+  CameraLensDirection cameraLensDirection,
+) {
+  switch (rotation) {
+    case InputImageRotation.rotation90deg:
+    case InputImageRotation.rotation270deg:
+      return x *
+          canvasSize.width /
+          (Platform.isIOS ? imageSize.width : imageSize.height);
+    default:
+      return x * canvasSize.width / imageSize.width;
+  }
+}
+
+double translateY(
+  double y,
+  Size canvasSize,
+  Size imageSize,
+  InputImageRotation rotation,
+  CameraLensDirection cameraLensDirection,
+) {
+  switch (rotation) {
+    case InputImageRotation.rotation90deg:
+    case InputImageRotation.rotation270deg:
+      return y *
+          canvasSize.height /
+          (Platform.isIOS ? imageSize.height : imageSize.width);
+    default:
+      return y * canvasSize.height / imageSize.height;
   }
 }
