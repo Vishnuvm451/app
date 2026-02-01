@@ -144,7 +144,7 @@ class AdminDashboardPage extends StatelessWidget {
                         context,
                         MaterialPageRoute(
                           builder: (_) =>
-                              const SendNotificationPage(senderRole: 'Admin'),
+                              SendNotificationPage(senderRole: 'Admin'),
                         ),
                       );
                     },
