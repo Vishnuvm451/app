@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Added Auth import
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'child_face_scan.dart';
@@ -24,50 +24,84 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
   }
 
   Future<void> _verifyAdmission() async {
+    // ✅ FIX: Input validation
     if (_admissionCtrl.text.isEmpty) {
       _showCleanSnackBar("Please enter admission number", isError: true);
+      return;
+    }
+
+    final String admissionNum = _admissionCtrl.text.trim();
+
+    // ✅ FIX: Validate admission number format (digits only)
+    if (!RegExp(r'^\d+$').hasMatch(admissionNum)) {
+      _showCleanSnackBar(
+        "Admission number must contain only digits",
+        isError: true,
+      );
       return;
     }
 
     setState(() => _isLoading = true);
 
     try {
-      final String admissionNum = _admissionCtrl.text.trim();
       final User? currentUser = FirebaseAuth.instance.currentUser;
 
+      // ✅ FIX: Check if user is logged in
       if (currentUser == null) {
         _showCleanSnackBar("Error: No user logged in!", isError: true);
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
 
-      debugPrint("🔍 Checking student with admission: $admissionNum");
+      debugPrint(
+        "🔍 Verifying admission: $admissionNum for user: ${currentUser.uid}",
+      );
 
-      // 1. Check if Student Exists
-      final doc = await FirebaseFirestore.instance
+      // 1. Check if Student Exists in Firestore
+      final studentDoc = await FirebaseFirestore.instance
           .collection('student')
           .doc(admissionNum)
           .get();
 
-      debugPrint("📚 Student doc exists: ${doc.exists}");
+      debugPrint("📚 Student doc exists: ${studentDoc.exists}");
 
-      if (!doc.exists) {
-        _showCleanSnackBar("Admission Number not found!", isError: true);
-        setState(() => _isLoading = false);
+      if (!studentDoc.exists) {
+        _showCleanSnackBar(
+          "Admission Number not found in system!",
+          isError: true,
+        );
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
 
-      // 2. Student Found - Update Parent's Profile immediately
-      debugPrint("💾 Linking student to parent profile...");
-      await FirebaseFirestore.instance
-          .collection('parents')
-          .doc(currentUser.uid)
-          .update({
-            'linked_student_id': admissionNum,
-            'is_student_linked': true, // Changed to true as requested
-          });
+      final studentData = studentDoc.data() as Map<String, dynamic>;
+      final String studentName = studentData['name'] ?? 'Student';
 
-      debugPrint("✅ Parent profile updated. Student linked.");
+      debugPrint("✅ Student found: $studentName");
+
+      // 2. Link student to parent immediately
+      debugPrint("💾 Linking student to parent profile...");
+
+      try {
+        await FirebaseFirestore.instance
+            .collection('parents')
+            .doc(currentUser.uid)
+            .update({
+              'linked_student_id': admissionNum,
+              'is_student_linked': true,
+              'updated_at': FieldValue.serverTimestamp(),
+            });
+
+        debugPrint("✅ Parent profile updated with student link");
+      } catch (e) {
+        debugPrint("⚠️ Error updating parent profile: $e");
+        _showCleanSnackBar(
+          "Error linking student. Please try again.",
+          isError: true,
+        );
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
       if (!mounted) return;
 
@@ -76,22 +110,25 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
         isError: false,
       );
 
-      // 3. Navigate to Face Scan Page
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ParentFaceScanPage(
-                admissionNo: admissionNum,
-                studentName: doc['name'] ?? 'Student',
-              ),
-            ),
-          );
-        }
-      });
+      // 3. Navigate to Face Scan Page after short delay
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ParentFaceScanPage(
+            admissionNo: admissionNum,
+            studentName: studentName,
+          ),
+        ),
+      );
+    } on FirebaseException catch (e) {
+      debugPrint("❌ Firebase error: ${e.code} - ${e.message}");
+      _showCleanSnackBar("Database error: ${e.message}", isError: true);
     } catch (e) {
-      debugPrint("❌ Error linking student: $e");
+      debugPrint("❌ Unexpected error: $e");
       _showCleanSnackBar("Error: ${e.toString()}", isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -194,8 +231,10 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
                       const SizedBox(height: 20),
                       TextField(
                         controller: _admissionCtrl,
+                        enabled: !_isLoading,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
                         ],
                         keyboardType: TextInputType.number,
                         style: const TextStyle(

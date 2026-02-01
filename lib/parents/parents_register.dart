@@ -39,31 +39,65 @@ class _ParentRegisterPageState extends State<ParentRegisterPage> {
     setState(() => _isLoading = true);
 
     try {
+      // ✅ FIX: Trim all inputs before validation
+      final String email = _emailCtrl.text.trim().toLowerCase();
+      final String password = _passCtrl.text.trim();
+      final String name = _nameCtrl.text.trim();
+      final String mobile = _mobileCtrl.text.trim();
+
+      // ✅ FIX: Validate email format
+      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(email)) {
+        _showCleanSnackBar("Invalid email format", isError: true);
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // ✅ FIX: Validate password length
+      if (password.length < 6) {
+        _showCleanSnackBar(
+          "Password must be at least 6 characters",
+          isError: true,
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      debugPrint("🔐 Creating auth user: $email");
+
       // 1. Create Auth User
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailCtrl.text.trim(),
-        password: _passCtrl.text.trim(),
+        email: email,
+        password: password,
       );
       final uid = cred.user!.uid;
+
+      debugPrint("✅ Auth user created: $uid");
 
       // 2. Save to 'users' collection (For Login/Role Routing)
       await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'uid': uid,
         'role': 'parent',
-        'email': _emailCtrl.text.trim(),
+        'email': email,
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      debugPrint("✅ User document created");
+
       // 3. Save to 'parents' collection (Profile Details)
+      // ✅ FIX: Add child_face_linked field (critical for logic)
       await FirebaseFirestore.instance.collection('parents').doc(uid).set({
         'uid': uid,
-        'name': _nameCtrl.text.trim(),
-        'mobile': _mobileCtrl.text.trim(),
-        'email': _emailCtrl.text.trim(),
+        'name': name,
+        'mobile': mobile,
+        'email': email,
         'role': 'parent',
         'createdAt': FieldValue.serverTimestamp(),
         'linked_student_id': null,
         'is_student_linked': false,
+        'child_face_linked': false, // ✅ NEW FIELD: For login logic
       });
+
+      debugPrint("✅ Parent profile created with child_face_linked=false");
 
       if (!mounted) return;
 
@@ -73,6 +107,9 @@ class _ParentRegisterPageState extends State<ParentRegisterPage> {
       );
 
       // 4. Navigate to the Admission Number Page
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const ConnectChildPage()),
@@ -84,16 +121,27 @@ class _ParentRegisterPageState extends State<ParentRegisterPage> {
           message = "Password is too weak. Use at least 6 characters.";
           break;
         case 'email-already-in-use':
-          message = "Email already registered.";
+          message = "Email already registered. Please login instead.";
           break;
         case 'invalid-email':
           message = "Invalid email address.";
           break;
+        case 'operation-not-allowed':
+          message = "Registration is currently disabled. Try again later.";
+          break;
+        case 'too-many-requests':
+          message = "Too many registration attempts. Try again later.";
+          break;
         default:
           message = "Registration failed: ${e.message}";
       }
+      debugPrint("❌ Auth error: ${e.code} - ${e.message}");
       _showCleanSnackBar(message, isError: true);
+    } on FirebaseException catch (e) {
+      debugPrint("❌ Firestore error: ${e.code} - ${e.message}");
+      _showCleanSnackBar("Database error: ${e.message}", isError: true);
     } catch (e) {
+      debugPrint("❌ Unexpected error: $e");
       _showCleanSnackBar("Error: ${e.toString()}", isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -116,6 +164,8 @@ class _ParentRegisterPageState extends State<ParentRegisterPage> {
               child: Text(
                 message,
                 style: const TextStyle(fontWeight: FontWeight.bold),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
