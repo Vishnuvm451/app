@@ -1,11 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/notification/notification_view_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class SendNotificationPage extends StatefulWidget {
   final String senderRole; // 👈 Added this to identify Admin vs Teacher
-
-  const SendNotificationPage({super.key, required this.senderRole});
+  final user = FirebaseAuth.instance.currentUser;
+  SendNotificationPage({super.key, required this.senderRole});
 
   @override
   State<SendNotificationPage> createState() => _SendNotificationPageState();
@@ -30,7 +31,8 @@ class _SendNotificationPageState extends State<SendNotificationPage> {
         'title': _titleCtrl.text.trim(),
         'body': _bodyCtrl.text.trim(),
         'timestamp': FieldValue.serverTimestamp(),
-        'sender': widget.senderRole, // ✅ Uses the actual role passed in
+        'sender': widget.senderRole,
+        'uid': widget.user?.uid,
       });
 
       if (!mounted) return;
@@ -56,7 +58,7 @@ class _SendNotificationPageState extends State<SendNotificationPage> {
     return Scaffold(
       backgroundColor: bgWhite,
       appBar: AppBar(
-        title: Text("Send as ${widget.senderRole}"), // ✅ Shows who is sending
+        title: Text("Send as ${widget.senderRole}"),
         centerTitle: true,
         backgroundColor: primaryBlue,
         foregroundColor: Colors.white,
