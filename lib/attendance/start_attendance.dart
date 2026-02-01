@@ -332,11 +332,19 @@ class _TeacherAttendanceSessionPageState
           if (isMorningActive) {
             Timestamp? ts = morningDoc['expiresAt'];
             _morningExpiry = ts?.toDate();
+            // ✅ FIX: Calculate remaining time for display
+            if (_morningExpiry != null) {
+              final remaining = _morningExpiry!.difference(DateTime.now());
+              morningTimeLeft = remaining.isNegative
+                  ? "Expired"
+                  : _formatDuration(remaining);
+            }
           } else {
             _morningExpiry = null;
             morningTimeLeft = isMorningCompleted ? "" : "";
           }
 
+          // ✅ FIX: Update student count
           morningStudentsMarked = morningStudentsSnap.docs.length.toString();
 
           // --- Afternoon Logic ---
@@ -351,11 +359,19 @@ class _TeacherAttendanceSessionPageState
           if (isAfternoonActive) {
             Timestamp? ts = afternoonDoc['expiresAt'];
             _afternoonExpiry = ts?.toDate();
+            // ✅ FIX: Calculate remaining time for display
+            if (_afternoonExpiry != null) {
+              final remaining = _afternoonExpiry!.difference(DateTime.now());
+              afternoonTimeLeft = remaining.isNegative
+                  ? "Expired"
+                  : _formatDuration(remaining);
+            }
           } else {
             _afternoonExpiry = null;
             afternoonTimeLeft = isAfternoonCompleted ? "" : "";
           }
 
+          // ✅ FIX: Update student count
           afternoonStudentsMarked = afternoonStudentsSnap.docs.length
               .toString();
 
@@ -455,11 +471,31 @@ class _TeacherAttendanceSessionPageState
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      // ✅ FIX: Update state IMMEDIATELY before loading from DB
+      if (mounted) {
+        setState(() {
+          if (sessionType == 'morning') {
+            isMorningActive = true;
+            _morningExpiry = expiresAt;
+            morningTimeLeft = _formatDuration(SESSION_DURATION);
+            morningStudentsMarked = '0';
+          } else {
+            isAfternoonActive = true;
+            _afternoonExpiry = expiresAt;
+            afternoonTimeLeft = _formatDuration(SESSION_DURATION);
+            afternoonStudentsMarked = '0';
+          }
+          _hasActiveSession = true;
+        });
+      }
+
       _showSnack(
         "✅ ${_capitalize(sessionType)} session started for 4 hours",
         success: true,
       );
 
+      // Verify from DB after small delay
+      await Future.delayed(const Duration(milliseconds: 500));
       await _loadSessionStatus();
     } catch (e) {
       print("❌ Error starting session: $e");
@@ -667,13 +703,6 @@ class _TeacherAttendanceSessionPageState
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: IconThemeData(color: primaryBlue),
-        // actions: [
-        //   IconButton(
-        //     icon: const Icon(Icons.refresh),
-        //     onPressed: _loadSessionStatus,
-        //     tooltip: "Refresh",
-        //   ),
-        // ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadSessionStatus,
