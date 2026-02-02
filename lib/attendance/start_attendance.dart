@@ -447,7 +447,7 @@ class _TeacherAttendanceSessionPageState
     setState(() => isLoading = true);
 
     try {
-      final now = DateTime.now();
+      final now = DateTime.now().toUtc();
       final expiresAt = now.add(SESSION_DURATION);
 
       print("📅 Creating session with expiresAt: $expiresAt");
@@ -566,23 +566,23 @@ class _TeacherAttendanceSessionPageState
   // ================= FINALIZE ATTENDANCE =================
   Future<void> _finalizeAttendanceAsync(String classId, String today) async {
     try {
-      print("📊 Starting attendance finalization for $classId on $today...");
+      print("📊 Finalizing attendance for $classId on $today");
 
       final finalDocId = '${classId}_$today';
       final finalRef = _db.collection('attendance_final').doc(finalDocId);
 
-      // 1. Get All Students
+      // 1️⃣ Get all students of the class
       final studentsSnap = await _db
           .collection('student')
           .where('classId', isEqualTo: classId)
           .get();
 
       if (studentsSnap.docs.isEmpty) {
-        print("⚠️ No students found for this class.");
+        print("⚠️ No students found");
         return;
       }
 
-      // 2. Get Morning & Afternoon Attendance
+      // 2️⃣ Fetch attendance + overrides
       final results = await Future.wait([
         _db
             .collection('attendance')
@@ -601,54 +601,60 @@ class _TeacherAttendanceSessionPageState
       final afternoonSnap = results[1];
       final existingFinal = results[2];
 
+      // 3️⃣ Build maps using admissionNo ONLY
       final morningMap = {for (var d in morningSnap.docs) d.id: true};
+
       final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
 
       final manualOverrides = {
         for (var d in existingFinal.docs)
-          if ((d.data()['method'] ?? '') == 'manual_override') d.id: true,
+          if ((d.data()['method'] ?? '') == 'manual_override')
+            d.data()['admissionNo']: d.data()['status'],
       };
 
       WriteBatch batch = _db.batch();
-      int processedCount = 0;
-      int presentCount = 0;
-      int halfDayCount = 0;
-      int absentCount = 0;
 
+      int present = 0;
+      int halfDay = 0;
+      int absent = 0;
+      int processed = 0;
+
+      // 4️⃣ Final attendance calculation
       for (final stu in studentsSnap.docs) {
-        final studentId = stu.id;
+        final admissionNo = stu.data()['admissionNo'];
 
-        if (manualOverrides.containsKey(studentId)) {
-          final status = existingFinal.docs
-              .firstWhere((d) => d.id == studentId)
-              .data()['status'];
+        if (admissionNo == null) continue;
+
+        // 🔒 Manual override always wins
+        if (manualOverrides.containsKey(admissionNo)) {
+          final status = manualOverrides[admissionNo];
           if (status == 'present')
-            presentCount++;
+            present++;
           else if (status == 'half-day')
-            halfDayCount++;
+            halfDay++;
           else
-            absentCount++;
+            absent++;
           continue;
         }
 
-        final morningPresent = morningMap.containsKey(studentId);
-        final afternoonPresent = afternoonMap.containsKey(studentId);
+        final morningPresent = morningMap.containsKey(admissionNo);
+        final afternoonPresent = afternoonMap.containsKey(admissionNo);
 
         String status;
         if (morningPresent && afternoonPresent) {
           status = 'present';
-          presentCount++;
+          present++;
         } else if (morningPresent || afternoonPresent) {
           status = 'half-day';
-          halfDayCount++;
+          halfDay++;
         } else {
           status = 'absent';
-          absentCount++;
+          absent++;
         }
 
-        batch.set(finalRef.collection('student').doc(studentId), {
-          'studentId': studentId,
-          'admissionNo': stu.data()['admissionNo'] ?? studentId,
+        batch.set(finalRef.collection('student').doc(admissionNo), {
+          'studentId': stu.id,
+          'admissionNo': admissionNo,
           'name': stu.data()['name'] ?? 'Unknown',
           'status': status,
           'morningPresent': morningPresent,
@@ -657,31 +663,30 @@ class _TeacherAttendanceSessionPageState
           'computedAt': FieldValue.serverTimestamp(),
         });
 
-        processedCount++;
-        if (processedCount % 400 == 0) {
+        processed++;
+        if (processed % 400 == 0) {
           await batch.commit();
           batch = _db.batch();
         }
       }
 
-      if (processedCount % 400 != 0) await batch.commit();
+      if (processed % 400 != 0) await batch.commit();
 
+      // 5️⃣ Final summary document
       await finalRef.set({
         'classId': classId,
         'date': today,
         'totalStudents': studentsSnap.docs.length,
-        'presentCount': presentCount,
-        'halfDayCount': halfDayCount,
-        'absentCount': absentCount,
+        'presentCount': present,
+        'halfDayCount': halfDay,
+        'absentCount': absent,
         'status': 'finalized',
         'finalizedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      print(
-        "🎉 Finalization success! P:$presentCount H:$halfDayCount A:$absentCount",
-      );
+      print("✅ Attendance finalized successfully");
     } catch (e) {
-      print("❌ Finalization CRITICAL error: $e");
+      print("❌ Finalization error: $e");
     }
   }
 
