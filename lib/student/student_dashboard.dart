@@ -41,9 +41,14 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   String _remainingTime = "";
   bool _sessionExpired = false;
 
+  // ✅ FIX: Cache today's date to avoid recalculating
+  late String _todayCache;
+  bool _debugPrinted = false;
+
   @override
   void initState() {
     super.initState();
+    _todayCache = _getTodayId();
     _initDashboardData();
     _listenToUnreadNotifications();
   }
@@ -154,11 +159,22 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             isLoading = false;
             debugMsg = "Success";
           });
+
           // Initialize Notifications
           await NotificationService().initialize(
             role: 'student',
             id: admissionNo,
           );
+
+          // Print debug info once
+          if (!_debugPrinted) {
+            _debugPrinted = true;
+            debugPrint("✅ DASHBOARD LOADED SUCCESSFULLY");
+            debugPrint("   studentName: $studentName");
+            debugPrint("   admissionNo: $admissionNo");
+            debugPrint("   classId: $classId");
+            debugPrint("   todayId: $_todayCache");
+          }
         }
       } else {
         if (mounted) {
@@ -206,6 +222,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
+  // ✅ FIX: Simple date getter without logging
   String _getTodayId() {
     final now = DateTime.now();
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -235,7 +252,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF2196F3), // Main Blue Background
+      backgroundColor: const Color(0xFF2196F3),
       appBar: AppBar(
         backgroundColor: const Color(0xFF2196F3),
         elevation: 0,
@@ -353,11 +370,13 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         canMark: false,
         buttonText: "Retry",
         remainingTime: "",
+        isMarked: false,
         onRetry: _initDashboardData,
       );
     }
 
-    final today = _getTodayId();
+    // ✅ FIX: Use cached today value
+    final today = _todayCache;
 
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -375,6 +394,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             canMark: false,
             buttonText: "Error",
             remainingTime: "",
+            isMarked: false,
           );
         }
 
@@ -386,6 +406,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             canMark: false,
             buttonText: "Loading",
             remainingTime: "",
+            isMarked: false,
           );
         }
 
@@ -401,6 +422,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             canMark: false,
             buttonText: "Waiting",
             remainingTime: "",
+            isMarked: false,
           );
         }
 
@@ -426,6 +448,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             canMark: false,
             buttonText: "Closed",
             remainingTime: _remainingTime,
+            isMarked: false,
           );
         }
 
@@ -437,20 +460,24 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               .collection('attendance')
               .doc(attendanceDocId)
               .collection('student')
-              .doc(studentDocId)
+              .doc(admissionNo)
               .snapshots(includeMetadataChanges: false),
           builder: (context, attendanceSnap) {
-            if (attendanceSnap.hasData && attendanceSnap.data!.exists) {
+            final isAlreadyMarked =
+                attendanceSnap.hasData && attendanceSnap.data!.exists;
+
+            if (isAlreadyMarked) {
               final attendanceData =
                   attendanceSnap.data!.data() as Map<String, dynamic>;
               final markedAt = attendanceData['markedAt'] as Timestamp?;
+
               _countdownTimer?.cancel();
 
               return _buildCardUI(
                 text: "Present Today ✅",
                 subtitle: markedAt != null
-                    ? "Marked at ${DateFormat('HH:mm a').format(markedAt.toDate())}"
-                    : "Already marked",
+                    ? "Marked at ${DateFormat('hh:mm a').format(markedAt.toDate())}"
+                    : "Attendance already marked",
                 color: Colors.green,
                 canMark: false,
                 buttonText: "Marked",
@@ -466,6 +493,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               canMark: true,
               buttonText: "Mark Now",
               remainingTime: _remainingTime,
+              isMarked: false,
             );
           },
         );
@@ -485,7 +513,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     required bool canMark,
     required String buttonText,
     required String remainingTime,
-    bool isMarked = false,
+    required bool isMarked,
     VoidCallback? onRetry,
   }) {
     return Container(
@@ -609,7 +637,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ================= QUICK ACTIONS (NEAT & UPDATED) =================
+  // ================= QUICK ACTIONS =================
   Widget _quickActions() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -655,7 +683,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
-            childAspectRatio: 1.1, // Adjusted for better proportions
+            childAspectRatio: 1.1,
             children: [
               _actionCard(
                 icon: Icons.bar_chart_rounded,
@@ -750,7 +778,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ================= ACTION CARD (FIXED ALIGNMENT) =================
+  // ================= ACTION CARD =================
   Widget _actionCard({
     required IconData icon,
     required String label,
@@ -759,27 +787,24 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     required VoidCallback onTap,
   }) {
     return Material(
-      color: Colors
-          .transparent, // Keep transparent so the container handles the look
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.grey.shade50, // Subtle background color
+            color: Colors.grey.shade50,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.grey.shade200), // Clean border
+            border: Border.all(color: Colors.grey.shade200),
           ),
           child: Stack(
-            alignment:
-                Alignment.center, // ✅ CRITICAL: Centers everything in the stack
+            alignment: Alignment.center,
             children: [
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment
-                      .center, // ✅ CRITICAL: Centers horizontal text
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Container(
                       padding: const EdgeInsets.all(12),
