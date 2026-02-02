@@ -450,7 +450,7 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
   }
 
   Future<Uint8List> _takePhoto() async {
-    // 1. Temporarily stop stream to capture high res photo
+    // 1. Stop stream to avoid corrupted frames
     await _stopStream();
 
     if (_controller == null || !_controller!.value.isInitialized) {
@@ -459,19 +459,37 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
 
     try {
       final file = await _controller!.takePicture();
-      var bytes = await file.readAsBytes();
+      final rawBytes = await file.readAsBytes();
 
-      if (bytes.length > _maxImageSizePerImage) {
-        bytes = await _compressImage(bytes);
+      // ✅ CRITICAL FIX: force valid JPEG re-encode
+      final decoded = img.decodeImage(rawBytes);
+      if (decoded == null) {
+        throw Exception("Image decode failed");
       }
 
-      // 2. Restart stream immediately if not finished
+      // Optional resize (safe for OpenCV)
+      img.Image processed = decoded;
+      if (decoded.width > 640 || decoded.height > 640) {
+        processed = img.copyResize(decoded, width: 640);
+      }
+
+      Uint8List jpegBytes = Uint8List.fromList(
+        img.encodeJpg(processed, quality: _jpegQuality),
+      );
+
+      // Size guard (your existing logic preserved)
+      if (jpegBytes.length > _maxImageSizePerImage) {
+        jpegBytes = await _compressImage(jpegBytes);
+      }
+
+      // 2. Restart stream immediately
       if (!_isDisposed && mounted && _step < 3) {
         await _controller!.startImageStream(_processFrame);
       }
-      return bytes;
+
+      return jpegBytes;
     } catch (e) {
-      // If error, try to restart stream anyway so app doesn't freeze
+      // Safety restart
       if (!_isDisposed && mounted) {
         await _controller!.startImageStream(_processFrame);
       }
@@ -634,24 +652,9 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
       if (_isDisposed || !mounted) return;
 
       if (response.statusCode == 200) {
-        // Attendance logic in backend handles verification, but we record locally on success
-        try {
-          final today = DateTime.now().toString().split(' ')[0];
-          await FirebaseFirestore.instance.collection('attendance').add({
-            'studentId': studentId,
-            'admissionNo': admissionNo,
-            'sessionId': sessionId,
-            'classId': classId,
-            'status': 'present',
-            'timestamp': FieldValue.serverTimestamp(),
-            'confidence': 1.0, // Assuming 1.0 if server verified
-            'date': today,
-          });
-        } catch (_) {
-          // Fire-and-forget for local record
-        }
-
         _showSuccess();
+      } else if (response.statusCode == 409) {
+        _showError("Attendance already marked for this session");
       } else {
         _showVerificationFailedDialog(
           "Verification failed (${response.statusCode})\nCheck backend logs.",
@@ -871,15 +874,16 @@ class _MarkAttendancePageState extends State<MarkAttendancePage> {
           CameraPreview(_controller!),
 
           // 2. Custom Painter for Bounding Box (Visual Feedback)
-          CustomPaint(
-            painter: FaceDetectorPainter(
-              _faces,
-              _imageSize!,
-              _rotation,
-              _cameraLensDirection,
-              _faceAligned,
+          if (_imageSize != null)
+            CustomPaint(
+              painter: FaceDetectorPainter(
+                _faces,
+                _imageSize!,
+                _rotation,
+                _cameraLensDirection,
+                _faceAligned,
+              ),
             ),
-          ),
 
           // 3. Instruction & Progress UI
           Positioned(

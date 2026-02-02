@@ -785,15 +785,16 @@ class _FaceLivenessPageState extends State<FaceLivenessPage> {
             CameraPreview(_controller!),
 
             // 2. Face Painter (Green/Red Box)
-            CustomPaint(
-              painter: FaceDetectorPainter(
-                _faces,
-                _imageSize!,
-                _rotation,
-                _cameraLensDirection,
-                _faceAligned,
+            if (_imageSize != null)
+              CustomPaint(
+                painter: FaceDetectorPainter(
+                  _faces,
+                  _imageSize!,
+                  _rotation,
+                  _cameraLensDirection,
+                  _faceAligned,
+                ),
               ),
-            ),
 
             // 3. Bottom Card UI
             Positioned(
