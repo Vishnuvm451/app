@@ -1,11 +1,8 @@
-// import 'package:darzo/teacher/teacher_register.dart';
-// import 'package:darzo/parents/parents_register.dart';
-// import 'package:darzo/student/student_register.dart';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:darzo/admin/admin_login.dart';
 import 'package:darzo/auth/auth_provider.dart';
 import 'package:darzo/parents/child_admisision_no.dart';
+import 'package:darzo/parents/child_face_scan.dart';
 import 'package:darzo/parents/parent_dashboard.dart';
 import 'package:darzo/register_role_check.dart';
 import 'package:darzo/student/face_liveness_page.dart';
@@ -83,55 +80,53 @@ class _LoginPageState extends State<LoginPage> {
         throw "Your account is pending approval from Admin. Please wait.";
       }
 
-      // Get role safely with multiple fallback options
+      // ✅ FIXED: Better role extraction with proper string handling
       var roleValue = userDoc.data()?['role'];
 
-      debugPrint("🔍 Raw role value: $roleValue");
+      debugPrint("🔍 Raw role value: '$roleValue'");
       debugPrint("🔍 Role type: ${roleValue.runtimeType}");
 
       String role = '';
       if (roleValue != null) {
-        role = roleValue.toString().trim().toLowerCase();
+        role = roleValue
+            .toString()
+            .replaceAll(RegExp(r'\s+'), '') // Remove ALL whitespace
+            .trim()
+            .toLowerCase();
       }
 
       debugPrint("🔍 Processed role: '$role'");
 
-      // If role is still empty, try to detect from other collections
       if (role.isEmpty) {
-        debugPrint(
-          "⚠️ Role not found in users collection, attempting detection...",
-        );
+        // 🔁 FALLBACK ROLE DETECTION (FINAL SAFETY NET)
 
-        // Try student collection
-        final studentCheck = await FirebaseFirestore.instance
-            .collection('student')
-            .where('authUid', isEqualTo: uid)
-            .limit(1)
+        final parentDoc = await FirebaseFirestore.instance
+            .collection('parents')
+            .doc(uid)
             .get();
 
-        if (studentCheck.docs.isNotEmpty) {
-          role = 'student';
-          debugPrint("✅ Detected as STUDENT");
+        if (parentDoc.exists) {
+          role = 'parent';
+          debugPrint("✅ Fallback: Found in parents collection");
         } else {
-          // Try teacher collection
-          final teacherCheck = await FirebaseFirestore.instance
-              .collection('teacher')
-              .doc(uid)
+          final studentSnap = await FirebaseFirestore.instance
+              .collection('student')
+              .where('authUid', isEqualTo: uid)
+              .limit(1)
               .get();
 
-          if (teacherCheck.exists) {
-            role = 'teacher';
-            debugPrint("✅ Detected as TEACHER");
+          if (studentSnap.docs.isNotEmpty) {
+            role = 'student';
+            debugPrint("✅ Fallback: Found in student collection");
           } else {
-            // Try parent collection
-            final parentCheck = await FirebaseFirestore.instance
-                .collection('parents')
+            final teacherDoc = await FirebaseFirestore.instance
+                .collection('teacher')
                 .doc(uid)
                 .get();
 
-            if (parentCheck.exists) {
-              role = 'parent';
-              debugPrint("✅ Detected as PARENT");
+            if (teacherDoc.exists) {
+              role = 'teacher';
+              debugPrint("✅ Fallback: Found in teacher collection");
             }
           }
         }
@@ -238,9 +233,8 @@ class _LoginPageState extends State<LoginPage> {
         }
         return;
       }
-
       // ======================================================
-      // 6. PARENT FLOW
+      // 6. PARENT FLOW (✅ FIXED LOGIC)
       // ======================================================
       if (role == 'parent') {
         debugPrint("👨‍👩‍👧 Processing PARENT login...");
@@ -250,41 +244,69 @@ class _LoginPageState extends State<LoginPage> {
             .doc(uid)
             .get();
 
-        debugPrint("👨‍👩‍👧 Parent doc exists: ${parentDoc.exists}");
-        debugPrint("👨‍👩‍👧 Parent data: ${parentDoc.data()}");
-
         if (!parentDoc.exists) {
           await FirebaseAuth.instance.signOut();
           throw "Parent profile data is missing. Please register again.";
         }
 
-        // Check if Parent has connected with a child
-        final linkedStudentId = parentDoc['linked_student_id'];
-        final bool isChildConnected =
-            linkedStudentId != null &&
-            linkedStudentId.toString().trim().isNotEmpty;
+        final data = parentDoc.data()!;
 
-        debugPrint("👨‍👩‍👧 Linked student ID: $linkedStudentId");
-        debugPrint("👨‍👩‍👧 Is child connected: $isChildConnected");
+        final bool childFaceLinked = data['child_face_linked'] == true;
+        final String? linkedStudentId =
+            (data['linked_student_id'] != null &&
+                data['linked_student_id'].toString().trim().isNotEmpty)
+            ? data['linked_student_id'].toString().trim()
+            : null;
+
+        debugPrint("👨‍👩‍👧 linkedStudentId: $linkedStudentId");
+        debugPrint("👨‍👩‍👧 childFaceLinked: $childFaceLinked");
 
         if (!mounted) return;
 
-        if (!isChildConnected) {
-          // Child not connected yet - go to ConnectChildPage
-          debugPrint("👨‍👩‍👧 Redirecting to ConnectChildPage...");
+        if (linkedStudentId == null && childFaceLinked == true) {
+          if (mounted) setState(() => isLoading = false);
+          await FirebaseAuth.instance.signOut();
+          throw "Parent account data is inconsistent. Please contact support.";
+        }
+
+        // 🔴 CASE 1: No child linked yet
+        if (linkedStudentId == null && childFaceLinked == false) {
+          debugPrint("➡️ Parent → ChildAdmissionNumberPage");
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const ConnectChildPage()),
           );
-        } else {
-          // Child already connected - go to ParentDashboard
-          debugPrint("👨‍👩‍👧 Redirecting to ParentDashboard...");
+          return;
+        }
+
+        // 🟡 CASE 2: Child linked but face NOT verified
+        if (linkedStudentId != null && childFaceLinked == false) {
+          debugPrint("➡️ Parent → Child Face Scan Page");
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ParentFaceScanPage(
+                admissionNo: linkedStudentId,
+                studentName: "Child",
+              ),
+            ),
+          );
+          return;
+        }
+
+        // 🟢 CASE 3: Child + face verified
+        if (linkedStudentId != null && childFaceLinked == true) {
+          debugPrint("➡️ Parent → ParentDashboard");
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const ParentDashboard()),
           );
+          return;
         }
-        return;
+
+        // 🚨 SAFETY NET (should never happen)
+        await FirebaseAuth.instance.signOut();
+        throw "Invalid parent account state. Please contact support.";
       }
 
       // ======================================================
@@ -375,7 +397,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ======================================================
-  // UI (UPDATED)
+  // UI (UNCHANGED - KEPT SAME)
   // ======================================================
   @override
   Widget build(BuildContext context) {
@@ -536,7 +558,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ======================================================
-  // HELPERS
+  // HELPERS (UNCHANGED)
   // ======================================================
   Widget _inputField({
     required String hint,
