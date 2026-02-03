@@ -30,7 +30,9 @@ class ParentFaceScanPage extends StatefulWidget {
 
 class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
   // ================= CONFIG =================
+  // ✅ FIXED: Changed to /face/verify/parent endpoint
   static const String _apiBaseUrl = "https://darzo-backend-api.onrender.com";
+  static const String _faceVerifyParentEndpoint = "/face/verify/parent";
   static const int _apiTimeoutSeconds = 45;
 
   static const int _maxImageSizePerImage = 900 * 1024;
@@ -81,7 +83,8 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
   @override
   void initState() {
     super.initState();
-    debugPrint("🎬 ParentFaceScan Initializing for: ${widget.admissionNo}");
+    debugPrint("🎬 ParentFaceScan initialized for: ${widget.admissionNo}");
+    debugPrint("   Student: ${widget.studentName}");
 
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
@@ -243,10 +246,8 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
   String? _checkFaceQuality(Face face, Size imageSize) {
     final Rect box = face.boundingBox;
 
-    // Check Size
     if (box.width < imageSize.width * 0.15) return "Move Closer 🔍";
 
-    // Full Face Check (Relaxed)
     if (box.left < 2 ||
         box.top < 2 ||
         box.right > imageSize.width - 2 ||
@@ -271,19 +272,16 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
     String nextInstruction = _instruction;
 
     if (_step == 0) {
-      // Straight
       if (rotY.abs() <= _straightYawLimit)
         isAligned = true;
       else
         nextInstruction = "Look Straight 👀";
     } else if (_step == 1) {
-      // Left
       if (rotY > _turnYawThreshold)
         isAligned = true;
       else
         nextInstruction = "Turn Head Left ⬅️";
     } else if (_step == 2) {
-      // Right
       if (rotY < -_turnYawThreshold)
         isAligned = true;
       else
@@ -514,13 +512,14 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
     );
   }
 
+  // ================= VERIFY & LINK CHILD =================
+  // ✅ FIXED: Updated to use /face/verify/parent endpoint with correct logic
   Future<void> _verifyAndLinkChild() async {
     if (_straight == null || _left == null || _right == null) {
       _showError("Missing one or more images");
       return;
     }
 
-    // Check total size
     int totalSize =
         _straight!.lengthInBytes + _left!.lengthInBytes + _right!.lengthInBytes;
     if (totalSize > _totalMaxSize) {
@@ -531,52 +530,27 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
     setState(() => _isSubmitting = true);
 
     try {
-      debugPrint("🔍 Fetching student data for: ${widget.admissionNo}");
+      debugPrint("👨‍👩‍👧 Starting parent face verification...");
+      debugPrint("   admission_no: ${widget.admissionNo}");
+      debugPrint("   student: ${widget.studentName}");
 
-      // 1. Fetch Student with error handling
-      final studentDoc = await FirebaseFirestore.instance
-          .collection('student')
-          .doc(widget.admissionNo)
-          .get()
-          .timeout(
-            const Duration(seconds: 10),
-            onTimeout: () =>
-                throw Exception("Firebase timeout fetching student"),
-          );
-
-      if (!studentDoc.exists) {
-        throw Exception("Student document not found");
-      }
-
-      // ✅ FIX: Removed unnecessary cast
-      final studentData = studentDoc.data();
-
-      if (studentData == null) {
-        throw Exception("Student data is empty");
-      }
-
-      final studentUid = studentData['authUid'] as String?;
-      if (studentUid == null || studentUid.isEmpty) {
-        throw Exception("Student authUid is missing");
-      }
-
-      debugPrint("✅ Student found: $studentUid");
-
-      // 2. Build request properly
+      // ✅ STEP 1: Build request for /face/verify/parent endpoint
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse("$_apiBaseUrl/face/verify"),
+        Uri.parse("$_apiBaseUrl$_faceVerifyParentEndpoint"),
       );
 
-      // 3. Only send admission_no (backend verified)
-      request.fields['admission_no'] = widget.admissionNo;
-      request.fields['session_id'] = "PARENT_LINKING";
-      request.fields['student_id'] = studentUid;
+      debugPrint("🔗 Endpoint: $_faceVerifyParentEndpoint");
 
+      // ✅ STEP 2: Add ONLY admission_no field (backend requirement)
+      request.fields['admission_no'] = widget.admissionNo;
+      debugPrint("📝 Field: admission_no=${widget.admissionNo}");
+
+      // ✅ STEP 3: Add 3 images
       final images = [_straight!, _left!, _right!];
       final names = ['face_straight.jpg', 'face_left.jpg', 'face_right.jpg'];
 
-      debugPrint("📤 Adding 3 images to request...");
+      debugPrint("📸 Adding 3 images to request...");
 
       for (int i = 0; i < 3; i++) {
         request.files.add(
@@ -587,47 +561,50 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
             contentType: MediaType('image', 'jpeg'),
           ),
         );
+        debugPrint(
+          "   Image ${i + 1}: ${(images[i].lengthInBytes / 1024).toStringAsFixed(1)} KB",
+        );
       }
 
       debugPrint("📡 Sending request to backend...");
 
-      // 4. Proper timeout handling
+      // ✅ STEP 4: Send request with timeout
       final response = await http.Response.fromStream(
         await request.send().timeout(
           Duration(seconds: _apiTimeoutSeconds),
-          onTimeout: () => throw Exception("Backend request timeout"),
+          onTimeout: () => throw TimeoutException(
+            "Backend request timeout after $_apiTimeoutSeconds seconds",
+          ),
         ),
       );
 
-      debugPrint("📥 Backend response code: ${response.statusCode}");
-      // Only read substring if body is long enough
-      String debugBody = response.body;
-      if (debugBody.length > 200) {
-        debugBody = debugBody.substring(0, 200);
-      }
-      debugPrint("📥 Response body: $debugBody");
+      debugPrint("📥 Response code: ${response.statusCode}");
 
-      // 5. Proper JSON parsing with error handling
+      // ✅ STEP 5: Parse response
       late Map<String, dynamic> data;
       try {
         data = jsonDecode(response.body) as Map<String, dynamic>;
+        debugPrint("📦 Response parsed: success=${data['success']}");
       } catch (e) {
-        throw Exception("Invalid JSON response: ${response.body}");
+        debugPrint("❌ JSON parse error: $e");
+        throw Exception("Invalid response format: ${response.body}");
       }
 
-      // 6. Check response properly
+      // ✅ STEP 6: Check if verification successful
       if (response.statusCode == 200 && data['success'] == true) {
         debugPrint("✅ Face verification successful!");
+        debugPrint("   Status: ${data['status']}");
+        debugPrint("   Confidence: ${data['confidence']}%");
 
-        // 7. Verify user is still logged in
+        // ✅ STEP 7: Verify user still logged in
         final user = FirebaseAuth.instance.currentUser;
         if (user == null) {
           throw Exception("User not logged in");
         }
 
-        debugPrint("💾 Updating parent profile...");
+        debugPrint("💾 Updating parent profile in Firebase...");
 
-        // 8. Update with BOTH critical fields
+        // ✅ STEP 8: Update parent document with CRITICAL fields
         await FirebaseFirestore.instance
             .collection('parents')
             .doc(user.uid)
@@ -639,17 +616,21 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
             })
             .timeout(
               const Duration(seconds: 10),
-              onTimeout: () => throw Exception("Firebase update timeout"),
+              onTimeout: () =>
+                  throw TimeoutException("Firebase update timeout"),
             );
 
         debugPrint("✅ Parent profile updated successfully");
+        debugPrint("   child_face_linked: true");
+        debugPrint("   linked_student_id: ${widget.admissionNo}");
 
+        // ✅ STEP 9: Show success and navigate
         if (mounted && !_isDisposed) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                "Verified! Confidence: ${data['confidence']?.toStringAsFixed(1) ?? 'N/A'}%",
+                "✅ Verified! Confidence: ${(data['confidence'] as num?)?.toStringAsFixed(1) ?? 'N/A'}%",
               ),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 2),
@@ -659,6 +640,7 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
           await Future.delayed(const Duration(milliseconds: 500));
 
           if (mounted && !_isDisposed) {
+            debugPrint("🔄 Navigating to ParentDashboard...");
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (_) => const ParentDashboard()),
@@ -666,31 +648,34 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
           }
         }
       } else {
-        final error = data['error'] ?? "Unknown error";
-        debugPrint("❌ Verification failed: $error");
+        // ✅ STEP 10: Handle verification failure
+        final errorMsg = data['detail'] ?? data['error'] ?? "Unknown error";
+        debugPrint("❌ Verification failed: $errorMsg");
+
         _showErrorDialog(
-          "Face Mismatch",
-          "This does not match the student's registered face.\n\nError: $error",
+          "Face Verification Failed",
+          "This face does not match the student's registered face.\n\nError: $errorMsg",
         );
       }
-    } on FirebaseException catch (e) {
-      debugPrint("❌ Firebase error: ${e.code} - ${e.message}");
-      _showErrorDialog("Firebase Error", "Error: ${e.message}");
+    } on TimeoutException catch (e) {
+      debugPrint("❌ Timeout error: $e");
+      _showErrorDialog(
+        "Request Timeout",
+        "The verification took too long.\n\n${e.message}",
+      );
     } on SocketException catch (e) {
       debugPrint("❌ Network error: $e");
       _showErrorDialog(
         "Network Error",
         "Please check your internet connection.\n\n$e",
       );
-    } on TimeoutException catch (e) {
-      debugPrint("❌ Timeout error: $e");
-      _showErrorDialog(
-        "Request Timeout",
-        "The request took too long. Please try again.",
-      );
+    } on FirebaseException catch (e) {
+      debugPrint("❌ Firebase error: ${e.code} - ${e.message}");
+      _showErrorDialog("Firebase Error", "Error: ${e.message}");
     } catch (e) {
       debugPrint("❌ Unexpected error: $e");
-      _showErrorDialog("Error", e.toString());
+      debugPrint("   Type: ${e.runtimeType}");
+      _showErrorDialog("Verification Error", e.toString());
     } finally {
       if (mounted && !_isDisposed) {
         setState(() => _isSubmitting = false);
@@ -820,7 +805,6 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
         children: [
           CameraPreview(_controller!),
 
-          // Face Bounding Boxes
           if (_imageSize != null)
             CustomPaint(
               painter: FaceDetectorPainter(
@@ -832,7 +816,6 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
               ),
             ),
 
-          // Top Bar
           Positioned(
             top: 50,
             left: 20,
@@ -842,7 +825,6 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
             ),
           ),
 
-          // Progress Bar
           Positioned(
             top: 50,
             left: 70,
@@ -854,7 +836,6 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
             ),
           ),
 
-          // Bottom Card
           Positioned(
             bottom: 30,
             left: 20,
@@ -864,6 +845,13 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -881,6 +869,7 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
+                            color: Colors.black87,
                           ),
                         ),
                         if (_faceAligned && !_isSubmitting)
@@ -889,6 +878,7 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
                             style: const TextStyle(
                               color: Colors.green,
                               fontWeight: FontWeight.bold,
+                              fontSize: 12,
                             ),
                           ),
                       ],
@@ -897,7 +887,10 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
                   if (_isSubmitting)
                     const SizedBox(
                       width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                      ),
                     ),
                 ],
               ),
@@ -911,6 +904,7 @@ class _ParentFaceScanPageState extends State<ParentFaceScanPage> {
   Widget _buildStepIcon(int index) {
     bool active = _step == index;
     bool done = _step > index;
+
     return Container(
       margin: const EdgeInsets.only(right: 5),
       padding: const EdgeInsets.all(6),
@@ -1000,6 +994,7 @@ class FaceDetectorPainter extends CustomPainter {
   bool shouldRepaint(FaceDetectorPainter oldDelegate) => true;
 }
 
+// ================= HELPER FUNCTIONS =================
 double translateX(
   double x,
   Size canvasSize,
