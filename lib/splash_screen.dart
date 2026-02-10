@@ -1,3 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/admin/admin_dashboard.dart';
+import 'package:darzo/parents/child_admisision_no.dart';
+import 'package:darzo/parents/child_face_scan.dart';
+import 'package:darzo/parents/parent_dashboard.dart';
 import 'package:darzo/student/face_liveness_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +11,6 @@ import 'package:darzo/login.dart';
 import 'package:darzo/student/student_dashboard.dart';
 import 'package:darzo/teacher/teacher_dashboard.dart';
 import 'package:darzo/teacher/teacher_setup_page.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -53,15 +57,15 @@ class _SplashScreenState extends State<SplashScreen> {
       final role = authProvider.role;
       final uid = authProvider.user!.uid;
 
+      debugPrint("🚀 Splash Routing: Role=$role, UID=$uid");
+
       // ======================================================
       // ADMIN FLOW
       // ======================================================
       if (role == 'admin') {
-        // Navigate to admin dashboard (you need to implement this)
-        // For now, going to login page - replace with admin dashboard
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const LoginPage()),
+          MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
         );
         return;
       }
@@ -131,11 +135,69 @@ class _SplashScreenState extends State<SplashScreen> {
         return;
       }
 
+      // ======================================================
+      // PARENT FLOW (✅ ADDED)
+      // ======================================================
+      if (role == 'parent') {
+        final parentDoc = await FirebaseFirestore.instance
+            .collection('parents')
+            .doc(uid)
+            .get();
+
+        if (!parentDoc.exists) {
+          await authProvider.logout();
+          _navigateToLogin("Parent record missing");
+          return;
+        }
+
+        final data = parentDoc.data()!;
+        final bool childFaceLinked = data['child_face_linked'] == true;
+        final String? linkedStudentId =
+            (data['linked_student_id'] != null &&
+                data['linked_student_id'].toString().isNotEmpty)
+            ? data['linked_student_id'].toString().trim()
+            : null;
+
+        debugPrint(
+          "👨‍👩‍👧 Parent: ID=$linkedStudentId, FaceLinked=$childFaceLinked",
+        );
+
+        // 1. If child NOT linked -> Connect Page
+        if (linkedStudentId == null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const ConnectChildPage()),
+          );
+          return;
+        }
+
+        // 2. If child linked but Face NOT verified -> Face Scan Page
+        if (!childFaceLinked) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ParentFaceScanPage(
+                admissionNo: linkedStudentId,
+                studentName: "Child",
+              ),
+            ),
+          );
+          return;
+        }
+
+        // 3. All good -> Dashboard
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const ParentDashboard()),
+        );
+        return;
+      }
+
       // Invalid role - logout and go to login
       await authProvider.logout();
       _navigateToLogin("Invalid account type");
     } catch (e) {
-      print("Splash screen error: $e");
+      debugPrint("❌ Splash screen error: $e");
       await authProvider.logout();
       _navigateToLogin("Authentication error occurred");
     }
@@ -159,7 +221,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   // ===================================================
-  // SPLASH UI (YOUR ORIGINAL DESIGN)
+  // SPLASH UI
   // ===================================================
   @override
   Widget build(BuildContext context) {
@@ -169,24 +231,41 @@ class _SplashScreenState extends State<SplashScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF2BD6D6), Color(0xFF7B3CF0)],
+            colors: [Color(0xFF2BD6D6), Color.fromARGB(255, 60, 108, 240)],
           ),
         ),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.school, size: 80, color: Colors.white),
-              SizedBox(height: 20),
+            children: [
+              // ✅ Icon with animation
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.2),
+                ),
+                child: const Icon(Icons.school, size: 60, color: Colors.white),
+              ),
+              const SizedBox(height: 20),
               Text(
                 'DARZO',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 28,
+                  fontSize: 30,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2,
                 ),
               ),
+              const SizedBox(height: 40),
+
+              // ✅ Loading indicator
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                strokeWidth: 3,
+              ),
+              const SizedBox(height: 16),
             ],
           ),
         ),
