@@ -61,6 +61,36 @@ class _ParentRegisterPageState extends State<ParentRegisterPage> {
         setState(() => _isLoading = false);
         return;
       }
+      final db = FirebaseFirestore.instance;
+
+      // 1️⃣ Check email already used in parents collection
+      final emailSnap = await db
+          .collection('parents')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+
+      if (emailSnap.docs.isNotEmpty) {
+        _showCleanSnackBar(
+          "Email already registered. Please login.",
+          isError: true,
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // 2️⃣ Check mobile already used
+      final mobileSnap = await db
+          .collection('parents')
+          .where('mobile', isEqualTo: mobile)
+          .limit(1)
+          .get();
+
+      if (mobileSnap.docs.isNotEmpty) {
+        _showCleanSnackBar("Mobile number already registered.", isError: true);
+        setState(() => _isLoading = false);
+        return;
+      }
 
       debugPrint("🔐 Creating auth user: $email");
 
@@ -94,7 +124,8 @@ class _ParentRegisterPageState extends State<ParentRegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
         'linked_student_id': null,
         'is_student_linked': false,
-        'child_face_linked': false, // ✅ NEW FIELD: For login logic
+        'child_face_linked': false,
+        'has_attempted_link': false,
       });
 
       debugPrint("✅ Parent profile created with child_face_linked=false");

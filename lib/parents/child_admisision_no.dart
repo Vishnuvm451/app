@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/login.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,7 +25,6 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
   }
 
   Future<void> _verifyAdmission() async {
-    // ✅ FIX: Input validation
     if (_admissionCtrl.text.isEmpty) {
       _showCleanSnackBar("Please enter admission number", isError: true);
       return;
@@ -32,7 +32,6 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
 
     final String admissionNum = _admissionCtrl.text.trim();
 
-    // ✅ FIX: Validate admission number format (digits only)
     if (!RegExp(r'^\d+$').hasMatch(admissionNum)) {
       _showCleanSnackBar(
         "Admission number must contain only digits",
@@ -45,74 +44,56 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
 
     try {
       final User? currentUser = FirebaseAuth.instance.currentUser;
-
-      // ✅ FIX: Check if user is logged in
       if (currentUser == null) {
         _showCleanSnackBar("Error: No user logged in!", isError: true);
-        if (mounted) setState(() => _isLoading = false);
         return;
       }
 
-      debugPrint(
-        "🔍 Verifying admission: $admissionNum for user: ${currentUser.uid}",
-      );
+      final db = FirebaseFirestore.instance;
+      final studentRef = db.collection('student').doc(admissionNum);
+      final parentRef = db.collection('parents').doc(currentUser.uid);
 
-      // 1. Check if Student Exists in Firestore
-      final studentDoc = await FirebaseFirestore.instance
-          .collection('student')
-          .doc(admissionNum)
-          .get();
+      String studentName = "Student";
 
-      debugPrint("📚 Student doc exists: ${studentDoc.exists}");
+      // ✅ ATOMIC TRANSACTION (CORE FIX)
+      await db.runTransaction((tx) async {
+        final studentSnap = await tx.get(studentRef);
 
-      if (!studentDoc.exists) {
-        _showCleanSnackBar(
-          "Admission Number not found in system!",
-          isError: true,
-        );
-        if (mounted) setState(() => _isLoading = false);
-        return;
-      }
+        if (!studentSnap.exists) {
+          throw Exception("STUDENT_NOT_FOUND");
+        }
 
-      final studentData = studentDoc.data() as Map<String, dynamic>;
-      final String studentName = studentData['name'] ?? 'Student';
+        final studentData = studentSnap.data()!;
+        studentName = studentData['name'] ?? 'Student';
 
-      debugPrint("✅ Student found: $studentName");
+        // 🔒 HARD LOCK CHECK
+        if (studentData['parentId'] != null) {
+          throw Exception("ALREADY_LINKED");
+        }
 
-      // 2. Link student to parent immediately
-      debugPrint("💾 Linking student to parent profile...");
+        // ✅ LINK STUDENT → PARENT
+        tx.update(studentRef, {
+          'parentId': currentUser.uid,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
 
-      try {
-        await FirebaseFirestore.instance
-            .collection('parents')
-            .doc(currentUser.uid)
-            .update({
-              'linked_student_id': admissionNum,
-              'is_student_linked': true,
-              'updated_at': FieldValue.serverTimestamp(),
-            });
-
-        debugPrint("✅ Parent profile updated with student link");
-      } catch (e) {
-        debugPrint("⚠️ Error updating parent profile: $e");
-        _showCleanSnackBar(
-          "Error linking student. Please try again.",
-          isError: true,
-        );
-        if (mounted) setState(() => _isLoading = false);
-        return;
-      }
+        // ✅ LINK PARENT → STUDENT
+        tx.update(parentRef, {
+          'linked_student_id': admissionNum,
+          'is_student_linked': true,
+          'has_attempted_link': true,
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      });
 
       if (!mounted) return;
 
       _showCleanSnackBar(
-        "Student found! Proceeding to face scan...",
+        "Student linked successfully! Proceeding to face scan...",
         isError: false,
       );
 
-      // 3. Navigate to Face Scan Page after short delay
-      await Future.delayed(const Duration(milliseconds: 800));
-
+      await Future.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
 
       Navigator.pushReplacement(
@@ -124,12 +105,20 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
           ),
         ),
       );
-    } on FirebaseException catch (e) {
-      debugPrint("❌ Firebase error: ${e.code} - ${e.message}");
-      _showCleanSnackBar("Database error: ${e.message}", isError: true);
     } catch (e) {
-      debugPrint("❌ Unexpected error: $e");
-      _showCleanSnackBar("Error: ${e.toString()}", isError: true);
+      if (e.toString().contains("ALREADY_LINKED")) {
+        _showCleanSnackBar(
+          "This student is already linked to another parent.",
+          isError: true,
+        );
+      } else if (e.toString().contains("STUDENT_NOT_FOUND")) {
+        _showCleanSnackBar("Admission number not found.", isError: true);
+      } else {
+        _showCleanSnackBar(
+          "Error linking student. Please try again.",
+          isError: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -177,7 +166,10 @@ class _ConnectChildPageState extends State<ConnectChildPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          ),
         ),
         title: const Text(
           "Connect Child",
