@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/teacher/edit_setup.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:darzo/login.dart';
@@ -200,6 +201,16 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ),
     );
+  }
+  // ==================================================
+  // EDIT SETUP PAGE
+  // ==================================================
+
+  void _navigateToEditSetup() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const EditSetupPage()),
+    ).then((_) => _fetchProfileData()); // Refresh profile when coming back
   }
 
   // ==================================================
@@ -449,7 +460,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   if (widget.userRole == 'student') ...[
                     _sectionTitle("BIOMETRICS"),
@@ -459,6 +470,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       icon: Icons.face_retouching_off,
                       iconColor: Colors.orange,
                       onTap: _confirmRemoveFace,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+
+                  if (widget.userRole == 'teacher') ...[
+                    _sectionTitle("SETUP"),
+                    _settingTile(
+                      title: "Edit Setup",
+                      subtitle: "Edit class / subjects",
+                      icon: Icons.settings_suggest_rounded,
+                      iconColor: Colors.orange,
+                      onTap: _navigateToEditSetup,
                     ),
                     const SizedBox(height: 16),
                   ],
