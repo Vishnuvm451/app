@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/attendance/attendance_finalize.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -13,688 +14,253 @@ class TeacherAttendanceSessionPage extends StatefulWidget {
 
 class _TeacherAttendanceSessionPageState
     extends State<TeacherAttendanceSessionPage> {
-  static const Duration SESSION_DURATION = Duration(hours: 4);
-  static const Duration EXPIRY_CHECK_INTERVAL = Duration(seconds: 2);
-
-  String? classId;
+  // ---------------- BASIC STATE ----------------
+  String classId = "";
   String className = "";
   String sessionType = "morning";
   bool isLoading = false;
+
   bool isMorningActive = false;
   bool isAfternoonActive = false;
   bool isMorningCompleted = false;
   bool isAfternoonCompleted = false;
 
-  // Timer displays
-  String morningTimeLeft = "";
-  String afternoonTimeLeft = "";
-  String morningStudentsMarked = "0";
-  String afternoonStudentsMarked = "0";
+  String morningStudents = "0";
+  String afternoonStudents = "0";
+  String morningTime = "04:00:00";
+  String afternoonTime = "04:00:00";
 
-  // ✅ NEW: Local variables to store expiry times (prevents DB spam)
-  DateTime? _morningExpiry;
-  DateTime? _afternoonExpiry;
+  DateTime? morningExpire;
+  DateTime? afternoonExpire;
 
-  Timer? _expiryTimer;
-  Timer? _displayTimer;
-  bool _hasActiveSession = false;
+  Timer? displayTimer;
 
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseFirestore db = FirebaseFirestore.instance;
+  final AttendanceService attendanceService = AttendanceService();
+
+  // ---------------- THEME COLORS ----------------
   final Color primaryBlue = const Color(0xFF2196F3);
   final Color bgLight = const Color(0xFFF5F7FA);
+  final Color textDark = const Color(0xFF263238);
 
+  // ---------------- LIFECYCLE ----------------
   @override
   void initState() {
     super.initState();
-    _loadTeacherProfile();
-    _startExpiryTimer();
-    _startDisplayTimer();
+    loadTeacher();
+    _startTimer();
   }
 
   @override
   void dispose() {
-    _expiryTimer?.cancel();
-    _displayTimer?.cancel();
+    displayTimer?.cancel();
     super.dispose();
   }
 
-  // ================= START EXPIRY TIMER =================
-  void _startExpiryTimer() {
-    _expiryTimer = Timer.periodic(EXPIRY_CHECK_INTERVAL, (timer) {
-      if (!mounted || classId == null) return;
-
-      if (_hasActiveSession) {
-        _checkAutoExpire();
-      }
-    });
-  }
-
-  // ================= DISPLAY TIMER (OPTIMIZED) =================
-  // ✅ FIX: No longer calls DB every second. Does local math only.
-  void _startDisplayTimer() {
-    _displayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+  // ---------------- TIMER ----------------
+  void _startTimer() {
+    displayTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      _updateDisplayTimes();
+      _updateTimes();
     });
   }
 
-  void _updateDisplayTimes() {
-    if (classId == null) return;
-
+  void _updateTimes() {
     setState(() {
-      // 1. Update Morning Timer locally
-      if (_morningExpiry != null) {
-        final remaining = _morningExpiry!.difference(DateTime.now());
-        if (remaining.isNegative) {
-          morningTimeLeft = "Expired";
-          // Trigger refresh if it just expired
-          if (isMorningActive) _loadSessionStatus();
-        } else {
-          morningTimeLeft = _formatDuration(remaining);
-        }
-      } else if (!isMorningActive) {
-        // Keep empty or "Expired" if not active, handled in load status
+      if (morningExpire != null) {
+        morningTime = _formatTime(morningExpire!);
       }
-
-      // 2. Update Afternoon Timer locally
-      if (_afternoonExpiry != null) {
-        final remaining = _afternoonExpiry!.difference(DateTime.now());
-        if (remaining.isNegative) {
-          afternoonTimeLeft = "Expired";
-          if (isAfternoonActive) _loadSessionStatus();
-        } else {
-          afternoonTimeLeft = _formatDuration(remaining);
-        }
-      } else if (!isAfternoonActive) {
-        // Keep empty or "Expired"
+      if (afternoonExpire != null) {
+        afternoonTime = _formatTime(afternoonExpire!);
       }
     });
   }
 
-  // Helper to format time strings locally
-  String _formatDuration(Duration d) {
-    String twoDigits(int n) => n.toString().padLeft(2, "0");
-    String hours = twoDigits(d.inHours);
-    String minutes = twoDigits(d.inMinutes.remainder(60));
-    String seconds = twoDigits(d.inSeconds.remainder(60));
-    if (d.inHours > 0) return "${hours}h ${minutes}m ${seconds}s";
-    return "${minutes}m ${seconds}s";
+  String _formatTime(DateTime expiry) {
+    final diff = expiry.difference(DateTime.now());
+    if (diff.isNegative) return "Expired";
+    return "${diff.inHours.toString().padLeft(2, '0')}:"
+        "${(diff.inMinutes % 60).toString().padLeft(2, '0')}:"
+        "${(diff.inSeconds % 60).toString().padLeft(2, '0')}";
   }
 
-  String _todayId() {
+  String getToday() {
     final now = DateTime.now();
-    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    return "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
   }
 
-  // ================= AUTO-EXPIRE CHECK =================
-  Future<void> _checkAutoExpire() async {
-    if (classId == null) return;
-    final today = _todayId();
-
-    try {
-      if (isMorningActive) {
-        final morningDoc = await _db
-            .collection('attendance_session')
-            .doc('${classId}_${today}_morning')
-            .get();
-
-        if (morningDoc.exists && !_isSessionValid(morningDoc)) {
-          print("⏰ Morning session auto-expired");
-          await _expireSession('morning', today);
-        }
-      }
-
-      if (isAfternoonActive) {
-        final afternoonDoc = await _db
-            .collection('attendance_session')
-            .doc('${classId}_${today}_afternoon')
-            .get();
-
-        if (afternoonDoc.exists && !_isSessionValid(afternoonDoc)) {
-          print("⏰ Afternoon session auto-expired");
-          await _expireSession('afternoon', today);
-        }
-      }
-    } catch (e) {
-      print("❌ Auto-expire check error: $e");
-    }
+  bool _isWeekend() {
+    final d = DateTime.now();
+    return d.weekday == DateTime.saturday || d.weekday == DateTime.sunday;
   }
 
-  // ================= EXPIRE SESSION =================
-  Future<void> _expireSession(String type, String today) async {
-    try {
-      await _db
-          .collection('attendance_session')
-          .doc('${classId}_${today}_$type')
-          .update({
-            'isActive': false,
-            'endedAt': FieldValue.serverTimestamp(),
-            'endReason': 'auto_expired',
-          });
-
-      // Run finalization if afternoon session expired
-      if (type == 'afternoon') {
-        print("⏳ Auto-finalizing attendance...");
-        await _finalizeAttendanceAsync(classId!, today);
-      }
-
-      if (mounted) {
-        setState(() {
-          if (type == 'morning') {
-            isMorningActive = false;
-            isMorningCompleted = true;
-            morningTimeLeft = "Expired";
-            _morningExpiry = null; // Clear timer
-          } else {
-            isAfternoonActive = false;
-            isAfternoonCompleted = true;
-            afternoonTimeLeft = "Expired";
-            _afternoonExpiry = null; // Clear timer
-          }
-          _hasActiveSession = isMorningActive || isAfternoonActive;
-        });
-
-        _showSnack(
-          "⏰ ${_capitalize(type)} session auto-expired",
-          success: true,
-        );
-      }
-    } catch (e) {
-      print("❌ Error expiring session: $e");
-    }
-  }
-
-  // ================= LOAD TEACHER PROFILE =================
-  Future<void> _loadTeacherProfile() async {
+  // ---------------- LOAD TEACHER ----------------
+  Future<void> loadTeacher() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        _showSnack("User not authenticated");
-        if (mounted) Navigator.pop(context);
-        return;
-      }
+      if (user == null) return;
 
-      final query = await _db
+      final q = await db
           .collection('teacher')
           .where('authUid', isEqualTo: user.uid)
-          .limit(1)
           .get();
 
-      if (query.docs.isEmpty) {
-        _showSnack("Teacher profile not found");
-        if (mounted) Navigator.pop(context);
-        return;
+      if (q.docs.isNotEmpty) {
+        final data = q.docs.first.data();
+        final ids = data['classIds'] as List?;
+        if (ids != null && ids.isNotEmpty) {
+          setState(() => classId = ids.first.toString());
+          await _loadClassName();
+          await _loadSessionStatus();
+        }
       }
-
-      final data = query.docs.first.data();
-
-      if (data['isApproved'] != true || data['setupCompleted'] != true) {
-        _showSnack("Complete approval & setup first");
-        if (mounted) Navigator.pop(context);
-        return;
-      }
-
-      final classIds = data['classIds'] as List?;
-      if (classIds == null || classIds.isEmpty) {
-        _showSnack("No class assigned");
-        if (mounted) Navigator.pop(context);
-        return;
-      }
-
-      setState(() {
-        classId = classIds.first as String;
-      });
-
-      await _loadClassName();
-      _loadSessionStatus();
     } catch (e) {
-      _showSnack("Error loading profile: $e");
+      debugPrint("Teacher load error: $e");
     }
   }
 
-  // ================= LOAD CLASS NAME =================
   Future<void> _loadClassName() async {
-    if (classId == null) return;
-
-    try {
-      final classDoc = await _db.collection('class').doc(classId).get();
-
-      if (classDoc.exists) {
-        final data = classDoc.data();
-        setState(() {
-          className =
-              data?['name'] ?? data?['className'] ?? _formatClassId(classId!);
-        });
-      } else {
-        setState(() {
-          className = _formatClassId(classId!);
-        });
-      }
-
-      print("✅ Class name loaded: $className");
-    } catch (e) {
-      print("⚠️ Error loading class name: $e");
+    final d = await db.collection('class').doc(classId).get();
+    if (d.exists) {
       setState(() {
-        className = _formatClassId(classId!);
+        className = d.data()?['name'] ?? d.data()?['className'] ?? classId;
       });
     }
   }
 
-  String _formatClassId(String id) {
-    return id.replaceAll('_', ' ').toUpperCase();
-  }
-
-  // ================= LOAD SESSION STATUS (UPDATED) =================
-  // ✅ FIX: Fetches student counts here instead of in the timer loop
+  // ---------------- SESSION STATUS ----------------
   Future<void> _loadSessionStatus() async {
-    if (classId == null) return;
+    final today = getToday();
 
-    try {
-      final today = _todayId();
-      print("📍 Loading sessions for classId: '$classId', date: '$today'");
-
-      // 1. Fetch Session Docs
-      final morningDoc = await _db
-          .collection('attendance_session')
-          .doc('${classId}_${today}_morning')
-          .get();
-
-      final afternoonDoc = await _db
-          .collection('attendance_session')
-          .doc('${classId}_${today}_afternoon')
-          .get();
-
-      // 2. Fetch Student Counts (Efficiently)
-      // Note: count() aggregation is cheaper but .get().length is fine for class sizes < 100
-      final morningStudentsSnap = await _db
-          .collection('attendance')
-          .doc('${classId}_${today}_morning')
-          .collection('student')
-          .get();
-
-      final afternoonStudentsSnap = await _db
-          .collection('attendance')
-          .doc('${classId}_${today}_afternoon')
-          .collection('student')
-          .get();
-
-      if (mounted) {
-        setState(() {
-          // --- Morning Logic ---
-          isMorningActive =
-              morningDoc.exists &&
-              morningDoc['isActive'] == true &&
-              _isSessionValid(morningDoc);
-
-          isMorningCompleted =
-              morningDoc.exists && morningDoc['isActive'] == false;
-
-          if (isMorningActive) {
-            Timestamp? ts = morningDoc['expiresAt'];
-            _morningExpiry = ts?.toDate();
-            // ✅ FIX: Calculate remaining time for display
-            if (_morningExpiry != null) {
-              final remaining = _morningExpiry!.difference(DateTime.now());
-              morningTimeLeft = remaining.isNegative
-                  ? "Expired"
-                  : _formatDuration(remaining);
-            }
-          } else {
-            _morningExpiry = null;
-            morningTimeLeft = isMorningCompleted ? "" : "";
-          }
-
-          // ✅ FIX: Update student count
-          morningStudentsMarked = morningStudentsSnap.docs.length.toString();
-
-          // --- Afternoon Logic ---
-          isAfternoonActive =
-              afternoonDoc.exists &&
-              afternoonDoc['isActive'] == true &&
-              _isSessionValid(afternoonDoc);
-
-          isAfternoonCompleted =
-              afternoonDoc.exists && afternoonDoc['isActive'] == false;
-
-          if (isAfternoonActive) {
-            Timestamp? ts = afternoonDoc['expiresAt'];
-            _afternoonExpiry = ts?.toDate();
-            // ✅ FIX: Calculate remaining time for display
-            if (_afternoonExpiry != null) {
-              final remaining = _afternoonExpiry!.difference(DateTime.now());
-              afternoonTimeLeft = remaining.isNegative
-                  ? "Expired"
-                  : _formatDuration(remaining);
-            }
-          } else {
-            _afternoonExpiry = null;
-            afternoonTimeLeft = isAfternoonCompleted ? "" : "";
-          }
-
-          // ✅ FIX: Update student count
-          afternoonStudentsMarked = afternoonStudentsSnap.docs.length
-              .toString();
-
-          _hasActiveSession = isMorningActive || isAfternoonActive;
-        });
-
-        // Auto-expire stale sessions
-        if (morningDoc.exists &&
-            morningDoc['isActive'] == true &&
-            !_isSessionValid(morningDoc)) {
-          _expireSession('morning', today);
-        }
-
-        if (afternoonDoc.exists &&
-            afternoonDoc['isActive'] == true &&
-            !_isSessionValid(afternoonDoc)) {
-          _expireSession('afternoon', today);
-        }
-      }
-    } catch (e) {
-      print("❌ Error loading session status: $e");
-    }
-  }
-
-  bool _isSessionValid(DocumentSnapshot doc) {
-    try {
-      final data = doc.data() as Map<String, dynamic>?;
-      if (data == null) return false;
-
-      final dynamic expiresAtRaw = data['expiresAt'];
-
-      if (expiresAtRaw == null) return false;
-      if (expiresAtRaw is! Timestamp) return false;
-
-      return expiresAtRaw.toDate().isAfter(DateTime.now());
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // ================= START SESSION =================
-  Future<void> _startSession() async {
-    if (classId == null) return _showSnack("Class not assigned");
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return _showSnack("User not authenticated");
-
-    final today = _todayId();
-    final sessionId = "${classId}_${today}_$sessionType";
-
-    print("🚀 Starting session: $sessionId");
-
-    final sessionDoc = await _db
+    final morningDoc = await db
         .collection('attendance_session')
-        .doc(sessionId)
+        .doc('${classId}_${today}_morning')
         .get();
 
-    if (sessionDoc.exists) {
-      final mapData = sessionDoc.data();
-      final isActive = mapData?['isActive'] == true;
+    final afternoonDoc = await db
+        .collection('attendance_session')
+        .doc('${classId}_${today}_afternoon')
+        .get();
 
-      if (isActive && _isSessionValid(sessionDoc)) {
-        _showSnack("$sessionType session is already active");
-        return;
-      }
+    final morningList = await db
+        .collection('attendance')
+        .doc('${classId}_${today}_morning')
+        .collection('student')
+        .get();
 
-      if (!isActive && mapData?['endedAt'] != null) {
-        _showSnack("$sessionType session already completed today");
-        return;
-      }
+    final afternoonList = await db
+        .collection('attendance')
+        .doc('${classId}_${today}_afternoon')
+        .collection('student')
+        .get();
+
+    if (!mounted) return;
+
+    setState(() {
+      isMorningActive = morningDoc.exists && morningDoc['isActive'] == true;
+      isMorningCompleted = morningDoc.exists && morningDoc['isActive'] == false;
+      morningExpire = morningDoc.exists && morningDoc['expiresAt'] != null
+          ? (morningDoc['expiresAt'] as Timestamp).toDate()
+          : null;
+
+      isAfternoonActive =
+          afternoonDoc.exists && afternoonDoc['isActive'] == true;
+      isAfternoonCompleted =
+          afternoonDoc.exists && afternoonDoc['isActive'] == false;
+      afternoonExpire = afternoonDoc.exists && afternoonDoc['expiresAt'] != null
+          ? (afternoonDoc['expiresAt'] as Timestamp).toDate()
+          : null;
+
+      morningStudents = morningList.docs.length.toString();
+      afternoonStudents = afternoonList.docs.length.toString();
+    });
+  }
+
+  // ---------------- START SESSION ----------------
+  Future<void> startSession() async {
+    if (classId.isEmpty) return;
+    if (_isWeekend()) {
+      _show("📅 Today is a holiday");
+      return;
     }
 
     setState(() => isLoading = true);
 
     try {
-      final now = DateTime.now().toUtc();
-      final expiresAt = now.add(SESSION_DURATION);
+      final today = getToday();
+      final id = "${classId}_${today}_$sessionType";
+      final expires = DateTime.now().add(const Duration(hours: 4));
 
-      print("📅 Creating session with expiresAt: $expiresAt");
-
-      await _db.collection('attendance_session').doc(sessionId).set({
+      await db.collection('attendance_session').doc(id).set({
         'classId': classId,
         'date': today,
         'sessionType': sessionType,
         'isActive': true,
-        'startedBy': user.uid,
         'startedAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(expiresAt),
-        'endedAt': null,
-        'endReason': null,
+        'expiresAt': Timestamp.fromDate(expires),
       });
 
-      await _db.collection('attendance').doc(sessionId).set({
-        'classId': classId,
-        'date': today,
-        'sessionType': sessionType,
-        'createdAt': FieldValue.serverTimestamp(),
+      await db.collection('attendance').doc(id).set({
+        'created': true,
       }, SetOptions(merge: true));
 
-      // ✅ FIX: Update state IMMEDIATELY before loading from DB
-      if (mounted) {
-        setState(() {
-          if (sessionType == 'morning') {
-            isMorningActive = true;
-            _morningExpiry = expiresAt;
-            morningTimeLeft = _formatDuration(SESSION_DURATION);
-            morningStudentsMarked = '0';
-          } else {
-            isAfternoonActive = true;
-            _afternoonExpiry = expiresAt;
-            afternoonTimeLeft = _formatDuration(SESSION_DURATION);
-            afternoonStudentsMarked = '0';
-          }
-          _hasActiveSession = true;
-        });
-      }
-
-      _showSnack(
-        "✅ ${_capitalize(sessionType)} session started for 4 hours",
-        success: true,
-      );
-
-      // Verify from DB after small delay
-      await Future.delayed(const Duration(milliseconds: 500));
       await _loadSessionStatus();
+      _show("✅ $sessionType session started");
     } catch (e) {
-      print("❌ Error starting session: $e");
-      _showSnack("❌ Error starting session: ${e.toString()}");
+      _show("❌ $e");
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      setState(() => isLoading = false);
     }
   }
 
-  // ================= STOP SESSION =================
-  Future<void> _stopSession() async {
-    if (classId == null) return _showSnack("Class not assigned");
-
-    final today = _todayId();
-    final sessionId = "${classId}_${today}_$sessionType";
-
-    final sessionDoc = await _db
-        .collection('attendance_session')
-        .doc(sessionId)
-        .get();
-
-    if (!sessionDoc.exists) {
-      _showSnack("❌ No $sessionType session found");
-      return;
-    }
-
-    final mapData = sessionDoc.data();
-
-    if (mapData?['isActive'] != true) {
-      _showSnack("❌ $sessionType session is not active");
-      return;
-    }
+  // ---------------- STOP SESSION ----------------
+  Future<void> stopSession() async {
+    if (classId.isEmpty) return;
 
     setState(() => isLoading = true);
 
     try {
-      await _db.collection('attendance_session').doc(sessionId).update({
+      final today = getToday();
+      final id = "${classId}_${today}_$sessionType";
+
+      await db.collection('attendance_session').doc(id).update({
         'isActive': false,
         'endedAt': FieldValue.serverTimestamp(),
-        'endReason': 'manual_stop',
       });
 
-      _showSnack(
-        "✅ ${_capitalize(sessionType)} session stopped",
-        success: true,
-      );
-
-      if (sessionType == "afternoon") {
-        _showSnack("📊 Calculating final attendance...", success: true);
-        await Future.delayed(const Duration(seconds: 2));
-        await _finalizeAttendanceAsync(classId!, today);
-        _showSnack("✅ Attendance finalized!", success: true);
-      } else {
-        _showSnack(
-          "ℹ️ Start afternoon session to complete attendance",
-          success: true,
+      // ✅ FINALIZE ONLY VIA SERVICE
+      if (sessionType == 'afternoon') {
+        await attendanceService.finalizeDayAttendance(
+          classId: classId,
+          date: today,
+          context: context,
+          isAuto: false,
         );
       }
 
       await _loadSessionStatus();
+      _show("✅ $sessionType session stopped");
     } catch (e) {
-      _showSnack("❌ Error stopping session: ${e.toString()}");
+      _show("❌ $e");
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      setState(() => isLoading = false);
     }
   }
 
-  // ================= FINALIZE ATTENDANCE =================
-  Future<void> _finalizeAttendanceAsync(String classId, String today) async {
-    try {
-      print("📊 Finalizing attendance for $classId on $today");
-
-      final finalDocId = '${classId}_$today';
-      final finalRef = _db.collection('attendance_final').doc(finalDocId);
-
-      // 1️⃣ Get all students of the class
-      final studentsSnap = await _db
-          .collection('student')
-          .where('classId', isEqualTo: classId)
-          .get();
-
-      if (studentsSnap.docs.isEmpty) {
-        print("⚠️ No students found");
-        return;
-      }
-
-      // 2️⃣ Fetch attendance + overrides
-      final results = await Future.wait([
-        _db
-            .collection('attendance')
-            .doc('${classId}_${today}_morning')
-            .collection('student')
-            .get(),
-        _db
-            .collection('attendance')
-            .doc('${classId}_${today}_afternoon')
-            .collection('student')
-            .get(),
-        finalRef.collection('student').get(),
-      ]);
-
-      final morningSnap = results[0];
-      final afternoonSnap = results[1];
-      final existingFinal = results[2];
-
-      // 3️⃣ Build maps using admissionNo ONLY
-      final morningMap = {for (var d in morningSnap.docs) d.id: true};
-
-      final afternoonMap = {for (var d in afternoonSnap.docs) d.id: true};
-
-      final manualOverrides = {
-        for (var d in existingFinal.docs)
-          if ((d.data()['method'] ?? '') == 'manual_override')
-            d.data()['admissionNo']: d.data()['status'],
-      };
-
-      WriteBatch batch = _db.batch();
-
-      int present = 0;
-      int halfDay = 0;
-      int absent = 0;
-      int processed = 0;
-
-      // 4️⃣ Final attendance calculation
-      for (final stu in studentsSnap.docs) {
-        final admissionNo = stu.data()['admissionNo'];
-
-        if (admissionNo == null) continue;
-
-        // 🔒 Manual override always wins
-        if (manualOverrides.containsKey(admissionNo)) {
-          final status = manualOverrides[admissionNo];
-          if (status == 'present')
-            present++;
-          else if (status == 'half-day')
-            halfDay++;
-          else
-            absent++;
-          continue;
-        }
-
-        final morningPresent = morningMap.containsKey(admissionNo);
-        final afternoonPresent = afternoonMap.containsKey(admissionNo);
-
-        String status;
-        if (morningPresent && afternoonPresent) {
-          status = 'present';
-          present++;
-        } else if (morningPresent || afternoonPresent) {
-          status = 'half-day';
-          halfDay++;
-        } else {
-          status = 'absent';
-          absent++;
-        }
-
-        batch.set(finalRef.collection('student').doc(admissionNo), {
-          'studentId': stu.id,
-          'admissionNo': admissionNo,
-          'name': stu.data()['name'] ?? 'Unknown',
-          'status': status,
-          'morningPresent': morningPresent,
-          'afternoonPresent': afternoonPresent,
-          'method': 'auto_calc',
-          'computedAt': FieldValue.serverTimestamp(),
-        });
-
-        processed++;
-        if (processed % 400 == 0) {
-          await batch.commit();
-          batch = _db.batch();
-        }
-      }
-
-      if (processed % 400 != 0) await batch.commit();
-
-      // 5️⃣ Final summary document
-      await finalRef.set({
-        'classId': classId,
-        'date': today,
-        'totalStudents': studentsSnap.docs.length,
-        'presentCount': present,
-        'halfDayCount': halfDay,
-        'absentCount': absent,
-        'status': 'finalized',
-        'finalizedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      print("✅ Attendance finalized successfully");
-    } catch (e) {
-      print("❌ Finalization error: $e");
-    }
+  // ---------------- UI HELPERS ----------------
+  void _show(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // ================= BUILD UI =================
+  // ---------------- UI BUILD ----------------
   @override
   Widget build(BuildContext context) {
-    if (classId == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (classId.isEmpty) {
+      return Scaffold(
+        backgroundColor: bgLight,
+        body: Center(child: CircularProgressIndicator(color: primaryBlue)),
+      );
     }
 
     return Scaffold(
@@ -709,103 +275,211 @@ class _TeacherAttendanceSessionPageState
         elevation: 0,
         iconTheme: IconThemeData(color: primaryBlue),
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadSessionStatus,
-        color: primaryBlue,
-        backgroundColor: Colors.white,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(24),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            // --- Class Header ---
+            Container(
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.class_, color: Colors.purple),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      className.isNotEmpty ? className : "Loading Class...",
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // --- Session Cards ---
+            _buildSessionRadioCard(
+              title: "Morning",
+              value: "morning",
+              isActive: isMorningActive,
+              isCompleted: isMorningCompleted,
+              timeLeft: morningTime,
+              count: morningStudents,
+            ),
+            const SizedBox(height: 12),
+            _buildSessionRadioCard(
+              title: "Afternoon",
+              value: "afternoon",
+              isActive: isAfternoonActive,
+              isCompleted: isAfternoonCompleted,
+              timeLeft: afternoonTime,
+              count: afternoonStudents,
+            ),
+
+            const SizedBox(height: 24),
+
+            // ✅ ADDED: Live Attendance List (Only when active)
+            if ((sessionType == "morning" && isMorningActive) ||
+                (sessionType == "afternoon" && isAfternoonActive))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 24.0),
+                child: LiveFaceAttendanceMonitor(
+                  // Key ensures the widget refreshes when session changes
+                  key: ValueKey(sessionType),
+                  classId: classId,
+                  date: getToday(),
+                  sessionType: sessionType,
+                ),
+              ),
+
+            // --- Action Buttons ---
+            if (sessionType == "morning" &&
+                !isMorningActive &&
+                !isMorningCompleted)
+              _buildBtn("START MORNING", startSession, color: primaryBlue),
+
+            if (sessionType == "morning" && isMorningActive)
+              _buildBtn("STOP MORNING", stopSession, color: Colors.red),
+
+            if (sessionType == "afternoon" &&
+                !isAfternoonActive &&
+                !isAfternoonCompleted)
+              _buildBtn("START AFTERNOON", startSession, color: primaryBlue),
+
+            if (sessionType == "afternoon" && isAfternoonActive)
+              _buildBtn("STOP & FINALIZE", stopSession, color: Colors.red),
+
+            // --- Completed Message ---
+            if ((sessionType == "morning" && isMorningCompleted) ||
+                (sessionType == "afternoon" && isAfternoonCompleted))
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      "$sessionType session completed".toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- Widget Builders ---
+
+  Widget _buildSessionRadioCard({
+    required String title,
+    required String value,
+    required bool isActive,
+    required bool isCompleted,
+    required String timeLeft,
+    required String count,
+  }) {
+    bool isSelected = sessionType == value;
+
+    return GestureDetector(
+      onTap: () => setState(() => sessionType = value),
+      child: Container(
+        padding: const EdgeInsets.all(4), // For border width
+        decoration: BoxDecoration(
+          color: isSelected ? primaryBlue.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? primaryBlue : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
           child: Column(
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.class_, color: Colors.purple.shade700),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        className.isNotEmpty ? className : "Loading...",
-                        style: TextStyle(
-                          color: Colors.purple.shade700,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
+              Row(
+                children: [
+                  Icon(
+                    isSelected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    color: isSelected ? primaryBlue : Colors.grey,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
                     ),
+                  ),
+                  const Spacer(),
+                  _buildStatusBadge(isActive, isCompleted),
+                ],
+              ),
+              if (isActive || isCompleted) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Divider(height: 1),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildInfoItem(Icons.timer_outlined, "Time Left", timeLeft),
+                    _buildInfoItem(Icons.people_outline, "Marked", count),
                   ],
                 ),
-              ),
-              const SizedBox(height: 5),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.blue.shade700),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "Attendance finalizes when afternoon stops",
-                        style: TextStyle(
-                          color: Colors.blue.shade700,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              _card(
-                _sessionRadio(
-                  title: "Morning",
-                  value: "morning",
-                  isActive: isMorningActive,
-                  isCompleted: isMorningCompleted,
-                  timeLeft: morningTimeLeft,
-                  studentsMarked: morningStudentsMarked,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _card(
-                _sessionRadio(
-                  title: "Afternoon",
-                  value: "afternoon",
-                  isActive: isAfternoonActive,
-                  isCompleted: isAfternoonCompleted,
-                  timeLeft: afternoonTimeLeft,
-                  studentsMarked: afternoonStudentsMarked,
-                ),
-              ),
-              const SizedBox(height: 40),
-              _btn(
-                "START ATTENDANCE",
-                _startSession,
-                isDisabled:
-                    (sessionType == "morning" &&
-                        (isMorningActive || isMorningCompleted)) ||
-                    (sessionType == "afternoon" &&
-                        (isAfternoonActive || isAfternoonCompleted)),
-              ),
-              const SizedBox(height: 16),
-              _btn(
-                "STOP ATTENDANCE",
-                _stopSession,
-                danger: true,
-                isDisabled:
-                    (sessionType == "morning" && !isMorningActive) ||
-                    (sessionType == "afternoon" && !isAfternoonActive),
-              ),
+              ],
             ],
           ),
         ),
@@ -813,176 +487,423 @@ class _TeacherAttendanceSessionPageState
     );
   }
 
-  Widget _sessionRadio({
-    required String title,
-    required String value,
-    required bool isActive,
-    required String timeLeft,
-    required String studentsMarked,
-    bool isCompleted = false,
-  }) {
-    return RadioListTile<String>(
-      value: value,
-      groupValue: sessionType,
-      activeColor: primaryBlue,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(width: 8),
-              if (isActive) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    "🟢 ACTIVE",
-                    style: TextStyle(
-                      color: Colors.green,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ] else if (isCompleted)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    "✅ DONE",
-                    style: TextStyle(
-                      color: Colors.blue,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    "🔴 INACTIVE",
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          if (isActive) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  Icons.timer_outlined,
-                  size: 14,
-                  color: Colors.grey.shade600,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  "Time: $timeLeft",
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-                const SizedBox(width: 16),
-                Icon(
-                  Icons.person_outline,
-                  size: 14,
-                  color: Colors.grey.shade600,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  "Marked: $studentsMarked",
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-              ],
+  Widget _buildStatusBadge(bool isActive, bool isCompleted) {
+    String text = "IDLE";
+    Color color = Colors.grey;
+    if (isActive) {
+      text = "ACTIVE";
+      color = Colors.green;
+    } else if (isCompleted) {
+      text = "DONE";
+      color = primaryBlue;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.grey),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+            Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ],
-        ],
-      ),
-      onChanged: (v) => setState(() => sessionType = v!),
+        ),
+      ],
     );
   }
 
-  Widget _card(Widget child) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
-        ],
-      ),
-      child: child,
-    );
-  }
-
-  Widget _btn(
-    String text,
-    VoidCallback onTap, {
-    bool danger = false,
-    bool isDisabled = false,
-  }) {
+  Widget _buildBtn(String text, VoidCallback onTap, {required Color color}) {
     return SizedBox(
       width: double.infinity,
       height: 56,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          backgroundColor: isDisabled
-              ? Colors.grey.shade400
-              : (danger ? Colors.red : primaryBlue),
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          elevation: 4,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        onPressed: isLoading || isDisabled ? null : onTap,
+        onPressed: isLoading ? null : onTap,
         child: isLoading
-            ? const CircularProgressIndicator(color: Colors.white)
+            ? const SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
             : Text(
                 text,
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  fontSize: 16,
                 ),
               ),
       ),
     );
   }
+}
 
-  void _showSnack(String msg, {bool success = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: success ? Colors.green : Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
+// ---------------------------------------------------------------------------
+//  ✅ APPENDED: Live Face Attendance Monitor & Helper Classes
+// ---------------------------------------------------------------------------
+
+class LiveFaceAttendanceMonitor extends StatefulWidget {
+  final String classId;
+  final String date;
+  final String sessionType;
+
+  const LiveFaceAttendanceMonitor({
+    super.key,
+    required this.classId,
+    required this.date,
+    required this.sessionType,
+  });
+
+  @override
+  State<LiveFaceAttendanceMonitor> createState() =>
+      _LiveFaceAttendanceMonitorState();
+}
+
+class _LiveFaceAttendanceMonitorState extends State<LiveFaceAttendanceMonitor> {
+  late Stream<QuerySnapshot> _attendanceStream;
+  final Color primaryBlue = const Color(0xFF2196F3);
+
+  @override
+  void initState() {
+    super.initState();
+    // 1. Initialize stream ONCE.
+    final String sessionId =
+        "${widget.classId}_${widget.date}_${widget.sessionType}";
+
+    _attendanceStream = FirebaseFirestore.instance
+        .collection('attendance')
+        .doc(sessionId)
+        .collection('student')
+        .snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String sessionId =
+        "${widget.classId}_${widget.date}_${widget.sessionType}";
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: _attendanceStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              "Error: ${snapshot.error}",
+              style: const TextStyle(color: Colors.red),
+            ),
+          );
+        }
+
+        if (!snapshot.hasData) {
+          return const Center(
+            child: SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+
+        var docs = snapshot.data!.docs;
+
+        // 2. Local Sort (Newest first)
+        docs.sort((a, b) {
+          final dataA = a.data() as Map<String, dynamic>;
+          final dataB = b.data() as Map<String, dynamic>;
+          Timestamp? tA = dataA['timestamp'] as Timestamp?;
+          Timestamp? tB = dataB['timestamp'] as Timestamp?;
+          if (tA == null) return 1;
+          if (tB == null) return -1;
+          return tB.compareTo(tA);
+        });
+
+        int count = docs.length;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.withOpacity(0.08),
+                blurRadius: 15,
+                offset: const Offset(0, 5),
+              ),
+            ],
+            border: Border.all(color: Colors.blue.withOpacity(0.1)),
+          ),
+          child: ExpansionTile(
+            shape: const Border(),
+            initiallyExpanded: true,
+            tilePadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: primaryBlue.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                "$count",
+                style: TextStyle(
+                  color: primaryBlue,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            title: const Text(
+              "Live Face Scans",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            subtitle: Text(
+              "Real-time verification",
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            children: [
+              if (count == 0)
+                Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.face_retouching_off,
+                        size: 40,
+                        color: Colors.grey[300],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        "No students verified yet.",
+                        style: TextStyle(color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 300),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: docs.length,
+                    separatorBuilder: (ctx, i) => Divider(
+                      height: 1,
+                      color: Colors.grey.withOpacity(0.1),
+                      indent: 70,
+                    ),
+                    itemBuilder: (context, index) {
+                      var data = docs[index].data() as Map<String, dynamic>;
+                      return _StudentListTile(
+                        docId: docs[index].id,
+                        data: data,
+                        sessionId: sessionId,
+                        onRemove: _removeStudent,
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  String _capitalize(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toUpperCase() + s.substring(1);
+  void _removeStudent(
+    String sessionId,
+    String docId,
+    String name,
+    BuildContext context,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Unmark Student?"),
+        content: Text("Remove $name from this session?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await FirebaseFirestore.instance
+                  .collection('attendance')
+                  .doc(sessionId)
+                  .collection('student')
+                  .doc(docId)
+                  .delete();
+            },
+            child: const Text("Remove", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StudentListTile extends StatefulWidget {
+  final String docId;
+  final Map<String, dynamic> data;
+  final String sessionId;
+  final Function(String, String, String, BuildContext) onRemove;
+
+  const _StudentListTile({
+    required this.docId,
+    required this.data,
+    required this.sessionId,
+    required this.onRemove,
+  });
+
+  @override
+  State<_StudentListTile> createState() => _StudentListTileState();
+}
+
+class _StudentListTileState extends State<_StudentListTile> {
+  String _displayName = "Loading...";
+  bool _isLoadingName = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveName();
+  }
+
+  Future<void> _resolveName() async {
+    // 1. Check if name is already in the attendance doc
+    String? cachedName = widget.data['name'];
+    if (cachedName != null && cachedName != 'Unknown') {
+      if (mounted) {
+        setState(() {
+          _displayName = cachedName;
+          _isLoadingName = false;
+        });
+      }
+      return;
+    }
+
+    // 2. Fetch from student collection
+    String admissionNo = widget.data['admissionNo'] ?? widget.docId;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('student')
+          .where('admissionNo', isEqualTo: admissionNo)
+          .limit(1)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        final studentData = snap.docs.first.data();
+        if (mounted) {
+          setState(() {
+            _displayName = studentData['name'] ?? "Unknown ($admissionNo)";
+            _isLoadingName = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _displayName = "Unknown ($admissionNo)";
+            _isLoadingName = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _displayName = "Error ($admissionNo)";
+          _isLoadingName = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    String admissionNo = widget.data['admissionNo'] ?? widget.docId;
+
+    String timeStr = "--:--";
+    if (widget.data['timestamp'] != null &&
+        widget.data['timestamp'] is Timestamp) {
+      DateTime dt = (widget.data['timestamp'] as Timestamp).toDate();
+      timeStr =
+          "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    }
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: CircleAvatar(
+        backgroundColor: Colors.grey[100],
+        child: const Icon(Icons.person, color: Colors.blueGrey, size: 20),
+      ),
+      title: _isLoadingName
+          ? const SizedBox(
+              height: 14,
+              width: 100,
+              child: LinearProgressIndicator(minHeight: 2),
+            )
+          : Text(
+              _displayName,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+      subtitle: Text(
+        "$admissionNo • $timeStr",
+        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+        tooltip: "Unmark Student",
+        onPressed: () => widget.onRemove(
+          widget.sessionId,
+          widget.docId,
+          _displayName,
+          context,
+        ),
+      ),
+    );
   }
 }

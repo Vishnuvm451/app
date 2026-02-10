@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:darzo/student/daywise_attendance_report.dart';
 
 class MonthlyAttendanceSummaryPage extends StatefulWidget {
   const MonthlyAttendanceSummaryPage({super.key});
@@ -111,11 +112,17 @@ class _MonthlyAttendanceSummaryPageState
         if (doc.exists) {
           totalDaysCount++;
           final data = doc.data() as Map<String, dynamic>?;
-          final status = data?['status'] ?? 'absent';
 
+          // 1. Get status and convert to lowercase for safer comparison
+          final rawStatus = data?['status'] ?? 'absent';
+          final status = rawStatus.toString().toLowerCase();
+
+          // 2. Updated Logic to catch "Half Day", "half-day", etc.
           if (status == 'present') {
             presentCount++;
-          } else if (status == 'half-day' || status == 'halfday') {
+          }
+          // ✅ FIX: Check if it contains "half" to catch "Half Day", "Half-Day", etc.
+          else if (status.contains('half')) {
             halfDayCount++;
           } else {
             absentCount++;
@@ -294,49 +301,78 @@ class _MonthlyAttendanceSummaryPageState
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            const Text(
-              "Attendance Score",
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+      child: InkWell(
+        // ✅ 1. Added InkWell for tap interaction
+        borderRadius: BorderRadius.circular(20),
+        onTap: () {
+          // ✅ 2. Navigation to History Page
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const StudentAttendanceHistoryPage(),
             ),
-            const SizedBox(height: 20),
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 140,
-                  height: 140,
-                  child: CircularProgressIndicator(
-                    value: percentage / 100,
-                    strokeWidth: 12,
-                    backgroundColor: Colors.grey.shade100,
-                    color: color,
-                    strokeCap: StrokeCap.round,
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      "${percentage.toStringAsFixed(1)}%",
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    "Attendance Score",
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
-                  ],
-                ),
-              ],
-            ),
-          ],
+                  ),
+                  const SizedBox(width: 4),
+                  // Optional: Add a small icon to indicate it's clickable
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    size: 12,
+                    color: Colors.grey.shade400,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 140,
+                    height: 140,
+                    child: CircularProgressIndicator(
+                      value: percentage / 100,
+                      strokeWidth: 12,
+                      backgroundColor: Colors.grey.shade100,
+                      color: color,
+                      strokeCap: StrokeCap.round,
+                    ),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "${percentage.toStringAsFixed(1)}%",
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                      const Text(
+                        "Tap for details",
+                        style: TextStyle(fontSize: 10, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
