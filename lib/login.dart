@@ -4,7 +4,7 @@ import 'package:darzo/auth/auth_provider.dart';
 import 'package:darzo/parents/child_admisision_no.dart';
 import 'package:darzo/parents/child_face_scan.dart';
 import 'package:darzo/parents/parent_dashboard.dart';
-import 'package:darzo/register_role_check.dart';
+import 'package:darzo/auth/register_role_check.dart';
 import 'package:darzo/student/face_liveness_page.dart';
 import 'package:darzo/student/student_dashboard.dart';
 import 'package:darzo/teacher/teacher_dashboard.dart';
