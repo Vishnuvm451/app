@@ -1,8 +1,10 @@
 import 'package:darzo/attendance/attendance_daily.dart';
+import 'package:darzo/notification/notification_service.dart';
 import 'package:darzo/settings.dart';
-import 'package:darzo/teacher/edit_setup.dart';
+// import 'package:darzo/teacher/edit_setup.dart';
 import 'package:darzo/teacher/internal.dart';
 import 'package:darzo/attendance/start_attendance.dart';
+import 'package:darzo/teacher/attendance_report.dart';
 import 'package:darzo/teacher/teacher_student.dart';
 import 'package:darzo/time_table_selection.dart';
 import 'package:flutter/material.dart';
@@ -39,7 +41,15 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   @override
   void initState() {
     super.initState();
-    _loadTeacher();
+    // ✅ TRIGGER NOTIFICATION SERVICE
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      NotificationService().initialize(role: 'teacher', id: user.uid);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadTeacher();
+    });
   }
 
   // --------------------------------------------------
@@ -102,13 +112,24 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   Future<void> _logout() async {
+    // 1️⃣ Close keyboard safely
+    FocusScope.of(context).unfocus();
+
+    // 2️⃣ Small delay to let UI settle
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // 3️⃣ Sign out
     await FirebaseAuth.instance.signOut();
+
     if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (_) => false,
-    );
+
+    // 4️⃣ Navigate AFTER frame completes (CRITICAL)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (route) => false,
+      );
+    });
   }
 
   // --------------------------------------------------
@@ -316,7 +337,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ),
         _actionCard(
           icon: Icons.group_rounded,
-          label: "My\nStudents",
+          label: "Students\n/Parents",
           color: const Color(0xFF4CAF50),
           onTap: () => Navigator.push(
             context,
@@ -325,11 +346,13 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ),
         _actionCard(
           icon: Icons.settings_suggest_rounded,
-          label: "Edit\nSetup",
+          label: "Attendance\n Report",
           color: const Color(0xFF009688),
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const EditSetupPage()),
+            MaterialPageRoute(
+              builder: (_) => const TeacherAttendanceReportPage(),
+            ),
           ),
         ),
         _actionCard(

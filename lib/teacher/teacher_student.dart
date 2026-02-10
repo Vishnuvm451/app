@@ -12,7 +12,11 @@ class TeacherStudentsListPage extends StatefulWidget {
 
 class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  // Theme Colors
   final Color primaryBlue = const Color(0xFF2196F3);
+  final Color bgLight = const Color(0xFFF5F7FA);
+  final Color textDark = const Color(0xFF263238);
+  final Color textGrey = const Color(0xFF78909C);
 
   String? departmentId;
   String? selectedClassId;
@@ -25,7 +29,7 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
   }
 
   // --------------------------------------------------
-  // 1. LOAD TEACHER PROFILE
+  // LOAD TEACHER PROFILE
   // --------------------------------------------------
   Future<void> _loadTeacherProfile() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -36,17 +40,13 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
       if (!snap.exists) return;
 
       final data = snap.data()!;
-
-      if (mounted) {
-        setState(() {
-          departmentId = data['departmentId'];
-          // We load it, but we validate it in the StreamBuilder later
-          selectedClassId = data['classId'];
-          isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => isLoading = false);
+      setState(() {
+        departmentId = data['departmentId'];
+        selectedClassId = data['classId'];
+        isLoading = false;
+      });
+    } catch (_) {
+      setState(() => isLoading = false);
     }
   }
 
@@ -56,25 +56,25 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: bgLight,
       appBar: AppBar(
-        title: const Text(
-          "Students List",
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        title: Text(
+          "Students & Parents",
+          style: TextStyle(color: textDark, fontWeight: FontWeight.bold),
         ),
-        centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
+        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87),
+          icon: Icon(Icons.arrow_back_ios_new, color: textDark),
           onPressed: () => Navigator.pop(context),
         ),
       ),
       body: isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(child: CircularProgressIndicator(color: primaryBlue))
           : Column(
               children: [
-                _classDropdown(), // ✅ Fixed Dropdown
+                _classDropdown(),
                 Expanded(child: _studentsList()),
               ],
             ),
@@ -82,14 +82,14 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
   }
 
   // --------------------------------------------------
-  // CLASS DROPDOWN (FIXED)
+  // CLASS DROPDOWN
   // --------------------------------------------------
   Widget _classDropdown() {
     if (departmentId == null) return const SizedBox();
 
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -115,44 +115,27 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
           }
 
           final classes = snapshot.data!.docs;
-
-          // Client-side Sort
-          classes.sort((a, b) {
-            final yearA = (a.data() as Map)['year'] ?? 0;
-            final yearB = (b.data() as Map)['year'] ?? 0;
-            return yearA.compareTo(yearB);
-          });
-
-          // 🔴 CRITICAL FIX: Ensure selectedClassId actually exists in the list
-          // If it's not in the list, set value to null to prevent crash
-          final isValidSelection = classes.any(
-            (doc) => doc.id == selectedClassId,
-          );
-          final dropdownValue = isValidSelection ? selectedClassId : null;
+          final valid = classes.any((doc) => doc.id == selectedClassId);
 
           return DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: dropdownValue, // ✅ Use safe value
+              value: valid ? selectedClassId : null,
               hint: const Text("Select Class"),
               isExpanded: true,
-              icon: Icon(Icons.arrow_drop_down_circle, color: primaryBlue),
+              icon: Icon(Icons.keyboard_arrow_down, color: primaryBlue),
               items: classes.map((doc) {
-                return DropdownMenuItem<String>(
+                return DropdownMenuItem(
                   value: doc.id,
                   child: Text(
                     doc['name'],
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: textDark,
                     ),
                   ),
                 );
               }).toList(),
-              onChanged: (val) {
-                setState(() {
-                  selectedClassId = val;
-                });
-              },
+              onChanged: (val) => setState(() => selectedClassId = val),
             ),
           );
         },
@@ -161,14 +144,18 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
   }
 
   // --------------------------------------------------
-  // STUDENTS LIST
+  // STUDENT LIST
   // --------------------------------------------------
   Widget _studentsList() {
     if (selectedClassId == null) {
       return Center(
-        child: Text(
-          "Please select a class",
-          style: TextStyle(color: Colors.grey.shade500),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.class_outlined, size: 60, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            Text("Please select a class", style: TextStyle(color: textGrey)),
+          ],
         ),
       );
     }
@@ -179,124 +166,287 @@ class _TeacherStudentsListPageState extends State<TeacherStudentsListPage> {
           .where('classId', isEqualTo: selectedClassId)
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.group_off_rounded,
-                  size: 60,
-                  color: Colors.grey.shade300,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  "No students found in this class",
-                  style: TextStyle(color: Colors.grey.shade500),
-                ),
-              ],
-            ),
-          );
+        if (!snapshot.hasData) {
+          return Center(child: CircularProgressIndicator(color: primaryBlue));
         }
 
         final students = snapshot.data!.docs;
+        if (students.isEmpty) {
+          return Center(
+            child: Text("No students found", style: TextStyle(color: textGrey)),
+          );
+        }
 
         return ListView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           itemCount: students.length,
           itemBuilder: (context, index) {
-            final data = students[index].data() as Map<String, dynamic>;
-            final name = data['name'] ?? 'Unknown';
-            final admissionNo = data['admissionNo'] ?? 'No ID';
-            final email = data['email'] ?? '';
-            final bool faceRegistered = data['face_enabled'] == true;
+            final doc = students[index];
+            final data = doc.data() as Map<String, dynamic>;
 
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              elevation: 2,
-              shadowColor: Colors.black.withOpacity(0.05),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    // Avatar
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundColor: primaryBlue.withOpacity(0.1),
-                      child: Text(
-                        name.isNotEmpty ? name[0].toUpperCase() : '?',
-                        style: TextStyle(
-                          color: primaryBlue,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 20,
-                        ),
+            final name = data['name'] ?? 'Unknown';
+            final admissionNo = data['admissionNo'] ?? doc.id;
+            final email = data['email'] ?? 'No Email';
+
+            return FutureBuilder<QuerySnapshot>(
+              future: _db
+                  .collection('parents')
+                  .where('linked_student_id', isEqualTo: admissionNo)
+                  .limit(1)
+                  .get(),
+              builder: (context, parentSnap) {
+                final bool parentLinked =
+                    parentSnap.hasData && parentSnap.data!.docs.isNotEmpty;
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
-                    ),
-                    const SizedBox(width: 16),
-                    // Info
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "ID: $admissionNo",
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          if (email.isNotEmpty)
-                            Text(
-                              email,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade400,
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(16),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => _showParentPopup(context, admissionNo),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Initial Avatar
+                            CircleAvatar(
+                              radius: 30,
+                              backgroundColor: primaryBlue.withOpacity(0.1),
+                              child: Text(
+                                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                style: TextStyle(
+                                  color: primaryBlue,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 25,
+                                ),
                               ),
                             ),
-                        ],
+                            const SizedBox(width: 14),
+                            // Details Column
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Name
+                                  Text(
+                                    name,
+                                    style: TextStyle(
+                                      color: textDark,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  // ID
+                                  _infoRow(
+                                    Icons.badge_outlined,
+                                    "ID: $admissionNo",
+                                  ),
+                                  const SizedBox(height: 4),
+                                  // Email
+                                  _infoRow(Icons.email_outlined, email),
+                                  const SizedBox(height: 6),
+                                  // Parent Status
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        parentLinked
+                                            ? Icons.link
+                                            : Icons.link_off,
+                                        size: 14,
+                                        color: parentLinked
+                                            ? Colors.green
+                                            : Colors.red,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        parentLinked
+                                            ? "Parent Linked"
+                                            : "No Parent Linked",
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: parentLinked
+                                              ? Colors.green
+                                              : Colors.red,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Arrow
+                            Icon(
+                              Icons.info_outline_rounded,
+                              color: Colors.grey.shade400,
+                              size: 23,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    // Status Badge (Face Registered)
-                    if (faceRegistered)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.face,
-                          size: 20,
-                          color: Colors.green,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             );
           },
         );
       },
+    );
+  }
+
+  Widget _infoRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: textGrey),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(fontSize: 14, color: textGrey),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --------------------------------------------------
+  // PARENT POPUP
+  // --------------------------------------------------
+  Future<void> _showParentPopup(
+    BuildContext context,
+    String admissionNo,
+  ) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final snap = await _db
+          .collection('parents')
+          .where('linked_student_id', isEqualTo: admissionNo)
+          .limit(1)
+          .get();
+
+      if (context.mounted) Navigator.pop(context); // Close loading
+
+      if (!context.mounted) return;
+
+      if (snap.docs.isEmpty) {
+        _showInfoDialog(
+          context,
+          "Parent Not Found",
+          "No parent account is currently linked to this student.",
+        );
+        return;
+      }
+
+      final data = snap.docs.first.data();
+
+      showDialog(
+        context: context,
+        builder: (_) {
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: primaryBlue.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.family_restroom, color: primaryBlue),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  "Parent Details",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _popupRow("Name", data['name'] ?? 'N/A'),
+                const Divider(height: 24),
+                _popupRow("Email", data['email'] ?? 'N/A'),
+                const Divider(height: 24),
+                _popupRow("Phone", data['mobile'] ?? 'N/A'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  "Close",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (context.mounted) Navigator.pop(context);
+      _showInfoDialog(context, "Error", "Could not fetch details.");
+    }
+  }
+
+  Widget _popupRow(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 12, color: textGrey)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            color: textDark,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showInfoDialog(BuildContext context, String title, String msg) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
     );
   }
 }
