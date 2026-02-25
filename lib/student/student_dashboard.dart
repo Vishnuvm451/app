@@ -16,6 +16,10 @@ import 'package:darzo/auth/auth_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
+// ✅ Added Location Imports
+import 'package:darzo/auth/location_config.dart';
+import 'package:geolocator/geolocator.dart';
+
 class StudentDashboardPage extends StatefulWidget {
   const StudentDashboardPage({super.key});
 
@@ -25,6 +29,9 @@ class StudentDashboardPage extends StatefulWidget {
 
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   bool isLoading = true;
+
+  // ✅ Location Checking Hook
+  bool _isCheckingLocation = false;
 
   // Data Variables
   String studentName = "Loading...";
@@ -41,7 +48,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   String _remainingTime = "";
   bool _sessionExpired = false;
 
-  // ✅ FIX: Cache today's date to avoid recalculating
   late String _todayCache;
   bool _debugPrinted = false;
 
@@ -58,6 +64,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     _countdownTimer?.cancel();
     super.dispose();
   }
+
+  // ================= DATA FETCHING =================
 
   void _listenToUnreadNotifications() {
     final user = FirebaseAuth.instance.currentUser;
@@ -86,6 +94,96 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 });
           }
         });
+  }
+
+  Future<void> _initDashboardData() async {
+    if (!mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _logout();
+      return;
+    }
+
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('student')
+          .where('authUid', isEqualTo: user.uid)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        final data = doc.data();
+
+        if (mounted) {
+          setState(() {
+            studentName = data['name'] ?? "Student";
+            admissionNo = data['admissionNo'] ?? doc.id;
+            classId = (data['classId'] ?? "").trim();
+            departmentId = data['departmentId'] ?? "";
+            currentSemester = data['semester'] ?? "Semester 6";
+            studentDocId = doc.id;
+            isLoading = false;
+            debugMsg = "Success";
+          });
+
+          await NotificationService().initialize(
+            role: 'student',
+            id: admissionNo,
+          );
+
+          if (!_debugPrinted) {
+            _debugPrinted = true;
+            debugPrint("✅ DASHBOARD LOADED SUCCESSFULLY");
+            debugPrint("   studentName: $studentName");
+            debugPrint("   admissionNo: $admissionNo");
+            debugPrint("   classId: $classId");
+          }
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+            debugMsg = "No Profile Found";
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          debugMsg = "Error: $e";
+        });
+      }
+    }
+  }
+
+  // ================= ATTENDANCE LOGIC =================
+
+  String _getTodayId() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  bool _isSessionValid(Map<String, dynamic> sessionData) {
+    try {
+      final dynamic expiresAtRaw = sessionData['expiresAt'];
+      if (expiresAtRaw == null) return true;
+      if (expiresAtRaw is! Timestamp) return true;
+
+      final Timestamp expiresAt = expiresAtRaw;
+      final now = DateTime.now();
+      final expireTime = expiresAt.toDate();
+      final isValid = expireTime.isAfter(now);
+
+      if (isValid) {
+        _startCountdownTimer(expireTime);
+      }
+      return isValid;
+    } catch (e) {
+      return true;
+    }
   }
 
   void _startCountdownTimer(DateTime expiresAt) {
@@ -128,70 +226,243 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     });
   }
 
-  Future<void> _initDashboardData() async {
-    if (!mounted) return;
+  // ---------------------------------------------------------
+  // 🚨 REPORT ISSUE MODULE
+  // ---------------------------------------------------------
+  Future<void> _reportIssue() async {
+    if (classId.isEmpty || studentDocId.isEmpty) return;
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      _logout();
-      return;
-    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Report Issue?"),
+        content: const Text(
+          "Can't scan your face? Click 'Report' to notify your teacher. "
+          "They will verify your attendance manually.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text("Report"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
 
     try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('student')
-          .where('authUid', isEqualTo: user.uid)
+      final today = _getTodayId();
+      final sessionSnap = await FirebaseFirestore.instance
+          .collection('attendance_session')
+          .where('classId', isEqualTo: classId)
+          .where('isActive', isEqualTo: true)
+          .where('date', isEqualTo: today)
           .limit(1)
           .get();
 
-      if (querySnapshot.docs.isNotEmpty) {
-        final doc = querySnapshot.docs.first;
-        final data = doc.data();
+      if (sessionSnap.docs.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No active attendance session found.")),
+        );
+        return;
+      }
 
+      final sessionId = sessionSnap.docs.first.id;
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user == null) return;
+
+      await FirebaseFirestore.instance.collection('attendance_issues').add({
+        'studentId': user.uid,
+        'studentName': studentName,
+        'admissionNo': admissionNo,
+        'classId': classId,
+        'sessionId': sessionId,
+        'timestamp': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: Colors.green, size: 50),
+          title: const Text("Sent!"),
+          content: const Text(
+            "Informed to teacher. Please wait for manual verification.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ================= 📍 LOCATION LOGIC =================
+  Future<void> _verifyLocationAndMarkAttendance() async {
+    // Prevent double clicking
+    if (_isCheckingLocation) return;
+
+    setState(() => _isCheckingLocation = true);
+
+    try {
+      // Permission Check
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw "Location permissions are denied.";
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw "Location permissions are permanently denied. Enable them in settings.";
+      }
+
+      // Get Position
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // Calculate Distance
+      double distanceInMeters = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        LocationConfig.collegeLat,
+        LocationConfig.collegeLng,
+      );
+
+      debugPrint("📏 Dist: ${distanceInMeters.toStringAsFixed(0)}m");
+
+      // Validate Radius
+      if (distanceInMeters <= LocationConfig.allowedRadiusMeters) {
         if (mounted) {
-          setState(() {
-            studentName = data['name'] ?? "Student";
-            admissionNo = data['admissionNo'] ?? doc.id;
-            classId = (data['classId'] ?? "").trim();
-            departmentId = data['departmentId'] ?? "";
-            currentSemester = data['semester'] ?? "Semester 6";
-            studentDocId = doc.id;
-            isLoading = false;
-            debugMsg = "Success";
-          });
-
-          // Initialize Notifications
-          await NotificationService().initialize(
-            role: 'student',
-            id: admissionNo,
-          );
-
-          // Print debug info once
-          if (!_debugPrinted) {
-            _debugPrinted = true;
-            debugPrint("✅ DASHBOARD LOADED SUCCESSFULLY");
-            debugPrint("   studentName: $studentName");
-            debugPrint("   admissionNo: $admissionNo");
-            debugPrint("   classId: $classId");
-            debugPrint("   todayId: $_todayCache");
-          }
+          setState(() => _isCheckingLocation = false);
+          _proceedToMarkAttendance();
         }
       } else {
-        if (mounted) {
-          setState(() {
-            isLoading = false;
-            debugMsg = "No Profile Found";
-          });
-        }
+        throw "You are ${distanceInMeters.toInt()}m away from campus.\nMust be within ${LocationConfig.allowedRadiusMeters.toInt()}m.";
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          isLoading = false;
-          debugMsg = "Error: $e";
-        });
+        setState(() => _isCheckingLocation = false);
+        _showNeatLocationDialog(
+          isError: true,
+          title: "Location Error",
+          message: e.toString().replaceAll("Exception: ", ""),
+        );
       }
     }
+  }
+
+  void _proceedToMarkAttendance() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MarkAttendancePage()),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("✅ Location Verified! Starting Face Scan..."),
+      ),
+    );
+  }
+
+  void _showNeatLocationDialog({
+    required bool isError,
+    required String title,
+    required String message,
+  }) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        elevation: 10,
+        backgroundColor: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isError ? Colors.red.shade50 : Colors.blue.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isError ? Icons.location_off : Icons.check_circle,
+                  size: 40,
+                  color: isError ? Colors.red : const Color(0xFF2196F3),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2196F3),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    "Okay",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ================= UI WIDGETS =================
+
+  Future<void> _refreshDashboard() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (mounted) setState(() {});
   }
 
   Future<void> _logout() async {
@@ -210,7 +481,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       ).showSnackBar(const SnackBar(content: Text("Class not assigned yet.")));
       return;
     }
-
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -220,97 +490,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         ),
       ),
     );
-  }
-
-  // ✅ FIX: Simple date getter without logging
-  String _getTodayId() {
-    final now = DateTime.now();
-    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-  }
-
-  bool _isSessionValid(Map<String, dynamic> sessionData) {
-    try {
-      final dynamic expiresAtRaw = sessionData['expiresAt'];
-      if (expiresAtRaw == null) return true;
-      if (expiresAtRaw is! Timestamp) return true;
-
-      final Timestamp expiresAt = expiresAtRaw;
-      final now = DateTime.now();
-      final expireTime = expiresAt.toDate();
-      final isValid = expireTime.isAfter(now);
-
-      if (isValid) {
-        _startCountdownTimer(expireTime);
-      }
-      return isValid;
-    } catch (e) {
-      return true;
-    }
-  }
-
-  // ================= BUILD UI =================
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF2196F3),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF2196F3),
-        elevation: 0,
-        title: const Text(
-          "Student Dashboard",
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 13.0),
-            child: IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(1),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.logout, size: 35, color: Colors.white),
-              ),
-              onPressed: _logout,
-            ),
-          ),
-        ],
-      ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.white))
-          : SafeArea(
-              child: RefreshIndicator(
-                onRefresh: _refreshDashboard,
-                color: const Color(0xFF2196F3),
-                backgroundColor: Colors.white,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
-                  child: Column(
-                    children: [
-                      _header(),
-                      const SizedBox(height: 24),
-                      _attendanceCard(),
-                      const SizedBox(height: 24),
-                      _quickActions(),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-    );
-  }
-
-  Future<void> _refreshDashboard() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) setState(() {});
   }
 
   Widget _header() {
@@ -360,7 +539,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ================= ATTENDANCE CARD =================
+  // ---------------- ATTENDANCE CARD ----------------
   Widget _attendanceCard() {
     if (classId.isEmpty || studentDocId.isEmpty) {
       return _buildCardUI(
@@ -375,7 +554,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       );
     }
 
-    // ✅ FIX: Use cached today value
     final today = _todayCache;
 
     return StreamBuilder<QuerySnapshot>(
@@ -389,7 +567,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         if (sessionSnap.hasError) {
           return _buildCardUI(
             text: "Error Loading Session",
-            subtitle: "Check your connection",
+            subtitle: "Check connection",
             color: Colors.red,
             canMark: false,
             buttonText: "Error",
@@ -414,7 +592,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           _countdownTimer?.cancel();
           _remainingTime = "";
           _sessionExpired = false;
-
           return _buildCardUI(
             text: "No Active Session",
             subtitle: "Waiting for teacher...",
@@ -440,7 +617,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               }
             });
           }
-
           return _buildCardUI(
             text: "Session Expired",
             subtitle: "Teacher needs to start a new session",
@@ -470,7 +646,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               final attendanceData =
                   attendanceSnap.data!.data() as Map<String, dynamic>;
               final markedAt = attendanceData['markedAt'] as Timestamp?;
-
               _countdownTimer?.cancel();
 
               return _buildCardUI(
@@ -486,14 +661,48 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               );
             }
 
+            // ✅ ACTIVE SESSION: Show Location Loading Hook
             return _buildCardUI(
               text: "Mark Attendance",
               subtitle: "${_capitalize(sessionType)} Session Active",
               color: const Color(0xFF2196F3),
               canMark: true,
-              buttonText: "Mark Now",
+              buttonText: _isCheckingLocation
+                  ? "Checking Location..."
+                  : "Mark Now",
               remainingTime: _remainingTime,
               isMarked: false,
+              isLoading:
+                  _isCheckingLocation, // Pass state to disable button & show spinner
+              onRetry:
+                  _verifyLocationAndMarkAttendance, // Overrides the generic push
+              extraAction: TextButton.icon(
+                onPressed: _reportIssue,
+                icon: const Icon(
+                  Icons.report_problem_outlined,
+                  color: Colors.orange,
+                  size: 18,
+                ),
+                label: const Text(
+                  "Facing Issue?",
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  backgroundColor: Colors.orange.shade50,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: Colors.orange.shade200),
+                  ),
+                ),
+              ),
             );
           },
         );
@@ -506,6 +715,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     return s[0].toUpperCase() + s.substring(1);
   }
 
+  // ✅ ADDED `isLoading` TO PARAMETERS
   Widget _buildCardUI({
     required String text,
     String subtitle = "",
@@ -515,6 +725,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     required String remainingTime,
     required bool isMarked,
     VoidCallback? onRetry,
+    Widget? extraAction,
+    bool isLoading = false,
   }) {
     return Container(
       width: double.infinity,
@@ -589,18 +801,20 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
-              onPressed:
-                  onRetry ??
-                  (canMark
-                      ? () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const MarkAttendancePage(),
-                            ),
-                          );
-                        }
-                      : null),
+              // ✅ Disable button entirely when loading
+              onPressed: isLoading
+                  ? null
+                  : (onRetry ??
+                        (canMark
+                            ? () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const MarkAttendancePage(),
+                                  ),
+                                );
+                              }
+                            : null)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: canMark
                     ? const Color(0xFF2196F3)
@@ -610,16 +824,31 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
-                disabledBackgroundColor: Colors.grey.shade100,
+                disabledBackgroundColor: canMark
+                    ? const Color(0xFF2196F3).withOpacity(
+                        0.7,
+                      ) // Keep blueish tint while loading
+                    : Colors.grey.shade100,
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    isMarked
-                        ? Icons.check_circle
-                        : Icons.face_retouching_natural,
-                  ),
+                  // ✅ Handle Icon vs Spinner depending on isLoading state
+                  if (isLoading)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  else
+                    Icon(
+                      isMarked
+                          ? Icons.check_circle
+                          : Icons.face_retouching_natural,
+                    ),
                   const SizedBox(width: 10),
                   Text(
                     buttonText,
@@ -632,12 +861,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               ),
             ),
           ),
+          if (extraAction != null) ...[const SizedBox(height: 16), extraAction],
         ],
       ),
     );
   }
 
-  // ================= QUICK ACTIONS =================
   Widget _quickActions() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -758,19 +987,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   ),
                 ),
               ),
-              _actionCard(
-                icon: Icons.chat_bubble_rounded,
-                label: "Chat",
-                color: Colors.pink,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Chat feature coming soon! 🚀'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
-              ),
             ],
           ),
         ],
@@ -778,7 +994,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     );
   }
 
-  // ================= ACTION CARD =================
   Widget _actionCard({
     required IconData icon,
     required String label,
@@ -864,6 +1079,65 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           ),
         ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF2196F3),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF2196F3),
+        elevation: 0,
+        title: const Text(
+          "Student Dashboard",
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 13.0),
+            child: IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(1),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.logout, size: 35, color: Colors.white),
+              ),
+              onPressed: _logout,
+            ),
+          ),
+        ],
+      ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.white))
+          : SafeArea(
+              child: RefreshIndicator(
+                onRefresh: _refreshDashboard,
+                color: const Color(0xFF2196F3),
+                backgroundColor: Colors.white,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
+                  child: Column(
+                    children: [
+                      _header(),
+                      const SizedBox(height: 24),
+                      _attendanceCard(),
+                      const SizedBox(height: 24),
+                      _quickActions(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }
